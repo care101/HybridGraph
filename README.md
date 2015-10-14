@@ -96,6 +96,11 @@ About arguments:
 [11] the source vertex id  
 
 ##3. Testing Report
+[livej](http://snap.stanford.edu/data/soc-LiveJournal1.html)  
+[wiki](http://haselgrove.id.au/wikipedia.htm)  
+[orkut](http://socialnetworks.mpi-sws.org/data-imc2007.html)  
+
+
 Blocking time `push vs. b-pull`  
 <img src="figures/app_2_a_blktime_wiki.jpg" alt="blocking time of wiki" title="blocking time of wiki" width="300" />
 <img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />  
