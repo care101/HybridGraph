@@ -96,9 +96,19 @@ About arguments:
 [11] the source vertex id  
 
 ##3. Testing Report
-[livej](http://snap.stanford.edu/data/soc-LiveJournal1.html)  
-[wiki](http://haselgrove.id.au/wikipedia.htm)  
-[orkut](http://socialnetworks.mpi-sws.org/data-imc2007.html)  
+We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
+and the modified pull-based sytem [GraphLab PowerGraph](https://github.com/HybridGraph/GraphLab-PowerGraph.git).
+
+In the following, we assume that:  
+* `push`: the original push approach used in Giraph  
+* `pushM`: an advanced push method used in MOCgraph by online processing messages  
+* `pull`: the well-known pull approach used in GraphLab PowerGraph  
+* `b-pull`: the block-centric pull approach used in HybridGraph  
+* `hybrid`: the hybrid mechanism combining push and b-pull in HybridGraph  
+
+We run four algorithms ([PageRank](http://dl.acm.org/citation.cfm?id=1807184), [SSSP](http://dl.acm.org/citation.cfm?id=1807184), [LPA](http://arxiv.org/pdf/0709.2938.pdf), and [SA](http://dl.acm.org/citation.cfm?id=2465369)) over three real graphs ([livej](http://snap.stanford.edu/data/soc-LiveJournal1.html), 
+[wiki](http://haselgrove.id.au/wikipedia.htm),
+[orkut](http://socialnetworks.mpi-sws.org/data-imc2007.html)).
 
 
 Blocking time `push vs. b-pull`  
