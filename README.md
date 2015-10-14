@@ -61,8 +61,16 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 * __stopping HybridGraph:__  
 `$TERMITE_HOME/sbin/stop-termite.sh`  
 
-###2.4 Running a job
-* __PageRank (using b-pull):__
+###2.4 Running a Single Source Shortest Path (SSSP) job
+* __SSSP (using b-pull):__  
 `$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
-* __PageRank (using hybrid):__  
+About arguments:  
+[1] input directory on HDFS  
+[2] output directory on HDFS  
+[3] the number of child processes (tasks)  
+[4] the maximum number of supersteps  
+[5] the total number of vertices  
+[6] the number of VBlocks per task  
+[7] the sending threshold  
+* __SSSP (using hybrid):__  
 `$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid livej output 5 50 4847571 13 10000 10000 500000 2 2`  
