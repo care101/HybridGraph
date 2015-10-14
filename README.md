@@ -23,7 +23,7 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
   `<property>`  
   `<name>bsp.master.address</name>`  
   `<value>master:40000</value>`  
-  `<description>The hostname of the master server and the port master should bind to.</description>`
+  `<description>The hostname of the master server and the port master should bind to.</description>`  
   `</property>`  
 	`<property>`  
 	`<name>fs.default.name</name>`  
@@ -92,7 +92,7 @@ About arguments:
 [7] the sending threshold used by b-pull  
 [8] the sending threshold used by push  
 [9] the receiving buffer size per task used by push  
-[10] starting style: 1--push, 2--b-pull
+[10] starting style: 1--push, 2--b-pull  
 [11] the source vertex id  
 
 
