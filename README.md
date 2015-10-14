@@ -72,5 +72,19 @@ About arguments:
 [5] the total number of vertices  
 [6] the number of VBlocks per task  
 [7] the sending threshold  
+[8] the source vertex id  
 * __SSSP (using hybrid):__  
-`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid livej output 5 50 4847571 13 10000 10000 500000 2 2`  
+`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+About arguments:  
+[1] input directory on HDFS  
+[2] output directory on HDFS  
+[3] the number of child processes (tasks)  
+[4] the maximum number of supersteps  
+[5] the total number of vertices  
+[6] the number of VBlocks per task  
+[7] the sending threshold used by b-pull  
+[8] the sending threshold used by push  
+[9] the receiving buffer size per task used by push  
+[10] starting style: 1--push, 2--b-pull
+[11] the source vertex id  
+
