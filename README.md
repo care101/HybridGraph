@@ -61,7 +61,14 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 * __stopping HybridGraph:__  
 `$TERMITE_HOME/sbin/stop-termite.sh`  
 
-###2.4 Running a Single Source Shortest Path (SSSP) job
+###2.4 Running a Single Source Shortest Path (SSSP) job  
+First, create an example graph under input/file.txt on HDFS with the follwing:  
+`source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
+`1	2:3:4`  
+`2	1:4`  
+`3	2:1`  
+`4	2`  
+Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
 `$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
 About arguments:  
