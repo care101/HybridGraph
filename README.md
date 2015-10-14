@@ -97,4 +97,4 @@ About arguments:
 
 ##3. Testing Report
 
-![test](figures/app_2_a_blktime_wiki.jpg)
+![test](figures/app_2_a_blktime_wiki.jpg)  ![test](figures/app_2_a_blktime_wiki.jpg)
