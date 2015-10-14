@@ -96,5 +96,4 @@ About arguments:
 [11] the source vertex id  
 
 ##3. Testing Report
-
-![test](figures/app_2_a_blktime_wiki.jpg)  ![test](figures/app_2_a_blktime_wiki.jpg)
+<img src="figures/app_2_a_blktime_wiki.jpg" alt="替代文本" title="标题文本" width="400" />
