@@ -96,5 +96,26 @@ About arguments:
 [11] the source vertex id  
 
 ##3. Testing Report
-<img src="figures/app_2_a_blktime_wiki.jpg" alt="替代文本" title="标题文本" width="300" />
-<img src="figures/app_2_a_blktime_wiki.jpg" alt="替代文本" title="标题文本" width="300" />
+Blocking time `push vs. b-pull`  
+<img src="figures/app_2_a_blktime_wiki.jpg" alt="blocking time of wiki" title="blocking time of wiki" width="300" />
+<img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />  
+
+Network traffic `push vs. b-pull`  
+<img src="figures/app_3_a_nettraf_wiki.jpg" alt="network traffic of wiki" title="network traffic of wiki" width="300" />
+<img src="figures/app_3_b_nettraf_orkut.jpg" alt="network traffic of orkut" title="network traffic of orkut" width="300" />  
+
+Testing runtime over wiki by varying the memroy resource (PageRank and SSSP)  
+<img src="figures/app_4_a_runtime_pr.jpg" alt="runtime of PageRank" title="runtime of PageRank" width="300" />
+<img src="figures/app_4_b_runtime_sssp.jpg" alt="runtime of SSSP" title="runtime of SSSP" width="300" />  
+
+Testing runtime over wiki by varying the memroy resource (LPA and SA)  
+<img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" />
+<img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
+
+Scalability of computations for `push` and `hybrid` (LPA)  
+<img src="figures/app_6_a_sca_run_lpa_push.jpg" alt="scalability of push LPA" title="scalability of push LPA" width="300" />
+<img src="figures/app_6_b_sca_run_lpa_pull.jpg" alt="scalability of hybrid LPA" title="scalability of hybrid LPA" width="300" />  
+
+Scalability of computations for `push` and `hybrid` (SA)  
+<img src="figures/app_7_a_sca_run_sa_push.jpg" alt="scalability of push SA" title="scalability of push SA" width="300" />
+<img src="figures/app_7_b_sca_run_sa_hybrid.jpg" alt="scalability of hybrid SA" title="scalability of hybrid SA" width="300" />  
