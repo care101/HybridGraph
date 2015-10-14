@@ -60,3 +60,9 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 `$TERMITE_HOME/sbin/start-termite.sh`  
 * __stopping HybridGraph:__  
 `$TERMITE_HOME/sbin/stop-termite.sh`  
+
+###2.4 Running a job
+* __PageRank (using b-pull):__
+`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+* __PageRank (using hybrid):__  
+`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid livej output 5 50 4847571 13 10000 10000 500000 2 2`  
