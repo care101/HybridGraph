@@ -19,7 +19,7 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 ###2.2 Configurations
 * __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
-* __$HybridGraph_HOME/conf/termite-site.xml.sh:__ setting up the configurations of HybridGraph engine.  
+* __$HybridGraph_HOME/conf/termite-site.xml:__ setting up the configurations of HybridGraph engine.  
   `<property>`  
   `<name>bsp.master.address</name>`  
   `<value>master:40000</value>`  
@@ -45,5 +45,18 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 	`<value>/tmp/termite_tmp_data</value>`  
   ``<description>Temporary directory on the local filesystem.</description>``  
 	`</property>`  
+* __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
+`slave1`  
+`slave2`  
+* __Setting up Linux `/etc/profile`.__  
+`export TERMITE_HOME=/usr/termite-0.1`  
+`export TERMITE_CONF_DIR=/usr/termite-0.1/conf`  
+`export PATH=$PATH:$TERMITE_HOME/sbin`  
 
-
+###2.3 Starting HybridGraph  
+* __starting HDFS:__  
+`start-dfs.sh`  
+* __starting HybridGraph after NameNode has left safemode:__  
+`$TERMITE_HOME/sbin/start-termite.sh`  
+* __stopping HybridGraph:__  
+`$TERMITE_HOME/sbin/stop-termite.sh`  
