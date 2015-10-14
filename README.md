@@ -96,5 +96,5 @@ About arguments:
 [11] the source vertex id  
 
 ##3. Testing Report
-<img src="figures/app_2_a_blktime_wiki.jpg" alt="替代文本" title="标题文本" width="300" />
-<img src="figures/app_2_a_blktime_wiki.jpg" alt="替代文本" title="标题文本" width="300" />
+<img src="figures/app_2_a_blktime_wiki.jpg" alt="blocking time of wiki" title="blocking time of wiki" width="300" />
+<img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />
