@@ -117,19 +117,59 @@ In all the testing, each node runs one task,
 to avoid the resource contention.
 
 
-Blocking time `push vs. b-pull`  
+###3.1 Blocking time `push vs. b-pull` using PageRank  
+Here, blocking time is the time when nodes are exchanging messages.
+It is calculated by summing up the message exchanging time in iterations.
+We run PageRank in this test and provide sufficient memory.
+The following graphs show the average value and
+fluctuant range (min-max) for blocking time using wiki and orkut
+datasets. Note that b-pull starts exchanging messages from the 2nd superstep.  
+
 <img src="figures/app_2_a_blktime_wiki.jpg" alt="blocking time of wiki" title="blocking time of wiki" width="300" />
 <img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />  
 
-Network traffic `push vs. b-pull`  
+
+###3.2 Network traffic `push vs. b-pull` using PageRank  
+The network traffic includes all input and
+output on bytes, and is extracted by [Ganglia](http://ganglia.sourceforge.net/),
+a cluster monitoring tool, where the monitoring interval is for every 2 seconds. 
+The almost 50% reduction of network traffic by b-pull is
+due to concatenating messages to the same destinations.
+In push, it is disable, as it is not cost-effective.
+The traffic of pushM is as same
+as that of push, as it cannot optimize communication costs.
+
 <img src="figures/app_3_a_nettraf_wiki.jpg" alt="network traffic of wiki" title="network traffic of wiki" width="300" />
 <img src="figures/app_3_b_nettraf_orkut.jpg" alt="network traffic of orkut" title="network traffic of orkut" width="300" />  
 
-Testing runtime over wiki by varying the memroy resource (PageRank and SSSP)  
+
+###3.3 Testing runtime over wiki by varying the memroy resource  
+The runtime of push obviously increases when the message buffer
+decreases, since accessing messages on disk is extremely expensive.
+For example, in Fig. (a), the
+percentages of disk-resident messages are 0%, 86%, and 98%, when
+the message buffer Bi reduces from `+infty` (i.e. sufficient memory)
+to 3.5 million and 0.5 million.  And the runtime rapidly
+increases from 10s to 24s and 64s, respectively.
+pushM can alleviate it by online processing messages sent to
+vertices resident in memory instead of spilling them onto disk.
+However, the performance degenerates
+when the buffer further decreases (such as 0.5 million).
+This is because more vertices are resident on disk,
+then each message received has less probabilities to be computed online.
+b-pull and hybrid perform the best and their runtime is the same since hybrid 
+always chooses b-pull as the optimal solution.
+Finally, when Bi decreases, the performance of pull 
+drastically degenerates due to frequently accessing vertices on disk
+when pulling messages, which validates the I/O-inefficiency of
+existing pull-based approaches. By contrast, our special data structure 
+largely alleviates this problem in our b-pull and hybrid.
+
+PageRank and SSSP  
 <img src="figures/app_4_a_runtime_pr.jpg" alt="runtime of PageRank" title="runtime of PageRank" width="300" />
 <img src="figures/app_4_b_runtime_sssp.jpg" alt="runtime of SSSP" title="runtime of SSSP" width="300" />  
 
-Testing runtime over wiki by varying the memroy resource (LPA and SA)  
+LPA and SA  
 <img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" />
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
