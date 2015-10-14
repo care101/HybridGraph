@@ -10,3 +10,40 @@ Features of HybridGraph:
 * ___Hybrid engine:___ A seamless switching mechanism and a prominent performance prediction method to guarantee the efficiency when switching between push and b-pull.
 
 The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. HybridGraph is a Java framework, which runs in the cloud.
+
+##2. Quick Start
+###2.1 Requirements
+* hadoop-0.20.2
+* Sun Java JDK 1.6.x or higher version
+
+###2.2 Configurations
+* __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
+`export JAVA_HOME=/usr/java/jdk1.6.0_23`  
+* __$HybridGraph_HOME/conf/termite-site.xml.sh:__ setting up the configurations of HybridGraph engine.  
+  `<property>`  
+  `<name>bsp.master.address</name>`  
+  `<value>master:40000</value>`  
+  `<description>The hostname of the master server and the port master should bind to.</description>`
+  `</property>`  
+	`<property>`  
+	`<name>fs.default.name</name>`  
+	`<value>hdfs://master:9000/</value>`  
+  ``<description>The NameNode information of HDFS.</description>``  
+	`</property>`  
+	`<property>`  
+	`<name>bsp.child.java.opts</name>`  
+	`<value>-Xmx512m</value>`  
+  `<description>Java opts for the child process run on workers(slaves).</description>`  
+	`</property>`  
+	`<property>`  
+	`<name>bsp.task.max</name>`  
+	`<value>1</value>`  
+  ``<description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>``  
+	`</property>`  
+	`<property>`  
+	`<name>bsp.local.dir</name>`  
+	`<value>/tmp/termite_tmp_data</value>`  
+  ``<description>Temporary directory on the local filesystem.</description>``  
+	`</property>`  
+
+
