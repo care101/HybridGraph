@@ -146,7 +146,7 @@ as that of push, as it cannot optimize communication costs.
 ###3.3 Testing runtime over wiki by varying the memroy resource  
 The runtime of push obviously increases when the message buffer
 decreases, since accessing messages on disk is extremely expensive.
-For example, in Fig. (a), the
+Taking PageRank as an example, the
 percentages of disk-resident messages are 0%, 86%, and 98%, when
 the message buffer Bi reduces from `+infty` (i.e. sufficient memory)
 to 3.5 million and 0.5 million.  And the runtime rapidly
@@ -173,6 +173,8 @@ LPA and SA
 <img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" />
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
+
+###3.4 Scalability  
 Scalability of computations for `push` and `hybrid` (LPA)  
 <img src="figures/app_6_a_sca_run_lpa_push.jpg" alt="scalability of push LPA" title="scalability of push LPA" width="300" />
 <img src="figures/app_6_b_sca_run_lpa_pull.jpg" alt="scalability of hybrid LPA" title="scalability of hybrid LPA" width="300" />  
