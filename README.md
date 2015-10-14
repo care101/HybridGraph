@@ -96,3 +96,5 @@ About arguments:
 [11] the source vertex id  
 
 ##3. Testing Report
+
+![test](figures/app_2_a_blktime_wiki.jpg)
