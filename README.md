@@ -108,7 +108,13 @@ In the following, we assume that:
 
 We run four algorithms ([PageRank](http://dl.acm.org/citation.cfm?id=1807184), [SSSP](http://dl.acm.org/citation.cfm?id=1807184), [LPA](http://arxiv.org/pdf/0709.2938.pdf), and [SA](http://dl.acm.org/citation.cfm?id=2465369)) over three real graphs ([livej](http://snap.stanford.edu/data/soc-LiveJournal1.html), 
 [wiki](http://haselgrove.id.au/wikipedia.htm),
-[orkut](http://socialnetworks.mpi-sws.org/data-imc2007.html)).
+[orkut](http://socialnetworks.mpi-sws.org/data-imc2007.html)). 
+The cluster we used consists of 30 computational nodes with one
+additional master node connected by a Gigabit Ethernet switch, where
+each node is equipped with 2 Intel Core CPUs, 6GB RAM and a Hitachi
+disk (500GB, 7,200 RPM).
+In all the testing, each node runs one task,
+to avoid the resource contention.
 
 
 Blocking time `push vs. b-pull`  
