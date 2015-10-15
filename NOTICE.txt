@@ -1,5 +1,0 @@
-Termite
-Copyright 2013-2016 The Institute of Computer Software and Theory at Northeastern University
-
-This product includes software developed at
-The Institute of Computer Software and Theory at Northeastern University (svn://192.168.0.72/Termite).
