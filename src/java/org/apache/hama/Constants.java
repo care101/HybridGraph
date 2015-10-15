@@ -107,6 +107,19 @@ public interface Constants {
 	  public static final String LOCAL_BUCKET_LENGTH = "local.hash.bucket.length";
   }
   
+  public static class HardwareInfo {
+	  public static final String RD_Read_Speed = "rand.read.speed";
+	  public static final String RD_Write_Speed = "rand.write.speed"; 
+	  public static final String Network_Speed = "network.speed";
+	  
+	  /** Default value (local cluster), KB/s */
+	  public static final float Def_RD_Read_Speed = 1077;
+	  /** Default value (local cluster), KB/s */
+	  public static final float Def_RD_Write_Speed = 1071;
+	  /** Default value (local cluster), MB/s */
+	  public static final float Def_Network_Speed = 112;
+  }
+  
   public static enum Opinion {
 	  YES, NO, MSG_DEPEND
   }

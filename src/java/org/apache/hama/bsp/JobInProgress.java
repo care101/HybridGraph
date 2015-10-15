@@ -118,13 +118,23 @@ class JobInProgress {
 	 *   2) randRead = 16921KB/s  (tested by fio)
 	 *   3) network = 116MB/s     (tested by iperf)
 	 */
-	private double randWriteSpeed = 1071*ONE_KB;
-	private double randReadSpeed = 1077*ONE_KB;      
-	private double netSpeed = 112*ONE_KB*ONE_KB;    
+	private float randWriteSpeed = 1071*ONE_KB;
+	private float randReadSpeed = 1077*ONE_KB;      
+	private float netSpeed = 112*ONE_KB*ONE_KB;    
 	private double lastCombineRatio = 0.0;
 
 	public JobInProgress(BSPJobID _jobId, Path _jobFile, BSPMaster _master,
 			Configuration _conf) throws IOException {
+		this.randReadSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Read_Speed, 
+				Constants.HardwareInfo.Def_RD_Read_Speed)*ONE_KB;
+		this.randWriteSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Write_Speed, 
+				Constants.HardwareInfo.Def_RD_Write_Speed)*ONE_KB;
+		this.netSpeed = _conf.getFloat(Constants.HardwareInfo.Network_Speed, 
+				Constants.HardwareInfo.Def_Network_Speed)*ONE_KB*ONE_KB;
+		LOG.info("hardware info: RD_Read_Speed=" + this.randReadSpeed/ONE_KB + "KB/s" 
+				+ ", RD_Write_Speed=" + this.randWriteSpeed/ONE_KB + "KB/s" 
+				+ ", Network_Speed=" + this.netSpeed/(ONE_KB*ONE_KB) + "MB/s");
+		
 		jobId = _jobId; master = _master; MyLOG = new JobLog(jobId);
 		localFs = FileSystem.getLocal(_conf); jobFile = _jobFile;
 		localJobFile = master.getLocalPath(BSPMaster.SUBDIR + "/" + jobId + ".xml");
