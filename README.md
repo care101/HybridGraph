@@ -21,30 +21,45 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
 * __$HybridGraph_HOME/conf/termite-site.xml:__ setting up the configurations of HybridGraph engine.  
   `<property>`  
-  `<name>bsp.master.address</name>`  
-  `<value>master:40000</value>`  
-  `<description>The hostname of the master server and the port master should bind to.</description>`  
+    `<name>bsp.master.address</name>`  
+    `<value>master:40000</value>`  
+    `<description>The hostname of the master server and the port master should bind to.</description>`  
   `</property>`  
-	`<property>`  
-	`<name>fs.default.name</name>`  
-	`<value>hdfs://master:9000/</value>`  
-  ``<description>The NameNode information of HDFS.</description>``  
-	`</property>`  
-	`<property>`  
-	`<name>bsp.child.java.opts</name>`  
-	`<value>-Xmx512m</value>`  
-  `<description>Java opts for the child process run on workers(slaves).</description>`  
-	`</property>`  
-	`<property>`  
-	`<name>bsp.task.max</name>`  
-	`<value>1</value>`  
-  ``<description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>``  
-	`</property>`  
-	`<property>`  
-	`<name>bsp.local.dir</name>`  
-	`<value>/tmp/termite_tmp_data</value>`  
-  ``<description>Temporary directory on the local filesystem.</description>``  
-	`</property>`  
+  `<property>`  
+    `<name>fs.default.name</name>`  
+    `<value>hdfs://master:9000/</value>`  
+    `<description>The NameNode information of HDFS.</description>`  
+  `</property>`  
+  `<property>`  
+    `<name>bsp.child.java.opts</name>`  
+    `<value>-Xmx512m</value>`  
+    `<description>Java opts for the child process run on workers(slaves).</description>`  
+  `</property>`  
+  `<property>`  
+    `<name>bsp.task.max</name>`  
+    `<value>1</value>`  
+    `<description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>`  
+  `</property>`  
+  `<property>`  
+    `<name>bsp.local.dir</name>`  
+    `<value>/tmp/termite_tmp_data</value>`  
+    `<description>Temporary directory on the local filesystem.</description>`  
+  `</property>`  
+  `<property>`  
+    `<name>rand.read.speed</name>`  
+    `<value>1077</value>`  
+    `<description>The speed of rand reads is 1077KB/s.</description>`  
+  `</property>`  
+  `<property>`  
+    `<name>rand.write.speed</name>`  
+    `<value>1071</value>`  
+    `<description>The speed of rand writes is 1071KB/s.</description>`  
+  `</property>`  
+  `<property>`  
+    `<name>network.speed</name>`  
+    `<value>112</value>`  
+    `<description>The network speed is 112MB/s.</description>`  
+  `</property>`  
 * __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
