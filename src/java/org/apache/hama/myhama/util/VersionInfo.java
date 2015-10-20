@@ -5,7 +5,7 @@ package org.apache.hama.myhama.util;
  * 
  * A version information class.
  * 
- * @author Zhigang Wang
+ * @author root
  * @version 0.2
  */
 public class VersionInfo {
@@ -15,18 +15,18 @@ public class VersionInfo {
     }
     
     public static String getSourceCodeInfo() {
-        return "svn://192.168.0.72/HybridGraph";
+        return "https://github.com/HybridGraph";
     }
     
     public static String getCompilerInfo() {
-        return "Zhigang Wang on " + getCompilerDateInfo();
+        return "root on " + getCompilerDateInfo();
     }
     
     public static String getWorkPlaceInfo() {
-    	return "NeuSoftLab 401, Northeastern University";
+    	return "Unknown";
     }
     
     private static String getCompilerDateInfo() {
-        return "2015-06-26";
+        return "10/08/2015";
     }
 }
