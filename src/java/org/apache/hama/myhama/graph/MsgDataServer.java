@@ -1,6 +1,6 @@
 /**
  * Termite System
- * NEU SoftLab 401
+ * 
  * copyright 2012-2010
  */
 package org.apache.hama.myhama.graph;
@@ -31,7 +31,7 @@ import org.apache.hama.myhama.comm.MsgPack;
 /**
  * MsgDataServer.
  * 
- * @author WangZhigang
+ * @author 
  * @version 0.1
  */
 public class MsgDataServer {
