@@ -1,5 +1,5 @@
 /**
- * NeuSoft Termite System
+ * Termite System
  * copyright 2012-2010
  */
 package org.apache.hama.myhama.util;
@@ -16,7 +16,7 @@ import org.apache.hadoop.io.WritableUtils;
  * Counters.
  * This class contains relative {@link COUNTER} counters. 
  * 
- * @author WangZhigang
+ * @author 
  * @version 0.1
  */
 public class Counters implements Writable {
