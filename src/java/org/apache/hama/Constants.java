@@ -59,7 +59,7 @@ public interface Constants {
   /** Cluster is fully-distributed */
   static final String CLUSTER_IS_DISTRIBUTED = "true";
   
-  //NEU change in version-0.2.4 new bspPeer and priotiry level,partition_mode used to in scheduler job
+  //change in version-0.2.4 new bspPeer and priotiry level,partition_mode used to in scheduler job
   public static final String MAX_TASKS="bsp.task.max";
   
   
