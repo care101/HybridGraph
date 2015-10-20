@@ -1,6 +1,5 @@
 /**
  * Termite System
- * NEU SoftLab 401
  * copyright 2012-2010
  */
 package org.apache.hama.myhama.util;
@@ -17,7 +16,7 @@ import org.apache.hama.myhama.api.MsgRecord;
  * (4) jobAgg;
  * (5) vAgg;
  * 
- * @author WangZhigang
+ * @author 
  * @version 0.1
  * @time 2013-10-11
  */
