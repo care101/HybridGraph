@@ -1,5 +1,5 @@
 /**
- * Termite-beta-0.1 NeusoftLab
+ * Termite-beta-0.1 
  */
 package org.apache.hama;
 
@@ -28,7 +28,7 @@ public class BSPMasterRunner extends Configured implements Tool {
 	 * This class is used to do some prepare work before starting BSPController
 	 * and cleanup after shutting down BSPController.
 	 * 
-	 * @author Zhigang Wang
+	 * @author root
 	 * @version 0.1
 	 */
 	public class StartupShutdownPretreatment extends Thread {
