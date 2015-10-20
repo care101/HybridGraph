@@ -1,6 +1,6 @@
 /**
  * Termite System
- * NEU SoftLab 401
+ * 
  * copyright 2012-2010
  */
 package org.apache.hama.myhama.comm;
@@ -34,7 +34,7 @@ import org.apache.hama.myhama.graph.MsgDataServer;
 /**
  * CommunicationServer. 
  * 
- * @author WangZhigang
+ * @author 
  * @version 0.1
  */
 public class CommunicationServer implements CommunicationServerProtocol {
