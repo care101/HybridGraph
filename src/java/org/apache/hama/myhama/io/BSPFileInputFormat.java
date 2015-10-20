@@ -169,7 +169,7 @@ public abstract class BSPFileInputFormat<K, V> extends InputFormat<K, V> {
     /**
      * Generate the list of files and make them into FileSplits.
      */
-    // changed by WangZhigang at 2011-11-23
+    // changed at 2011-11-23
     @Override
     public List<InputSplit> getSplits(BSPJob job) throws IOException {
         List<InputSplit> splits = new ArrayList<InputSplit>();
@@ -219,7 +219,7 @@ public abstract class BSPFileInputFormat<K, V> extends InputFormat<K, V> {
      * @throws IOException
      *             if zero items.
      */
-    // changed by WangZhigang at 2011-11-23
+    // changed at 2011-11-23
     protected List<FileStatus> listStatus(BSPJob job) throws IOException {
         List<FileStatus> result = new ArrayList<FileStatus>();
         Path[] dirs = getInputPaths(job);
@@ -292,7 +292,7 @@ public abstract class BSPFileInputFormat<K, V> extends InputFormat<K, V> {
      *            {@link Path} to be added to the list of inputs for the BC_BSP
      *            job.
      */
-    // changed by WangZhigang at 2011-11-23
+    // changed at 2011-11-23
     public static void addInputPath(BSPJob job, Path path) throws IOException {
         Configuration conf = job.getConf();
         FileSystem fs = FileSystem.get(conf);
@@ -310,7 +310,7 @@ public abstract class BSPFileInputFormat<K, V> extends InputFormat<K, V> {
      *            The job configuration
      * @return the list of input {@link Path}s for the bsp job.
      */
-    // changed by WangZhigang at 2011-11-23
+    // changed at 2011-11-23
     public static Path[] getInputPaths(BSPJob job) {
         String dirs = job.getConf()
                 .get(Constants.USER_JOB_INPUT_DIR, "");
