@@ -1,5 +1,5 @@
 /**
- * NeuSoft Termite System
+ * Termite System
  * copyright 2011-2016
  */
 package org.apache.hama.myhama.api;
@@ -12,7 +12,7 @@ import org.apache.hama.myhama.util.TaskContext;
 /**
  * This class provides an abstract implementation of the BSP interface.
  * 
- * @author zhigang wang
+ * @author 
  * @version 0.1
  */
 public abstract class BSP implements BSPInterface {
