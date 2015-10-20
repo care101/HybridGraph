@@ -1,5 +1,5 @@
 /**
- * Termite-beta-0.1 NeusoftLab
+ * Termite-beta-0.1
  */
 package org.apache.hama;
 
@@ -30,7 +30,7 @@ public class GroomServerRunner extends Configured implements Tool {
      * and cleanup after shutting down WorkerManager.
      * For an example, kill all Staff Process before shutting down the damean process.
      * 
-     * @author Zhigang Wang
+     * @author root
      * @version 0.1
      */
     public class StartupShutdownPretreatment extends Thread {
