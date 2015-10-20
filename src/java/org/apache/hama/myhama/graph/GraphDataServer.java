@@ -66,7 +66,7 @@ import org.apache.hama.myhama.io.RecordWriter;
  * <code>the list of edge id and weight</code>
  * For example, "2->{(3,0.2),(4,0.6)}" should be writen as "2230.240.6".
  * 
- * @author WangZhigang
+ * @author 
  * @version 0.1
  */
 public class GraphDataServer {
@@ -297,7 +297,7 @@ public class GraphDataServer {
 	/**
 	 * Spill vertex data onto local disk.
 	 * 
-	 * @author WangZhigang
+	 * @author 
 	 * @version 0.1
 	 */
 	public class SpillVertexThread implements Callable<Boolean> {
@@ -360,7 +360,7 @@ public class GraphDataServer {
 	/**
 	 * Spill edge data onto local disk.
 	 * 
-	 * @author WangZhigang
+	 * @author 
 	 * @version 0.1
 	 */
 	public class SpillEdgeThread implements Callable<Boolean> {
