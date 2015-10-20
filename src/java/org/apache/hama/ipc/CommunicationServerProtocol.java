@@ -1,5 +1,4 @@
 /**
- * NeuSoft Termite System
  * copyright 2012-2010
  */
 package org.apache.hama.ipc;
@@ -16,7 +15,7 @@ import org.apache.hama.myhama.comm.SuperStepCommand;
 /**
  * CommunicationRPCProtocol.
  * 
- * @author WangZhigang
+ * @author 
  * @version 0.1
  */
 public interface CommunicationServerProtocol extends BSPRPCProtocolVersion,
