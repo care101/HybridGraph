@@ -38,7 +38,7 @@ public abstract class BSPFileOutputFormat<K, V> extends OutputFormat<K, V> {
             }
         } catch (IOException e) {
             // TODO This must be processed and tell the user.
-            LOG.error("ceshi--wangzhigang : " + e.toString());
+            LOG.error(e.toString());
         }
 
     }
