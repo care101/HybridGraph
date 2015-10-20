@@ -1,5 +1,5 @@
 /**
- * developed by Northeastern University NeuSoftLab
+ * 
  */
 
 package org.apache.hama.myhama.io;
