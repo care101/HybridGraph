@@ -1,5 +1,4 @@
 /**
- * NeuSoft Termite System
  * copyright 2011-2016
  */
 package org.apache.hama.bsp;
@@ -14,7 +13,7 @@ import org.apache.hama.myhama.util.TaskContext;
  * Interface BSP defines the basic operations needed to 
  * implement the BSP algorithm.
  * 
- * @author zhigang wang
+ * @author 
  * @version 0.1
  */
 public interface BSPInterface {
