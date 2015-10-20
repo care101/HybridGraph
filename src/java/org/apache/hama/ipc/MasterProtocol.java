@@ -64,7 +64,7 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
    * Once the function is invoked, that means the task has run successfully and
    * finished loading data.
    * 
-   * @author wangzhigang
+   * @author 
    */
   public void registerTask(BSPJobID jobId, LocalStatistics statis);
   
@@ -82,7 +82,7 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
    * Report local information after finishing the current superstep, 
    * and then get the {@link SuperStepCommand} for the next superstep.
    * 
-   * @author wangzhigang
+   * @author 
    * @param jobId
    * @param parId
    * @param SuperStepReport ssr
