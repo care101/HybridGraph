@@ -217,7 +217,6 @@ public void setBspClass(Class<? extends BSP> cls)
     conf.set("bsp.job.name", name);
   }
 
-  //NEU change in version-0.2.3 仿照hadoop，该功能放入BSPFileInputFormat中 
   /*public void setInputPath(HamaConfiguration conf, Path iNPUTPATH) {
 
   }*/
