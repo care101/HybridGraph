@@ -4,7 +4,7 @@ package org.apache.hama.myhama.util;
  * A Mini HashMap, it supports <key> = int and <value> = int, and <key> is an unique int number.
  * Key and value is positive int numbers(>=0).
  * The Mini HashMap can not adjust its capacity automatically.
- * @author Zhigang Wang
+ * @author 
  * @version 0.1
  */
 public class MiniHashMap {
