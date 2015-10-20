@@ -12,7 +12,7 @@ import org.apache.hama.bsp.TaskAttemptID;
  * Two phase:
  *   (1)load graph data: #loaded vertices / total vertices of this task;
  *   (2)computation: #processed buckets / total #buckets;
- * @author Wang Zhigang
+ * @author 
  *
  */
 public class TaskReportTimer extends Thread {
