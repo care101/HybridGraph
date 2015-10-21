@@ -58,9 +58,9 @@ public class GroomServerStatus implements Writable {
   int failures;
   List<TaskStatus> taskReports;
   
-  //NEU change in version-0.2.4 new variable: using in TaskScheduler
+  //change in version-0.2.4 new variable: using in TaskScheduler
   Map<BSPJobID, String> peerNameReports;// BSPJobID--BSPPeerForJob_peerName in this GroomServer
-  private int maxTasksCount;//原来就有的
+  private int maxTasksCount;
   private int currentTasksCount;
   private int finishedTasksCount;
 
@@ -71,13 +71,13 @@ public class GroomServerStatus implements Writable {
     peerNameReports= new TreeMap<BSPJobID, String>();
   }
 
-  //NEU change in version-0.2.4 change the function
+  //change in version-0.2.4 change the function
   public GroomServerStatus(String groomName, String peerName, Map<BSPJobID, String> peerNameReports,
       List<TaskStatus> taskReports, int failures,
       int maxTasksCount, int currentTasksCount, int finishedTasksCount) {
     this(groomName, peerName, peerNameReports, taskReports, failures,  maxTasksCount,  currentTasksCount, finishedTasksCount, "");
   }
-  //NEU change in version-0.2.4 change the function
+  //change in version-0.2.4 change the function
   public GroomServerStatus(String groomName, String peerName, Map<BSPJobID, String> peerNameReports,
       List<TaskStatus> taskReports, int failures, 
       int maxTasksCount, int currentTasksCount, int finishedTasksCount, String rpc) {
@@ -136,7 +136,7 @@ public class GroomServerStatus implements Writable {
     return maxTasksCount;
   }
   
-  //NEU change in version-0.2.4 new function:get the new variable
+  //change in version-0.2.4 new function:get the new variable
   public Map<BSPJobID, String> getPeerNameReports(){
 	  return peerNameReports;
   }
@@ -258,7 +258,7 @@ public class GroomServerStatus implements Writable {
     Text.writeString(out, peerName);
     Text.writeString(out, rpcServer);
     out.writeInt(failures);
-    //NEU change in version-0.2.4
+    //change in version-0.2.4
     out.writeInt(maxTasksCount);
     out.writeInt(currentTasksCount);
     out.writeInt(finishedTasksCount);
