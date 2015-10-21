@@ -72,7 +72,7 @@ public interface RunningJob {
   /**
    * Get the total costing time of running this job.
    * 
-   * @author Zhigang Wang
+   * @author 
    * @return
    */
   public float getRunCostTime();
