@@ -43,8 +43,8 @@ public interface BSPPeerInterface extends BSPRPCProtocolVersion, Closeable {
   public void reportException(BSPJobID jobId, TaskAttemptID taskId, Exception e);
   
   /**
-   * NEU change in version-0.2.7
-   * @return true if the increasement of superstep is success(两个消息发送队列均为空时，方可增1)
+   * in version-0.2.7
+   * @return true if the increasement of superstep is success(+1, if the two message queues are empty)
    */
   public boolean increaseSuperStep(BSPJobID jobId, TaskAttemptID taskId);
   
