@@ -39,7 +39,7 @@ public interface Queue<T>{
   void addJob(T job);
   
   /**
-   * NEU change in version-0.2.4 new function: Sort jobs by priority and then by start time.
+   * change in version-0.2.4 new function: Sort jobs by priority and then by start time.
    */
   public void resortQueue();
   
@@ -59,7 +59,7 @@ public interface Queue<T>{
    * Return all data stored in this queue.
    * @return Collection of jobs.
    */
-  //NEU change in version-0.2.4
+  //change in version-0.2.4
   public Collection<T> getJobs();
 
 }
