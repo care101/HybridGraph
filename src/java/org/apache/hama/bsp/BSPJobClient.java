@@ -208,7 +208,6 @@ public class BSPJobClient extends Configured implements Tool {
     }
   }
 
-  //NEU change in version-0.2.3 直接从hadoop中引过来的
   private static class NewSplitComparator 
   implements Comparator<org.apache.hadoop.mapreduce.InputSplit> {
 
@@ -232,7 +231,7 @@ public class BSPJobClient extends Configured implements Tool {
     }
   }
 }
-  //NEU change in version-0.2.3 直接从hadoop中引过来的
+
   static class RawSplit implements Writable {
 	    private String splitClass;
 	    private BytesWritable bytes = new BytesWritable();
@@ -284,11 +283,6 @@ public class BSPJobClient extends Configured implements Tool {
 	      bytes.write(out);
 	      WritableUtils.writeVInt(out, locations.length);
 	      
-	      //NEU change in version-0.2.5 just for test
-	      // LOG.info("The splitClass is :"+splitClass+" 
-	      // and the split length is : "+dataLength);
-	      // LOG.info("The split content is :"+new String(bytes.getBytes()));
-	      // String tmp="The location is : ";
 	      for(int i = 0; i < locations.length; i++) {
 	        Text.writeString(out, locations[i]);
 	        // tmp=tmp+" "+locations[i];
@@ -416,7 +410,6 @@ public class BSPJobClient extends Configured implements Tool {
     Path submitJarFile = new Path(submitJobDir, "job.jar");
     Path submitJobFile = new Path(submitJobDir, "job.xml");
     
-    //NEU change in version-0.2.3 create the split file for a job
     Path submitSplitFile = new Path(submitJobDir, "job.split");
     
     // LOG.debug("BSPJobClient.submitJobDir: " + submitJobDir);
@@ -491,7 +484,6 @@ public class BSPJobClient extends Configured implements Tool {
     }
   }
 
-//NEU change in version-0.2.3 从Hadoop中直接引用过来的
   @SuppressWarnings("unchecked")
   private <T extends org.apache.hadoop.mapreduce.InputSplit> 
   int writeSplits(BSPJob job, Path submitSplitFile
@@ -545,7 +537,6 @@ public class BSPJobClient extends Configured implements Tool {
     return array.length;
   }
   
-  //NEU change in version-0.2.3 从Hadoop中直接引用过来的
   private static final int CURRENT_SPLIT_FILE_VERSION = 0;
   private static final byte[] SPLIT_FILE_HEADER = "SPL".getBytes();
 
@@ -570,7 +561,6 @@ public class BSPJobClient extends Configured implements Tool {
    * @param in the stream to read from
    * @return the complete list of splits
    * @throws IOException
-   * NEU change in version-0.2.3 add new function: 直接从Hadoop中引用过来的
    */
   static RawSplit[] readSplitFile(DataInput in) throws IOException {
     byte[] header = new byte[SPLIT_FILE_HEADER.length];
