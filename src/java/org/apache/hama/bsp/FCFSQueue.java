@@ -34,7 +34,7 @@ class FCFSQueue implements Queue<JobInProgress> {
   public static final Log LOG = LogFactory.getLog(FCFSQueue.class);
   private final String name;
   private BlockingQueue<JobInProgress> queue = new LinkedBlockingQueue<JobInProgress>();
-  //NEU change in version-0.2.4 new variable
+  //change in version-0.2.4 new variable
   private List<JobInProgress> resort_tmp=new ArrayList<JobInProgress>();
 
   public FCFSQueue(String name) {
@@ -56,7 +56,7 @@ class FCFSQueue implements Queue<JobInProgress> {
   }
   
   @Override
-  //NEU change in version-0.2.4 new function: resort the queue
+  //change in version-0.2.4 new function: resort the queue
   public void resortQueue(){
 	  Comparator<JobInProgress> comp = new Comparator<JobInProgress>() {
 	      public int compare(JobInProgress o1, JobInProgress o2) {
