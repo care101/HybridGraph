@@ -59,7 +59,7 @@ public class QueueManager{
   }
   
   /**
-   * NEU change in version-0.2.4 new function: Sort jobs by priority and then by start time.
+   * change in version-0.2.4 new function: Sort jobs by priority and then by start time.
    */
   public void resortWaitQueue(String name) {
 	  Queue<JobInProgress> queue = queues.get(name);
