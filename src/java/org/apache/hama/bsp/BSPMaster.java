@@ -116,7 +116,7 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
    * This thread will run until stopping the cluster. It will check weather
    * the heart beat interval is time-out or not.
    * 
-   * @author WangZhigang
+   * @author
    * 
    */
   public class CheckTimeOut extends Thread {
@@ -249,7 +249,6 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
         return false;
       }
       // TODO: need to check if peer name has changed
-      //NEU change in version-0.2.4 new : 
       //add the maxClusterTasks if find new GroomServer
       if(!GroomServers.containsKey(status)){
     	  maxClusterTasks+=status.getMaxTasksCount();
@@ -496,7 +495,6 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
     // give the caller a snapshot of the cluster status
     int numGroomServers = GroomServers.size();
     
-    //NEU change in version-0.2.4
     currentClusterTasks=0;
     groomPeersMap = new HashMap<String, String>();
     for (Map.Entry<GroomServerStatus, WorkerProtocol> entry : GroomServers
