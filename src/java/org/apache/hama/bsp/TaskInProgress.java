@@ -48,10 +48,10 @@ class TaskInProgress {
   private JobInProgress job;
   private int completes = 0;
   
-//NEU change in version-0.2.3 add the RawSplit info
+//change in version-0.2.3 add the RawSplit info
   private RawSplit rawSplit;
   
-  //NEU change in version-0.2.4 new: add the GroomServertatus info
+  //change in version-0.2.4 new: add the GroomServertatus info
   private GroomServerStatus gss=null;
 
   // Status
@@ -95,7 +95,7 @@ class TaskInProgress {
     this.id = new TaskID(jobId, partition);
   }
 
-  //NEU change in version-0.2.3 change the function: add the RasSplit info
+  //change in version-0.2.3 change the function: add the RasSplit info
   public TaskInProgress(BSPJobID jobId, String jobFile, BSPMaster master,
       Configuration conf, JobInProgress job, int partition , RawSplit rawSplit) {
     this.jobId = jobId;
@@ -128,7 +128,7 @@ class TaskInProgress {
       return null;
     }
 
-  //NEU change in version-0.2.3 添加分片split信息
+  //change in version-0.2.3 add the info. of split
     t = new BSPTask(jobId, jobFile, taskid, partition, rawSplit.getClassName(), rawSplit.getBytes());
     //LOG.info("the TaskInProgress split info is : "+rawSplit.getClassName()+" and "+rawSplit.getBytes());
     activeTasks.put(taskid, status.getGroomName());
@@ -160,12 +160,12 @@ class TaskInProgress {
   public TaskID getTaskId() {
     return this.id;
   }
-  //NEU change in version-0.2.3
+  //change in version-0.2.3
   public RawSplit getRawSplit() {
 	return this.rawSplit;
   }
   
-  //NEU change in version-0.2.4
+  //change in version-0.2.4
   public GroomServerStatus getGroomServerStatus() {
 	return this.gss;
   }
