@@ -95,7 +95,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   Path systemDirectory = null;
   FileSystem systemFS = null;
 
-  //NEU change in version-0.2.4 change the "maxCurrentTasks=1" to "maxTasks=5";暂定maxTasks=5，实际上，该值应该由配置文件中读取
+  //change in version-0.2.4 change the "maxCurrentTasks=1" to "maxTasks=5"
   private int maxTaskSlot = 1;
   private int usedTaskSlot=0;
   
@@ -104,7 +104,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   Map<BSPJobID, RunningJob> runningJobs = null;
   LaunchThread launchT = new LaunchThread();
   
-  //NEU the BSPPeerForJob to JobID
+  //the BSPPeerForJob to JobID
   public Map<BSPJobID,BSPPeerForJob> runningJobtoBSPPeer=null;
   
   BSPJobID jobIdTmp=new BSPJobID("nosuing",0);
@@ -194,7 +194,6 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
         + ":" + taskReportAddress.getPort());
     LOG.info("GroomServer up at: " + this.taskReportAddress);
     
-    //NEU
     this.groomServerName = "groomd_" + bspPeer.getPeerName(jobIdTmp, taskIdTmp).replace(':', '_');
     
     LOG.info("Starting groom: " + this.groomServerName);
@@ -521,7 +520,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
         rJob.jobFile = localJobFile;
         runningJobs.put(jobId, rJob);
         
-        //NEU create a new BSPPeerForJob for a new job
+        //create a new BSPPeerForJob for a new job
         try{
         	BSPPeerForJob bspPeerForJob=new BSPPeerForJob(conf,jobId,tip.getJobConf());
         	runningJobtoBSPPeer.put(jobId, bspPeerForJob);
@@ -868,7 +867,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
         // use job-specified working directory
         FileSystem.get(job.getConf()).setWorkingDirectory(
             job.getWorkingDirectory());       
-        //NEU
+        
         task.run(job, task, umbilical, args[3]); // run the task
       } catch (Exception e) {
     	  LOG.error("task.run()", e);
@@ -913,13 +912,12 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
     // TODO Auto-generated method stub
 
   }
-  //NEU
+  
   @Override
   public long getSuperstepCount(BSPJobID jobId, TaskAttemptID taskId) {
     return runningJobtoBSPPeer.get(jobId).getSuperstepCount(jobId, taskId);
   }
   
-  //NEU
   @Override
   public void clear(BSPJobID jobId, TaskAttemptID taskId) {
 	  runningJobtoBSPPeer.get(jobId).clear(jobId, taskId);
