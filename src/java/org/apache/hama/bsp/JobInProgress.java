@@ -267,7 +267,7 @@ class JobInProgress {
 		if (tasksInited) {
 			return;
 		}
-		//NEU change in version=0.2.3 read the input split info from HDFS
+		//change in version=0.2.3 read the input split info from HDFS
 		Path sysDir = new Path(this.master.getSystemDir());
 		FileSystem fs = sysDir.getFileSystem(conf);
 		DataInputStream splitFile = fs.open(new Path(conf.get("bsp.job.split.file")));
@@ -284,7 +284,7 @@ class JobInProgress {
 				tips[i] = new TaskInProgress(getJobID(), this.jobFile.toString(), 
 						this.master, this.conf, this, i, splits[i]);
 			} else {
-				//NEU change in version=0.2.6 create a disable split. this only happen in Hash.
+				//change in version=0.2.6 create a disable split. this only happen in Hash.
 				RawSplit split = new RawSplit();
 				split.setClassName("no");
 				split.setDataLength(0);
@@ -689,7 +689,7 @@ class JobInProgress {
 		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sb.append("\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=");
 		sb.append("\nlog time: " + sdf.format(new Date()));
-		sb.append("\nauthor: Zhigang Wang");
+		sb.append("\nauthor: HybridGraph");
 
 		MyLOG.info(sb.toString());
 	}
