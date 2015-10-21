@@ -223,7 +223,7 @@ class SimpleTaskScheduler extends TaskScheduler {
 		this.jobListener = new JobListener();
 		this.jobProcessor = new JobProcessor();
 
-		// NEU change in version-0.2.4 new function:get the zookeeperaddress in
+		//change in version-0.2.4 new function:get the zookeeperaddress in
 		// order to connect to zookeeper
 		this.conf = new HamaConfiguration();
 	}
