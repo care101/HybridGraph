@@ -1,5 +1,4 @@
 /**
- * NeuSoft Termite System
  * copyright 2012-2010
  */
 package org.apache.hama.bsp;
@@ -40,8 +39,8 @@ import org.apache.hama.myhama.util.TaskReportContainer;
 
 /**
  * Base class for task. 
- * 
- * @author WangZhigang
+ *
+ * @author 
  * @version 0.1
  */
 public class BSPTask extends Task {
