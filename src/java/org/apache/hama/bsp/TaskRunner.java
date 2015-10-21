@@ -131,7 +131,7 @@ public class TaskRunner extends Thread {
       vargs.add(Integer.toString(addr.getPort()));
       vargs.add(task.getTaskID().toString());
       
-      // add by wangzhgiang at 2011-12-11 wokao.
+      // add at 2011-12-11 wokao.
       vargs.add(groomServer.getHostName());
       
       
