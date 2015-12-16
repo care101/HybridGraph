@@ -1,5 +1,7 @@
 #Happy Birthday to My Girlfriend Ning Wang:)
-<img src="figures/20150930102443_30027.gif" alt="Happy Birthday" title="Happy Birthday" width="600" />
+First, 新的一年里，希望你收获多多的"we are delighted to inform you that your paper with title "xxxx" has been accepted by XXXX."
+Second, good good study, day day beautiful!!!
+<img src="figures/20150930102443_30027.gif" alt="Happy Birthday" title="Happy Birthday" width="400" />
 
 #HybridGraph
 HybridGraph is a Pregel-like system which hybriding Pulling/Pushing for I/O-Efficient distributed and iterative graph computing.
