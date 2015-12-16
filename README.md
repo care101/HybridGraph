@@ -5,6 +5,8 @@ Second, good good study, day day beautiful!!!
 
 <img src="figures/20150930102443_30027.gif" alt="Happy Birthday" title="Happy Birthday" width="300" />
 
+@copyright zhigangwang 2013.6.25-+infty
+
 #HybridGraph
 HybridGraph is a Pregel-like system which hybriding Pulling/Pushing for I/O-Efficient distributed and iterative graph computing.
 
