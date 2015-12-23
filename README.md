@@ -83,10 +83,11 @@ Second, edit configuration files in `HybridGraph_HOME/conf` as follows:
 ####2.2.3  building  
 `cd $HybridGraph_HOME`  
 `ant`  
-Notice that you can build a specified part of HybridGraph as follows: 
-`ant core.jar` for the core engine  
-`ant examples.jar` for built-in examples   
-`ant all.jar` for all parts  
+Notice that you can build a specified part of HybridGraph as follows:  
+Only build the core engine  
+`ant core.jar`  
+Only build examples  
+`ant examples.jar`   
 By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building.  
 
 ####2.2.4 deploying
@@ -97,9 +98,9 @@ In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HO
 * __starting HDFS:__  
 `start-dfs.sh`  
 * __starting HybridGraph after NameNode has left safemode:__  
-`$TERMITE_HOME/sbin/start-termite.sh`  
+`start-termite.sh`  
 * __stopping HybridGraph:__  
-`$TERMITE_HOME/sbin/stop-termite.sh`  
+`stop-termite.sh`  
 
 ###2.4 Running a Single Source Shortest Path (SSSP) job  
 First, create an example graph under input/file.txt on HDFS with the follwing:  
@@ -110,7 +111,7 @@ First, create an example graph under input/file.txt on HDFS with the follwing:
 `4	2`  
 Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
-`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -121,7 +122,7 @@ About arguments:
 [7] the sending threshold  
 [8] the source vertex id  
 * __SSSP (using hybrid):__  
-`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+`termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -134,6 +135,8 @@ About arguments:
 [9] the receiving buffer size per task used by push  
 [10] starting style: 1--push, 2--b-pull  
 [11] the source vertex id  
+
+HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`.
 
 ##3. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
