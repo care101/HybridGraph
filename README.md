@@ -26,7 +26,7 @@ Suppose that HybridGraph is installed in `/usr/HybridGraph`.
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
 ####2.2.2 configuration
-First, edit `/etc/profile` and add the following information: 
+First, edit `/etc/profile` and add the following information:  
 `export HybridGraph_HOME=/usr/HybridGraph`  
 `export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
 `export PATH=$PATH:$HybridGraph_HOME/sbin` 
