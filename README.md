@@ -6,20 +6,36 @@ Billion-scale graphs are rapidly growing in size in many applications. That has 
 Specially, HybridGraph employs a `hybrid` solution to support switching between push and pull adaptively to obtain optimal performance in different scenarios. 
 
 Features of HybridGraph:
-* ___Block-centric pull mechanism (b-pull):___ First, the I/O accesses are shifted from the receiver-sides where messages are written/read by push to the sender-sides where graph data are read by pull. Second, the block-centric technique greatly optimizes the I/O-efficiency of reading vertices.
+* ___Block-centric pull mechanism (b-pull):___ First, the I/O accesses are shifted from receiver sides where messages are written/read by push to sender sides where graph data are read by pull. Second, the block-centric technique greatly optimizes the I/O-efficiency of reading vertices.
 * ___Hybrid engine:___ A seamless switching mechanism and a prominent performance prediction method to guarantee the efficiency when switching between push and b-pull.
 
-The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. HybridGraph is a Java framework, which runs in the cloud.
+The HybridGraph project started at Northeastern Univeristy (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). 
+Suppose that HybridGraph is installed in `/usr/HybridGraph`.
+
 ###2.1 Requirements
-* hadoop-0.20.2
+* Apache Ant 1.7.1 or higher version
+* Apache hadoop-0.20.2
 * Sun Java JDK 1.6.x or higher version
 
-###2.2 Configurations
+###2.2 Deploying HybridGraph
+####2.2.1 download
+`cd /usr`  
+`git clone https://github.com/HybridGraph/HybridGraph.git` 
+
+####2.2.2 configuration
+First, edit `/etc/profile` and add the following information:  
+`export HybridGraph_HOME=/usr/HybridGraph`   
+`export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
+`export PATH=$PATH:$HybridGraph_HOME/sbin`  
+After that, type `source /etc/profile` in the command line to make changes take effect.  
+
+Second, edit configuration files in `HybridGraph_HOME/conf` as follows:  
 * __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
-* __$HybridGraph_HOME/conf/termite-site.xml:__ setting up the configurations of HybridGraph engine.  
+* __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
   `<property>`  
     `<name>bsp.master.address</name>`  
     `<value>master:40000</value>`  
@@ -32,7 +48,7 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
   `</property>`  
   `<property>`  
     `<name>bsp.child.java.opts</name>`  
-    `<value>-Xmx512m</value>`  
+    `<value>-Xmx512m -Xms256m</value>`  
     `<description>Java opts for the child process run on workers(slaves).</description>`  
   `</property>`  
   `<property>`  
@@ -63,18 +79,28 @@ The HybridGraph project started in 2011 on top of Apache Hama 0.2.0-incubating. 
 * __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
-* __Setting up Linux `/etc/profile`.__  
-`export TERMITE_HOME=/usr/termite-0.1`  
-`export TERMITE_CONF_DIR=/usr/termite-0.1/conf`  
-`export PATH=$PATH:$TERMITE_HOME/sbin`  
+
+####2.2.3  building  
+`cd $HybridGraph_HOME`  
+`ant`  
+Notice that you can build a specified part of HybridGraph as follows:  
+Only build the core engine  
+`ant core.jar`  
+Only build examples  
+`ant examples.jar`   
+By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building.  
+
+####2.2.4 deploying
+Configurate three physical machines as described in Section 2.2.2, and then copy `termite-core-0.1.jar` to `$HybridGraph_HOME`. 
+In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HOME` on master.
 
 ###2.3 Starting HybridGraph  
 * __starting HDFS:__  
 `start-dfs.sh`  
 * __starting HybridGraph after NameNode has left safemode:__  
-`$TERMITE_HOME/sbin/start-termite.sh`  
+`start-termite.sh`  
 * __stopping HybridGraph:__  
-`$TERMITE_HOME/sbin/stop-termite.sh`  
+`stop-termite.sh`  
 
 ###2.4 Running a Single Source Shortest Path (SSSP) job  
 First, create an example graph under input/file.txt on HDFS with the follwing:  
@@ -85,7 +111,7 @@ First, create an example graph under input/file.txt on HDFS with the follwing:
 `4	2`  
 Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
-`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -96,7 +122,7 @@ About arguments:
 [7] the sending threshold  
 [8] the source vertex id  
 * __SSSP (using hybrid):__  
-`$TERMITE_HOME/sbin/termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+`termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -109,6 +135,8 @@ About arguments:
 [9] the receiving buffer size per task used by push  
 [10] starting style: 1--push, 2--b-pull  
 [11] the source vertex id  
+
+HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`.
 
 ##3. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
