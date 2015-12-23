@@ -21,12 +21,12 @@ Suppose that HybridGraph is installed in `/usr/HybridGraph`.
 * Sun Java JDK 1.6.x or higher version
 
 ###2.2 Deploying HybridGraph
-####2.2.1 Downloading HybridGraph
+####2.2.1 download
 `cd /usr` 
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
-####2.2.2 Configurating HybridGraph
-First, edit `/etc/profile` and add the following information:
+####2.2.2 configuration
+First, edit `/etc/profile` and add the following information: 
 `export HybridGraph_HOME=/usr/HybridGraph`  
 `export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
 `export PATH=$PATH:$HybridGraph_HOME/sbin` 
