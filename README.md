@@ -1,5 +1,5 @@
 #HybridGraph
-HybridGraph is a Pregel-like system which hybriding Pulling/Pushing for I/O-Efficient distributed and iterative graph computing.
+HybridGraph is a Pregel-like system which hybrids Pulling/Pushing for I/O-Efficient distributed and iterative graph computing.
 
 ##1. Introduction
 Billion-scale graphs are rapidly growing in size in many applications. That has been driving much of the research on enhancing the performance of distributed graph systems, in terms of graph partitioning, network communication, and the convergence. `HybridGraph` focuses on performing graph analysis on a cluster I/O-efficiently, since the memory resource of a given computer cluster can be easily exhausted. 
