@@ -12,7 +12,7 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern Univeristy (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
-This section describes how to compile, configurate, and deploy HybridGraph onto a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). 
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). 
 Suppose that HybridGraph is installed in `/usr/HybridGraph`.
 
 ###2.1 Requirements
@@ -21,10 +21,18 @@ Suppose that HybridGraph is installed in `/usr/HybridGraph`.
 * Sun Java JDK 1.6.x or higher version
 
 ###2.2 Deploying HybridGraph
-####2.2.1 download HybridGraph
-`cd /usr/`
-`git clone https://github.com/HybridGraph/HybridGraph.git`
+####2.2.1 Downloading HybridGraph
+`cd /usr` 
+`git clone https://github.com/HybridGraph/HybridGraph.git` 
 
+####2.2.2 Configurating HybridGraph
+First, edit `/etc/profile` and add the following information:
+`export HybridGraph_HOME=/usr/HybridGraph`  
+`export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
+`export PATH=$PATH:$HybridGraph_HOME/sbin` 
+After that, type `source /etc/profile` in the command line to make changes take effect.  
+
+Second, edit configuration files in `HybridGraph_HOME/conf` as follows: 
 * __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
 * __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
@@ -71,12 +79,20 @@ Suppose that HybridGraph is installed in `/usr/HybridGraph`.
 * __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
-* __Setting up Linux `/etc/profile`.__  
-`export TERMITE_HOME=/usr/termite-0.1`  
-`export TERMITE_CONF_DIR=/usr/termite-0.1/conf`  
-`export PATH=$PATH:$TERMITE_HOME/sbin`  
 
-###2.3 
+####2.2.3 Compiling and packaging HybridGraph
+`cd $HybridGraph_HOME` 
+`ant` 
+Notice that you can compile and package a specified part of HybridGraph as follows: 
+`ant core.jar` for the core engine
+`ant examples.jar` for built-in examples 
+`ant all.jar` for all parts 
+By default, all parts will be compiled and packaged. 
+After a successful building, you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build`.
+
+####2.2.4 Deploying HybridGraph
+Configurate three physical machines as described in 2.2.2, and then copy `termite-core-0.1.jar` to `$HybridGraph_HOME`. 
+In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HOME` on master.
 
 ###2.4 Starting HybridGraph  
 * __starting HDFS:__  
