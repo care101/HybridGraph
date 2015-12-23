@@ -224,4 +224,4 @@ Scalability of computations for `push` and `hybrid` (LPA)
 
 Scalability of computations for `push` and `hybrid` (SA)  
 <img src="figures/app_7_a_sca_run_sa_push.jpg" alt="scalability of push SA" title="scalability of push SA" width="300" />
-<img src="figures/app_7_b_sca_run_sa_hybrid.jpg" alt="scalability of hybrid SA" title="scalability of hybrid SA" width="300" />  
+<img src="figures/app_7_b_sca_run_sa_hybrid.jpg" alt="scalability of hybrid SA" title="scalability of hybrid SA" width="300" /> 
