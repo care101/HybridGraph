@@ -22,17 +22,17 @@ Suppose that HybridGraph is installed in `/usr/HybridGraph`.
 
 ###2.2 Deploying HybridGraph
 ####2.2.1 download
-`cd /usr` 
+`cd /usr`  
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
 ####2.2.2 configuration
 First, edit `/etc/profile` and add the following information:  
-`export HybridGraph_HOME=/usr/HybridGraph`  
+`export HybridGraph_HOME=/usr/HybridGraph`   
 `export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
-`export PATH=$PATH:$HybridGraph_HOME/sbin` 
+`export PATH=$PATH:$HybridGraph_HOME/sbin`  
 After that, type `source /etc/profile` in the command line to make changes take effect.  
 
-Second, edit configuration files in `HybridGraph_HOME/conf` as follows: 
+Second, edit configuration files in `HybridGraph_HOME/conf` as follows:  
 * __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
 * __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
@@ -80,21 +80,20 @@ Second, edit configuration files in `HybridGraph_HOME/conf` as follows:
 `slave1`  
 `slave2`  
 
-####2.2.3 Compiling and packaging HybridGraph
-`cd $HybridGraph_HOME` 
-`ant` 
-Notice that you can compile and package a specified part of HybridGraph as follows: 
-`ant core.jar` for the core engine
-`ant examples.jar` for built-in examples 
-`ant all.jar` for all parts 
-By default, all parts will be compiled and packaged. 
-After a successful building, you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build`.
+####2.2.3  building  
+`cd $HybridGraph_HOME`  
+`ant`  
+Notice that you can build a specified part of HybridGraph as follows: 
+`ant core.jar` for the core engine  
+`ant examples.jar` for built-in examples   
+`ant all.jar` for all parts  
+By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building.  
 
-####2.2.4 Deploying HybridGraph
-Configurate three physical machines as described in 2.2.2, and then copy `termite-core-0.1.jar` to `$HybridGraph_HOME`. 
+####2.2.4 deploying
+Configurate three physical machines as described in Section 2.2.2, and then copy `termite-core-0.1.jar` to `$HybridGraph_HOME`. 
 In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HOME` on master.
 
-###2.4 Starting HybridGraph  
+###2.3 Starting HybridGraph  
 * __starting HDFS:__  
 `start-dfs.sh`  
 * __starting HybridGraph after NameNode has left safemode:__  
@@ -102,7 +101,7 @@ In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HO
 * __stopping HybridGraph:__  
 `$TERMITE_HOME/sbin/stop-termite.sh`  
 
-###2.5 Running a Single Source Shortest Path (SSSP) job  
+###2.4 Running a Single Source Shortest Path (SSSP) job  
 First, create an example graph under input/file.txt on HDFS with the follwing:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
 `1	2:3:4`  
