@@ -28,6 +28,8 @@ import org.apache.hama.myhama.comm.CommunicationServer;
 import org.apache.hama.myhama.comm.SuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepReport;
 import org.apache.hama.myhama.graph.GraphDataServer;
+import org.apache.hama.myhama.graph.GraphDataServerDisk;
+import org.apache.hama.myhama.graph.GraphDataServerMem;
 import org.apache.hama.myhama.graph.MsgDataServer;
 import org.apache.hama.myhama.util.Counters;
 import org.apache.hama.myhama.util.GraphContext;
@@ -43,7 +45,7 @@ import org.apache.hama.myhama.util.TaskReportContainer;
  * @author 
  * @version 0.1
  */
-public class BSPTask extends Task {
+public class BSPTask<V, W, M, I> extends Task {
 	private static final Log LOG = LogFactory.getLog(BSPTask.class);
 	
 	private String rootDir;
@@ -51,9 +53,9 @@ public class BSPTask extends Task {
 	private String rawSplitClass;
 	
 	private MasterProtocol reportServer;
-	private CommunicationServer commServer;
-	private GraphDataServer graphDataServer;
-	private MsgDataServer msgDataServer;
+	private CommunicationServer<V, W, M, I> commServer;
+	private GraphDataServer<V, W, M, I> graphDataServer;
+	private MsgDataServer<V, W, M, I> msgDataServer;
 	
 	private int iteNum = 0;
 	private boolean conExe;
@@ -66,14 +68,19 @@ public class BSPTask extends Task {
 	private Counters counters; //count some variables
 	private int fulLoad = 0; //its value is equal with #local buckets
 	private int hasPro = 0; //its value is equal with #processed buckets
-	private float totalMem, usedMem; //java estimated, just accurately at the sampling point.
+	//java estimated, just accurately at the sampling point.
+	private float totalMem, usedMem; 
 	private long memUsagePushExcludeSendBuf; //
-	private long memUsage; //self-computed in bytes. maximum value. record the memUsage of previous iteration.
+	//self-computed in bytes. maximum value. 
+	//record the memUsage of previous iteration.
+	private long memUsage; 
 	private float last, cur;
 	private TaskReportTimer trt;
-	/** General Style of BSP, Push, Pull, or Hybrid, static during iterations*/
+	/** General Style of BSP, Push, Pull, or Hybrid, 
+	 * static during iterations*/
 	private int bspStyle;
-	/** Style of each iteration when bspStyle=Hybrid, updated at each iteration */
+	/** Style of each iteration when bspStyle=Hybrid, 
+	 * updated at each iteration */
 	private int preIteStyle; //previous ite
 	private int curIteStyle; //current ite, at 1st iteration, they are equal.
 	private boolean estimatePullByte;
@@ -103,9 +110,12 @@ public class BSPTask extends Task {
 	 * @throws Exception
 	 */
 	public TaskReportContainer getProgress() throws Exception {
-		this.cur = iteNum==0? graphDataServer.getProgress():(float)hasPro/fulLoad;
-		if (last != cur) { //update and send current progress only when the progress is changed
-			TaskReportContainer taskRepCon = new TaskReportContainer(cur, usedMem, totalMem);
+		this.cur = iteNum==0? 
+				graphDataServer.getProgress():(float)hasPro/fulLoad;
+		if (last != cur) { 
+			//update and send current progress only when the progress is changed
+			TaskReportContainer taskRepCon = 
+				new TaskReportContainer(cur, usedMem, totalMem);
 			last = cur;
 			return taskRepCon;
 		} else {
@@ -146,22 +156,32 @@ public class BSPTask extends Task {
 			break;
 		case Constants.STYLE.Hybrid:
 			if (this.preIteStyle == Constants.STYLE.Push) {
-				LOG.info("initialize BspStyle = STYLE.Hybrid, IteStyle = STYLE.Push");
+				LOG.info("initialize BspStyle = STYLE.Hybrid," +
+						" IteStyle = STYLE.Push");
 			} else {
-				LOG.info("initialize BspStyle = STYLE.Hybrid, IteStyle = STYLE.Pull");
+				LOG.info("initialize BspStyle = STYLE.Hybrid," +
+						" IteStyle = STYLE.Pull");
 			}
 			break;
 		default:
 			throw new Exception("invalid bspStyle=" + this.bspStyle);
 		}
-		this.rootDir = this.job.get("bsp.local.dir")  + "/" + this.jobId.toString()
+		
+		this.rootDir = this.job.get("bsp.local.dir") + "/" + this.jobId.toString()
 				+ "/task-" + this.parId;
-		this.graphDataServer = 
-			new GraphDataServer(this.parId, this.job, 
-					this.rootDir + "/" + Constants.Graph_Dir);
-		this.msgDataServer = new MsgDataServer();
+		if (this.job.isGraphDataOnDisk()) {
+			this.graphDataServer = 
+				new GraphDataServerDisk<V, W, M, I>(this.parId, this.job, 
+					this.rootDir+"/"+Constants.Graph_Dir);
+		} else {
+			this.graphDataServer = 
+				new GraphDataServerMem<V, W, M, I>(this.parId, this.job, 
+					this.rootDir+"/"+Constants.Graph_Dir);
+		}
+		
+		this.msgDataServer = new MsgDataServer<V, W, M, I>();
 		this.commServer = 
-			new CommunicationServer(this.job, this.parId, this.taskId);
+			new CommunicationServer<V, W, M, I>(this.job, this.parId, this.taskId);
 		this.reportServer = (MasterProtocol) RPC.waitForProxy(
 				MasterProtocol.class, MasterProtocol.versionID,
 				BSPMaster.getAddress(this.job.getConf()), this.job.getConf());
@@ -175,10 +195,12 @@ public class BSPTask extends Task {
 	}
 	
 	/**
-	 * Build route table and get the global information about real and virtual hash buckets.
+	 * Build route table and get the global information 
+	 * about real and virtual hash buckets.
 	 * First read only one {@link GraphRecord} and get the min vertex id.
 	 * Second, report {@link LocalStatistics} to the {@link JobInProgress}.
-	 * The report information includes: verMinId, parId, RPC server port and hostName.
+	 * The report information includes: verMinId, parId, 
+	 * RPC server port and hostName.
 	 * This function should be invoked before load().
 	 * @throws Exception
 	 */
@@ -205,13 +227,18 @@ public class BSPTask extends Task {
 	}
 	
 	/**
-	 * Load data from HDFS, build VE-Block, and then save them on the local disk.
+	 * Load data from HDFS, build VE-Block, 
+	 * and then save them on the local disk.
 	 * After that, begin to register to the {@link JobInProgress} to 
 	 * report {@link LocalStatistics}.
-	 * The report information includes: #edges, the relationship among virtual buckets.
+	 * The report information includes: #edges, 
+	 * the relationship among virtual buckets.
 	 */
 	private void loadData() throws Exception {
-		this.graphDataServer.initialize(this.lStatis, this.commServer.getCommRouteTable());
+		this.graphDataServer.initialize(this.lStatis, 
+				this.commServer.getCommRouteTable());
+		this.graphDataServer.initMemOrDiskMetaData(this.lStatis, 
+				this.commServer.getCommRouteTable());
 		this.graphDataServer.loadGraphData(lStatis, this.rawSplit, 
 				this.rawSplitClass);
 		
@@ -244,6 +271,7 @@ public class BSPTask extends Task {
 		
 		this.graphDataServer.clearBefIte(iteNum, this.preIteStyle, this.curIteStyle, 
 				this.estimatePullByte);
+		this.graphDataServer.clearBefIteMemOrDisk(iteNum);
 		this.commServer.clearBefIte(iteNum, this.curIteStyle);
 		this.msgDataServer.clearBefIte(iteNum, this.preIteStyle, this.curIteStyle);
 		this.lStatis.clearLocalMatrix();
@@ -261,7 +289,8 @@ public class BSPTask extends Task {
 	 * Collect the task's information, update {@link SuperStepReport}, 
 	 * and then send it to {@link JobInProgress}.
 	 * After that, the local task will block itself 
-	 * and wait for {@link SuperStepCommand} from {@link JobInProgress} for the next SuperStep.
+	 * and wait for {@link SuperStepCommand} from 
+	 * {@link JobInProgress} for the next SuperStep.
 	 */
 	private void finishIteration() throws Exception {
 		this.graphDataServer.clearAftIte(iteNum);
@@ -298,7 +327,8 @@ public class BSPTask extends Task {
 	  		this.conExe = false;
 	  		break;
 	  	default:
-	  		throw new Exception("[Invalid Command Type] " + this.ssc.getCommandType());
+	  		throw new Exception("[Invalid Command Type] " 
+	  				+ this.ssc.getCommandType());
 		}
 		
 		LOG.info("the command information of superstep-" + (iteNum+1) 
@@ -324,7 +354,8 @@ public class BSPTask extends Task {
 	 * @param msgNum
 	 * @return
 	 */
-	private boolean isProBucket(Opinion opinion, long msgNum) throws Exception {
+	private boolean isProBucket(Opinion opinion, long msgNum) 
+			throws Exception {
 		boolean proBucket = false;
 		
 		switch (opinion) {
@@ -351,7 +382,8 @@ public class BSPTask extends Task {
 	/**
 	 * Execute the local computation for a real hash bucket.
 	 * Note that messages have been collected before invoking this function.
-	 * The procedure is: read local graph data, update local values, compute send values, 
+	 * The procedure is: read local graph data, 
+	 * update local values, compute send values, 
 	 * and then save them.
 	 * @param bucketId
 	 * @return
@@ -361,14 +393,14 @@ public class BSPTask extends Task {
 		long bucStaTime, bucEndTime;
 		bucStaTime = System.currentTimeMillis();
 		GraphContext context = new GraphContext();
-		GraphRecord graph = null;
+		GraphRecord<V, W, M, I> graph = null;
 		this.graphDataServer.openGraphDataStream(parId, bucketId, iteNum);
 		
 		while (this.graphDataServer.hasNextGraphRecord(bucketId)) {
 			graph = this.graphDataServer.getNextGraphRecord(bucketId);
 			context.reset();
 			if (isActive(bucketId, graph.getVerId())) {
-				MsgRecord msg = this.msgDataServer.getMsg(bucketId, graph.getVerId());
+				MsgRecord<M> msg = this.msgDataServer.getMsg(bucketId, graph.getVerId());
 				context.initialize(graph, iteNum, msg, this.jobAgg, true);
 				this.bsp.compute(context); //execute the local computation
 				this.taskAgg += context.getVertexAgg();
@@ -379,7 +411,7 @@ public class BSPTask extends Task {
 					
 					if (this.preIteStyle==Constants.STYLE.Push && 
 							this.curIteStyle==Constants.STYLE.Push) {
-						MsgRecord[] msgs = graph.getMsg(this.curIteStyle);
+						MsgRecord<M>[] msgs = graph.getMsg(this.curIteStyle);
 						this.commServer.pushMsgData(msgs, iteNum);
 					}
 				}
@@ -511,7 +543,7 @@ public class BSPTask extends Task {
 		this.graphDataServer.clearAftIte(iteNum);
 		this.graphDataServer.clearOnlyForPush(nextIteNum);
 		
-		GraphRecord graph = null;
+		GraphRecord<V, W, M, I> graph = null;
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
 			if (this.graphDataServer.isDoOnlyForPush(bucketId, nextIteNum)) {
 				/** if not updated, will not read. If read it, 
@@ -523,7 +555,7 @@ public class BSPTask extends Task {
 					graph = this.graphDataServer.getNextGraphRecord(bucketId);
 					if (this.graphDataServer.isUpdatedOnlyForPush(
 							bucketId, graph.getVerId(), nextIteNum)) {
-						MsgRecord[] msgs = graph.getMsg(this.curIteStyle);
+						MsgRecord<M>[] msgs = graph.getMsg(this.curIteStyle);
 						this.commServer.pushMsgData(msgs, iteNum);
 					}
 				}
@@ -606,7 +638,8 @@ public class BSPTask extends Task {
 		this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.graphDataServer.getLocVerIOByte());
 		/*this.counters.addCounter(COUNTER.Byte_Pull, 
-				this.graphDataServer.getLocEdgeIOByte());*/ //used in graphinfo, e.g. PageRank
+				this.graphDataServer.getLocEdgeIOByte());*/ 
+		//used in graphinfo, e.g. PageRank
 		this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.commServer.getIOByte());
 		this.counters.addCounter(COUNTER.Byte_Pull, 
@@ -636,6 +669,7 @@ public class BSPTask extends Task {
 				this.memUsagePushExcludeSendBuf);
 	}
 	
+	@SuppressWarnings("deprecation")
 	private void clear() throws Exception {
 		this.graphDataServer.close();
 		this.msgDataServer.close();

@@ -12,7 +12,7 @@ import org.apache.hama.ipc.CommunicationServerProtocol;
 import org.apache.hama.monitor.GlobalSketchGraph;
 import org.apache.hama.monitor.GlobalStatistics;
 
-public class CommRouteTable {
+public class CommRouteTable<V, W, M, I> {
 	private static final Log LOG = LogFactory.getLog(CommRouteTable.class);
 	private GlobalStatistics global;
 	private GlobalSketchGraph skGraph;
@@ -23,8 +23,9 @@ public class CommRouteTable {
 	private InetSocketAddress[] inetAddresses;
 	private int[] parIds, mins, maxs, lens;
 	private int maxLen;
-	private Map<InetSocketAddress, CommunicationServerProtocol> comms = 
-			new HashMap<InetSocketAddress, CommunicationServerProtocol>();
+	private Map<InetSocketAddress, CommunicationServerProtocol<V, W, M, I>> 
+			comms = new HashMap<InetSocketAddress, 
+					CommunicationServerProtocol<V, W, M, I>>();
 	
 	public CommRouteTable(BSPJob _job, int parId) {
 		this.parId = parId;
@@ -46,7 +47,8 @@ public class CommRouteTable {
 		String[] tmpHostNames = global.getHostNames();
 		
 		for (int i = 0; i < taskNum; i++) {
-			this.inetAddresses[i] = new InetSocketAddress(tmpHostNames[i], tmpPorts[i]);
+			this.inetAddresses[i] = 
+				new InetSocketAddress(tmpHostNames[i], tmpPorts[i]);
 		}
 		
 		for (int i = 0; i < taskNum; i++) {
@@ -81,7 +83,8 @@ public class CommRouteTable {
 	
 	/**
 	 * Get the destination partitionId according to the vertexId.
-	 * If the destination partitionId is not found, the last partition is the default one.
+	 * If the destination partitionId is not found, 
+	 * the last partition is the default one.
 	 * @param vertexId
 	 * @return
 	 */
@@ -140,18 +143,22 @@ public class CommRouteTable {
 	 * @param addr
 	 * @return
 	 */
-	public synchronized CommunicationServerProtocol getCommServer(InetSocketAddress addr) {
-		if (!comms.containsKey(addr) || comms.get(addr)==null) {
-			generateCommServer(addr);
-		}
+	public synchronized CommunicationServerProtocol<V, W, M, I> 
+		getCommServer(InetSocketAddress addr) {
+			if (!comms.containsKey(addr) || comms.get(addr)==null) {
+				generateCommServer(addr);
+			}
 		
-		return comms.get(addr);
-	}
+			return comms.get(addr);
+		}
 	
+	@SuppressWarnings("unchecked")
 	private void generateCommServer(InetSocketAddress addr) {
 		try {
-			CommunicationServerProtocol comm = (CommunicationServerProtocol) RPC.getProxy(
-					CommunicationServerProtocol.class, CommunicationServerProtocol.versionID,
+			CommunicationServerProtocol<V, W, M, I> comm = 
+				(CommunicationServerProtocol<V, W, M, I>) RPC.getProxy(
+					CommunicationServerProtocol.class, 
+					CommunicationServerProtocol.versionID,
 					addr, job.getConf());
 			comms.put(addr, comm);
 		} catch (Exception e) {
@@ -176,7 +183,8 @@ public class CommRouteTable {
 	}
 	
 	/**
-	 * Resort the route table of range-partition according to the minimum of range.
+	 * Resort the route table of range-partition according 
+	 * to the minimum of range.
 	 * Now we just adopt the simple algorithm "BubbleSort".
 	 */
 	private void resortRouteTable() {

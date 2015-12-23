@@ -11,7 +11,7 @@
 </property>
 <property>
 <name>bsp.child.java.opts</name>
-<value>-Xmx512m</value>
+<value>-Xmx512m -Xms256m</value>
 </property>
 <property>
 <name>bsp.task.max</name>

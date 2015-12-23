@@ -359,25 +359,24 @@ public void setBspClass(Class<? extends BSP> cls)
 	  return conf.getInt("bsp.ite.impl.style.start", Constants.STYLE.Pull);
   }
   
-/*  *//** The time of setting itestyle as Pull *//*
-  public void setIteStyleAsPull(int ite) {
-	  conf.setInt("bsp.ite.impl.style.pull.time", ite);
+  /** 
+   * True, using {@link GraphDataServerDisk}, 
+   * otherwise, using {@link GraphDataServerMem}.
+   * 
+   * @return boolean, true as default.
+   */
+  public boolean isGraphDataOnDisk() {
+	  return conf.getBoolean("bsp.storage.graphdata.disk", true);
   }
   
-  *//** Return -1 as default *//*
-  public int getIteStyleAsPull() {
-	  return conf.getInt("bsp.ite.impl.style.pull.time", -1);
+  /**
+   * True, using {@link GraphDataServerDisk}, 
+   * otherwise, using {@link GraphDataServerMem}.
+   * @param _flag
+   */
+  public void setGraphDataOnDisk(boolean _flag) {
+	  conf.setBoolean("bsp.storage.graphdata.disk", _flag);
   }
-  
-  *//** The time of setting itestyle as Push *//*
-  public void setIteStyleAsPush(int ite) {
-	  conf.setInt("bsp.ite.impl.style.push.time", ite);
-  }
-  
-  *//** Return -1 as default *//*
-  public int getIteStyleAsPush() {
-	  return conf.getInt("bsp.ite.impl.style.push.time", -1);
-  }*/
   
   /**
    * Set the size of message sending buffer, per dstTask.

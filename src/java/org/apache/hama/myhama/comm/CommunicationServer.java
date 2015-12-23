@@ -37,21 +37,22 @@ import org.apache.hama.myhama.graph.MsgDataServer;
  * @author 
  * @version 0.1
  */
-public class CommunicationServer implements CommunicationServerProtocol {
+public class CommunicationServer<V, W, M, I> 
+		implements CommunicationServerProtocol<V, W, M, I> {
 	private static final Log LOG = LogFactory.getLog(CommunicationServer.class);
 	private int taskNum;
 	private HamaConfiguration conf;
 	private BSPJobID jobId;
 	private int parId;
 	
-	private MsgDataServer msgDataServer;
-	private GraphDataServer graphDataServer;
+	private MsgDataServer<V, W, M, I> msgDataServer;
+	private GraphDataServer<V, W, M, I> graphDataServer;
 	
 	private String bindAddr;
 	private InetSocketAddress peerAddr;
 	private int serverPort;
 	private Server server;
-	private CommRouteTable commRT;
+	private CommRouteTable<V, W, M, I> commRT;
 	
 	private volatile Integer mutex = 0;
 	private boolean hasNotify = false;
@@ -72,16 +73,18 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	 * 2. msg_net: real network messages after being combined
 	 * 3. msg_disk: messages resident on disk (push).
 	 * */
-	private long msg_pro = 0L, msg_rec = 0L, msg_init_net = 0L, msg_net = 0L, msg_disk = 0L;
+	private long msg_pro = 0L, msg_rec = 0L, 
+				 msg_init_net = 0L, msg_net = 0L, msg_disk = 0L;
 	
 	public class PushMsgDataThread implements Callable<Boolean> {
-		private int srcParId, dstParId, iteNum;
+		private int srcParId, iteNum;
 		private InetSocketAddress srcAddr, dstAddr;
-		private MsgPack msgPack;
+		private MsgPack<V, W, M, I> msgPack;
 		
 		public PushMsgDataThread(int _srcParId, int _dstParId, int _iteNum, 
-				MsgPack _msgPack, InetSocketAddress _srcAddr, InetSocketAddress _dstAddr) {
-			this.srcParId = _srcParId; this.dstParId = _dstParId;
+				MsgPack<V, W, M, I> _msgPack, InetSocketAddress _srcAddr, 
+				InetSocketAddress _dstAddr) {
+			this.srcParId = _srcParId;
 			this.iteNum = _iteNum;
 			this.srcAddr = _srcAddr; this.dstAddr = _dstAddr;
 			this.msgPack = _msgPack;
@@ -92,11 +95,14 @@ public class CommunicationServer implements CommunicationServerProtocol {
 				long _msg_rec = 0L, _msg_net = 0L, _msg_disk = 0L;
 				_msg_rec = this.msgPack.getMsgRecNum();
 				if (this.srcAddr.equals(this.dstAddr)) {
-					_msg_disk = recMsgData(this.srcParId, this.iteNum, this.msgPack);
+					_msg_disk = 
+						recMsgData(this.srcParId, this.iteNum, this.msgPack);
 				} else {
 					_msg_net = _msg_rec;
-					CommunicationServerProtocol comm = commRT.getCommServer(this.dstAddr);
-					_msg_disk = comm.recMsgData(this.srcParId, this.iteNum, this.msgPack);
+					CommunicationServerProtocol<V, W, M, I> comm = 
+						commRT.getCommServer(this.dstAddr);
+					_msg_disk = 
+						comm.recMsgData(this.srcParId, this.iteNum, this.msgPack);
 				}
 				updateCounters(0L, 0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
 				
@@ -132,17 +138,21 @@ public class CommunicationServer implements CommunicationServerProtocol {
 			try {
 				while (!this.isOver) {
 					long _msg_rec = 0L, _msg_init_net = 0L, _msg_net = 0L;
-					MsgPack recMsgPack = null;
+					MsgPack<V, W, M, I> recMsgPack = null;
 					if (this.srcAddr.equals(this.dstAddr)) {
-						recMsgPack = obtainMsgData(this.srcParId, this.bid, this.iteNum);
+						recMsgPack = 
+							obtainMsgData(this.srcParId, this.bid, this.iteNum);
 					} else {
-						CommunicationServerProtocol comm = commRT.getCommServer(this.dstAddr);
+						CommunicationServerProtocol<V, W, M, I> comm = 
+							commRT.getCommServer(this.dstAddr);
 						if (comm == null) {
-							LOG.error("[PullMsgDataThread]: comm is null " + dstAddr.toString());
+							LOG.error("[PullMsgDataThread]: comm is null " 
+									+ dstAddr.toString());
 							this.isOver = true;
 							return isOver;
 						} else {
-							recMsgPack = comm.obtainMsgData(this.srcParId, this.bid, this.iteNum);
+							recMsgPack = 
+								comm.obtainMsgData(this.srcParId, this.bid, this.iteNum);
 							_msg_init_net = recMsgPack.getMsgProNum();
 							_msg_net = recMsgPack.getMsgRecNum();
 						}
@@ -150,7 +160,8 @@ public class CommunicationServer implements CommunicationServerProtocol {
 					
 					_msg_rec = recMsgPack.getMsgRecNum();
 					updateCounters(recMsgPack.getIOByte(), 
-							recMsgPack.getReadEdgeNum(), recMsgPack.getReadFragNum(),
+							recMsgPack.getReadEdgeNum(), 
+							recMsgPack.getReadFragNum(),
 							recMsgPack.getMsgProNum(), _msg_rec, 
 							_msg_init_net, _msg_net, 0L);
 					/** 
@@ -175,7 +186,8 @@ public class CommunicationServer implements CommunicationServerProtocol {
 		}
 	}
 	
-	public CommunicationServer (BSPJob job, int parId, TaskAttemptID taskId) throws Exception {
+	public CommunicationServer (BSPJob job, int parId, TaskAttemptID taskId) 
+			throws Exception {
 		this.conf = new HamaConfiguration();
 		this.jobId = job.getJobID();
 		this.parId = parId;
@@ -185,9 +197,10 @@ public class CommunicationServer implements CommunicationServerProtocol {
 		this.pullMsgResult = new ArrayList<Future<Boolean>>(taskNum);
 		LOG.info("start msg handle threads: " + taskNum);
 		
-		this.commRT = new CommRouteTable(job, this.parId);
+		this.commRT = new CommRouteTable<V, W, M, I>(job, this.parId);
 		this.bindAddr = job.get("host");
-		this.serverPort = conf.getInt(Constants.PEER_PORT, Constants.DEFAULT_PEER_PORT) 
+		this.serverPort = conf.getInt(Constants.PEER_PORT, 
+				Constants.DEFAULT_PEER_PORT) 
 				+ Integer.parseInt(jobId.toString().substring(17)) 
 				+ Integer.parseInt(taskId.toString().substring(26,32));
 		this.peerAddr = new InetSocketAddress(this.bindAddr, this.serverPort);
@@ -201,12 +214,13 @@ public class CommunicationServer implements CommunicationServerProtocol {
 		this.counter = new AtomicInteger(0);
 	}
 	
-	public void bindGraphData(GraphDataServer _graphDataServer, int _locBucNum) {
+	public void bindGraphData(GraphDataServer<V, W, M, I> _graphDataServer, 
+			int _locBucNum) {
 		graphDataServer = _graphDataServer;
 		this.localBucNum = _locBucNum;
 	}
 	
-	public void bindMsgDataServer(MsgDataServer _msgDataServer) {
+	public void bindMsgDataServer(MsgDataServer<V, W, M, I> _msgDataServer) {
 		msgDataServer = _msgDataServer;
 	}
 	
@@ -220,14 +234,17 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	
 	/**
 	 * Push messages to target vertices.
-	 * First, search the route table for each message and save it in the sendMessageBuffer.
-	 * Second, if the sendMessageBuffer is full, then send messages to the target task.
+	 * First, search the route table for each message 
+	 * and save it in the sendMessageBuffer.
+	 * Second, if the sendMessageBuffer is full, 
+	 * then send messages to the target task.
 	 * If the target task is itself, save messages on the
 	 * local disk directly, else send messages by RPC Server.
 	 * @param result
 	 * @param superStepCounter
 	 */
-	public void pushMsgData(MsgRecord[] msgData, int _iteNum) throws Exception {
+	public void pushMsgData(MsgRecord<M>[] msgData, int _iteNum) 
+			throws Exception {
 		int dstVid, dstPid, pro_msg = msgData.length;
 		updateCounters(0L, 0L, 0L, pro_msg, pro_msg, 0L, 0L, 0L);
 		
@@ -238,7 +255,7 @@ public class CommunicationServer implements CommunicationServerProtocol {
 			case NORMAL :
 				break;
 			case OVERFLOW :
-				MsgPack msgPack = this.msgDataServer.getMsgPack(dstPid);
+				MsgPack<V, W, M, I> msgPack = this.msgDataServer.getMsgPack(dstPid);
 				InetSocketAddress dstAddress = commRT.getInetSocketAddress(dstPid);
 				if (this.pushMsgResult.containsKey(dstPid)) {
 					Future<Boolean> monitor = this.pushMsgResult.remove(dstPid);
@@ -269,7 +286,7 @@ public class CommunicationServer implements CommunicationServerProtocol {
 		for (int dstParId = 0; dstParId < taskNum; dstParId++) {
 			dstAddr = commRT.getInetSocketAddress(dstParId);
 			if (this.msgDataServer.getSendBufferLen(dstParId) > 0) {
-				MsgPack pack = this.msgDataServer.getMsgPack(dstParId);
+				MsgPack<V, W, M, I> pack = this.msgDataServer.getMsgPack(dstParId);
 				startPushMsgDataThread(dstParId, dstAddr, iteNum, pack);
 			}
 		}
@@ -291,18 +308,22 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	
 	/**
 	 * Pull messages from source vertices.
-	 * First, signal each essential source task to produce messages based on source vertices.
-	 * Second, pull messages in {@link MsgPack} one by one for each source task, 
+	 * First, signal each essential source task to 
+	 * produce messages based on source vertices.
+	 * Second, pull messages in {@link MsgPack} 
+	 * one by one for each source task, 
 	 * and combine them.
 	 * Wait until all messages have been pulled and combined.
-	 * For local messages, directly combine them, otherwise, get them by RPC Server.
+	 * For local messages, directly combine them, 
+	 * otherwise, get them by RPC Server.
 	 * @param _srcParId
 	 * @param _bid
 	 * @param _iteNum
 	 * @return
 	 * @throws Exception
 	 */
-	public long pullMsgFromSource(int _srcParId, int _bid, int _iteNum) throws Exception {
+	public long pullMsgFromSource(int _srcParId, int _bid, int _iteNum) 
+			throws Exception {
 		if (_iteNum == 1) {
 			return 0L;
 		}
@@ -356,7 +377,8 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	 */
 	public synchronized void updateCounters(long _io_byte, 
 			long _read_edge, long _read_fragment,
-			long _msg_pro, long _msg_rec, long _msg_init_net, long _msg_net, long _msg_disk) {
+			long _msg_pro, long _msg_rec, 
+			long _msg_init_net, long _msg_net, long _msg_disk) {
 		this.io_byte += _io_byte;
 		this.read_edge += _read_edge;
 		this.read_fragment += _read_fragment;
@@ -370,7 +392,8 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	/** 
 	 * Return io_byte when pulling messages from source vertices.
 	 * Only make sense for style.Pull.
-	 * It is produced due to reading fragments and vertex_values in source tasks.
+	 * It is produced due to reading fragments 
+	 * and vertex_values in source tasks.
 	 */
 	public long getIOByte() {
 		return this.io_byte;
@@ -428,9 +451,10 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	}
 	
 	private void startPushMsgDataThread(int dstParId, InetSocketAddress dstAddr, 
-			int iteNum, MsgPack msgPack) {
+			int iteNum, MsgPack<V, W, M, I> msgPack) {
 		Future<Boolean> future = this.msgHandlePool.submit(
-				new PushMsgDataThread(parId, dstParId, iteNum, msgPack, peerAddr, dstAddr));
+				new PushMsgDataThread(parId, dstParId, iteNum, 
+						msgPack, peerAddr, dstAddr));
 		this.pushMsgResult.put(dstParId, future);
 	}
 	
@@ -465,7 +489,8 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	}
 	
 	@Override
-	public long recMsgData(int srcParId, int iteNum, MsgPack pack) throws Exception {
+	public long recMsgData(int srcParId, int iteNum, MsgPack<V, W, M, I> pack) 
+			throws Exception {
 		if (pack.size() > 0) {
 			return this.msgDataServer.recMsgData(srcParId, pack);
 		} else {
@@ -474,7 +499,8 @@ public class CommunicationServer implements CommunicationServerProtocol {
 	}
 	
 	@Override
-	public MsgPack obtainMsgData(int _srcParId, int _bid, int _iteNum) throws Exception {
+	public MsgPack<V, W, M, I> obtainMsgData(int _srcParId, int _bid, int _iteNum) 
+			throws Exception {
 		return this.graphDataServer.getMsg(_srcParId, _bid, _iteNum);
 	}
 	
@@ -536,7 +562,7 @@ public class CommunicationServer implements CommunicationServerProtocol {
 		this.msgHandlePool.shutdownNow();
 	}
 	
-	public final CommRouteTable getCommRouteTable() {
+	public final CommRouteTable<V, W, M, I> getCommRouteTable() {
 		return this.commRT;
 	}
 	

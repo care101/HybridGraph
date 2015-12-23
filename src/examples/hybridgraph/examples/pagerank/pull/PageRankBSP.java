@@ -9,7 +9,7 @@ import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRMsgRecord;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hama.Constants.Opinion;
-import org.apache.hama.bsp.BSPJob;
+//import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.util.GraphContext;
 import org.apache.hama.myhama.util.TaskContext;
@@ -36,7 +36,7 @@ public class PageRankBSP extends BSP {
 	
 	@Override
 	public void taskSetup(TaskContext context) {
-		BSPJob job = context.getBSPJob();
+		//BSPJob job = context.getBSPJob();
 		//RandomRate = (1 - FACTOR) / (float)job.getGloVerNum();
 		RandomRate = 0.15;
 	}

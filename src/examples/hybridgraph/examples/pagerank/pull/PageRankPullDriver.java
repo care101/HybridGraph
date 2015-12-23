@@ -57,6 +57,8 @@ public class PageRankPullDriver {
 		  bsp.useGraphInfo(true);
 		  bsp.setMsgPackSize(Integer.valueOf(args[6]));
 		
+		bsp.setGraphDataOnDisk(true);
+		  
 		//submit the job
 		bsp.waitForCompletion(true);
 	}

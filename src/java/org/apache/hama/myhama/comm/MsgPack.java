@@ -7,20 +7,16 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.IOException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.io.Writable;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
 
-public class MsgPack implements Writable {
-	private static final Log LOG = LogFactory.getLog(MsgPack.class);
-	
-	private MsgRecord[] msgData;
+public class MsgPack<V, W, M, I> implements Writable {
+	private MsgRecord<M>[] msgData;
 	private int size; //#target vertices
 	private ByteArrayOutputStream bos;
 	private DataInputStream inputStream;
-	private UserTool userTool;
+	private UserTool<V, W, M, I> userTool;
 	private long io_byte; //io bytes during pulling messages based on edges
 	private Long edge_read = 0L;
 	private Long fragment_read = 0L;
@@ -33,11 +29,11 @@ public class MsgPack implements Writable {
 		
 	}
 	
-	public MsgPack(UserTool _userTool) {
+	public MsgPack(UserTool<V, W, M, I> _userTool) {
 		this.userTool = _userTool;
 	}
 	
-	public void setUserTool(UserTool _userTool) {
+	public void setUserTool(UserTool<V, W, M, I> _userTool) {
 		this.userTool = _userTool;
 	}
 	
@@ -68,7 +64,7 @@ public class MsgPack implements Writable {
 	 * @param _msgProNum
 	 * @param _msgRecNum
 	 */
-	public void setLocal(MsgRecord[] msgData, int _size,
+	public void setLocal(MsgRecord<M>[] msgData, int _size,
 			long _msgProNum, long _msgRecNum) {
 		this.msgData = msgData;
 		this.size = _size;
@@ -91,7 +87,7 @@ public class MsgPack implements Writable {
 		this.msg_rec = _msgRecNum;
 	}
 	
-	public MsgRecord[] get() throws IOException {
+	public MsgRecord<M>[] get() throws IOException {
 		if (this.size > 0 && this.msgData == null) {
 			deserialize();
 		}
@@ -124,9 +120,9 @@ public class MsgPack implements Writable {
 	}
 	
 	private void deserialize() throws IOException {
-		this.msgData = new MsgRecord[this.size];
+		this.msgData = (MsgRecord<M>[]) new MsgRecord[this.size];
 		for (int index = 0; index < this.size; index++) {
-			MsgRecord msgRecord = this.userTool.getMsgRecord();
+			MsgRecord<M> msgRecord = this.userTool.getMsgRecord();
 			msgRecord.deserialize(this.inputStream);
 			this.msgData[index] = msgRecord;
 		}

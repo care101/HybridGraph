@@ -18,7 +18,8 @@ import org.apache.hama.myhama.comm.SuperStepCommand;
  * @author 
  * @version 0.1
  */
-public interface CommunicationServerProtocol extends BSPRPCProtocolVersion,
+public interface CommunicationServerProtocol<V, W, M, I> 
+		extends BSPRPCProtocolVersion,
 		Closeable, Constants {
 	public int parId = 0;
 	
@@ -42,7 +43,8 @@ public interface CommunicationServerProtocol extends BSPRPCProtocolVersion,
 	 * @return #messagesOnDisk for push
 	 * @throws Exception
 	 */
-	public long recMsgData(int srcParId, int iteNum, MsgPack pack) throws Exception;
+	public long recMsgData(int srcParId, int iteNum, 
+			MsgPack<V, W, M, I> pack) throws Exception;
 	
 	/**
 	 * Obtain {@link MsgRecord} from tasks which contain edges.
@@ -52,7 +54,8 @@ public interface CommunicationServerProtocol extends BSPRPCProtocolVersion,
 	 * @param _iteNum
 	 * @return
 	 */
-	public MsgPack obtainMsgData(int _srcParId, int _bid, int _iteNum) throws Exception;
+	public MsgPack<V, W, M, I> obtainMsgData(int _srcParId, int _bid, int _iteNum) 
+			throws Exception;
 	
 	/**
 	 * Set the command for the next SuperStep.

@@ -131,20 +131,6 @@ public interface Constants {
   public static enum CommandType {
 	  START, CHECKPOINT, RECOVERY, STOP
   }
-  
-  public static enum GraphStatus {
-	  DIVERGENT, STEADY, CONVERGENT, NONE
-  }
-  
-  public static enum AdjustType {
-	  SPLIT, MERGE, NONE
-  }
-  
-  public static class Switch {
-	  public static final boolean OPEN = true;
-	  public static final boolean CLOSE = false;
-  }
-
 
   // Other constants
 

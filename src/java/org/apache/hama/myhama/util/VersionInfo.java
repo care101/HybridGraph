@@ -5,13 +5,13 @@ package org.apache.hama.myhama.util;
  * 
  * A version information class.
  * 
- * @author root
- * @version 0.2
+ * @author zhigang wang
+ * @version 0.1
  */
 public class VersionInfo {
 
     public static String getVersionInfo() {
-        return "beta-0.2";
+        return "beta-0.1";
     }
     
     public static String getSourceCodeInfo() {
@@ -19,14 +19,14 @@ public class VersionInfo {
     }
     
     public static String getCompilerInfo() {
-        return "root on " + getCompilerDateInfo();
+        return "zhigang wang on " + getCompilerDateInfo();
     }
     
     public static String getWorkPlaceInfo() {
-    	return "Unknown";
+    	return "Northeastern University, China";
     }
     
     private static String getCompilerDateInfo() {
-        return "10/08/2015";
+        return "12/23/2015";
     }
 }

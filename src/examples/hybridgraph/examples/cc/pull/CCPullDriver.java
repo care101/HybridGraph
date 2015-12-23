@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.lpa.pull;
+package hybridgraph.examples.cc.pull;
 
 import org.apache.hadoop.fs.Path;
 
@@ -12,25 +12,23 @@ import org.apache.hama.myhama.io.KeyValueInputFormat;
 import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 
 /**
- * LPADriver.java
- * A driven program is used to submit the community detection job 
- * based on the LPA algorithm.
+ * CCDriver.java
+ * A driven program is used to submit the connected component computation job.
  * 
  * @author 
- * @version 0.2
+ * @version 0.1
  */
-public class LPAPullDriver {
+public class CCPullDriver {
 	
 	public static void main(String[] args) throws Exception {
 		//check the input parameters
 		if (args.length != 7) {
 			StringBuffer sb = 
-				new StringBuffer("the community detection job " +
-						"must be given arguments(7):");
+				new StringBuffer("the connected component job must be given arguments(7):"); 
 			sb.append("\n  [1] input directory on HDFS"); 
-			sb.append("\n  [2] output directory on HDFS"); 
-			sb.append("\n  [3] #tasks(int)"); 
-			sb.append("\n  [4] #iteration(int)"); 
+			sb.append("\n  [2] output directory on HDFS");
+			sb.append("\n  [3] #tasks(int)");
+			sb.append("\n  [4] #iteration(int)");
 			sb.append("\n  [5] #vertex");
 			sb.append("\n  [6] #bucket");
 			sb.append("\n  [7] msg_pack for style.Pull(int, 10^4 default)");
@@ -41,11 +39,11 @@ public class LPAPullDriver {
 
 		//set the job configuration
 		HamaConfiguration conf = new HamaConfiguration();
-		BSPJob bsp = new BSPJob(conf, LPAPullDriver.class);
-		bsp.setJobName("LPA");
-		bsp.setBspClass(LPABSP.class);
-		bsp.setPriority(Constants.PRIORITY.NORMAL);
-		bsp.setUserToolClass(LPAUserTool.class);
+		BSPJob bsp = new BSPJob(conf, CCPullDriver.class);
+		bsp.setJobName("CC-Range");
+		bsp.setBspClass(CCBSP.class);
+		bsp.setPriority(Constants.PRIORITY.NORMAL);		
+		bsp.setUserToolClass(CCUserTool.class);
 		bsp.setInputFormatClass(KeyValueInputFormat.class);
 		bsp.setOutputFormatClass(TextBSPFileOutputFormat.class);
 		
@@ -58,6 +56,8 @@ public class LPAPullDriver {
 		
 		bsp.setBspStyle(Constants.STYLE.Pull);
 		  bsp.setMsgPackSize(Integer.valueOf(args[6]));
+		
+		bsp.setGraphDataOnDisk(true);
 		
 		//submit the job
 		bsp.waitForCompletion(true);

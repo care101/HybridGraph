@@ -614,6 +614,9 @@ class JobInProgress {
 			}
 		}
 		
+		//just for testing
+		//this.curIteStyle = Constants.STYLE.Pull; //always pull in the hybrid
+		
 		//for the next superstep
 		ssc.setIteStyle(this.curIteStyle);
 		if (this.curIteStyle==Constants.STYLE.Push) {

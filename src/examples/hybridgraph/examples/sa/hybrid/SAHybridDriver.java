@@ -64,6 +64,8 @@ public class SAHybridDriver {
 		  bsp.setMsgRecBufSize(Integer.valueOf(args[8]));
 		  bsp.setStartIteStyle(Integer.valueOf(args[9]));
 		
+		bsp.setGraphDataOnDisk(true);
+		  
 		// set the source vertex id
 		bsp.setInt(SABSP.SOURCE, Integer.valueOf(args[10]));
 		

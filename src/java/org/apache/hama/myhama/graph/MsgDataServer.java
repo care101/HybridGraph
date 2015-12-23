@@ -34,7 +34,7 @@ import org.apache.hama.myhama.comm.MsgPack;
  * @author 
  * @version 0.1
  */
-public class MsgDataServer {
+public class MsgDataServer<V, W, M, I> {
 	private static final Log LOG = LogFactory.getLog(MsgDataServer.class);
 	
 	private class MemoryUsage {
@@ -45,7 +45,8 @@ public class MsgDataServer {
 		private long usedByPreCache;
 		
 		/**
-		 * Constructor, should be invoked after taskNum and locBucNum are available.
+		 * Constructor, 
+		 * should be invoked after taskNum and locBucNum are available.
 		 */
 		public MemoryUsage() {
 			this.usedBySendBuf = new long[taskNum];
@@ -101,11 +102,13 @@ public class MsgDataServer {
 		}
 		
 		public void updateIncomedBuf(int srcParBucId, long mem) {
-			this.usedByIncomedBuf[srcParBucId] = Math.max(this.usedByIncomedBuf[srcParBucId], mem);
+			this.usedByIncomedBuf[srcParBucId] = 
+				Math.max(this.usedByIncomedBuf[srcParBucId], mem);
 		}
 		
 		public void updateIncomingBuf(int srcParBucId, long mem) {
-			this.usedByIncomingBuf[srcParBucId] = Math.max(this.usedByIncomingBuf[srcParBucId], mem);
+			this.usedByIncomingBuf[srcParBucId] = 
+				Math.max(this.usedByIncomingBuf[srcParBucId], mem);
 		}
 		
 		public void updateCache(long mem) {
@@ -120,17 +123,17 @@ public class MsgDataServer {
 	private int bspStyle = -1;
 	private boolean isAccumulated;
 	
-	private UserTool userTool;
+	private UserTool<V, W, M, I> userTool;
 	private int[] verMinIds; //len is bucNum
 	
 	/** used by push and pull */
-	private MsgRecord[] cache; //capacity is bucketLen
+	private MsgRecord<M>[] cache; //capacity is bucketLen
 	private long msgNum;
 	private long cacheMem;
 	
 	/** used in push or pull&accumulated, 
 	 * pre-fetch messages from local memory/disk or remote source-tasks **/
-	private MsgRecord[] pre_cache; //capacity is bucketLen
+	private MsgRecord<M>[] pre_cache; //capacity is bucketLen
 	private long pre_msgNum;
 	private long pre_cacheMem;
 	
@@ -139,7 +142,7 @@ public class MsgDataServer {
 	private int taskNum = 0;
 	private int MESSAGE_SEND_BUFFER_THRESHOLD;
 	private int MESSAGE_RECEIVE_BUFFER_THRESHOLD;
-	private ArrayList<MsgRecord>[] sendBuffer; // [DstPartitionId]: msgs
+	private ArrayList<MsgRecord<M>>[] sendBuffer; //[DstPartitionId]: msgs
 	private int[] sendBufferLen;
 	
 	private File rootDir;
@@ -152,9 +155,9 @@ public class MsgDataServer {
 	private int locBucNum = -1;
 	private boolean[][] locBucHitFlags; //[srcParId]: local_bucket_ids
 	
-	private MsgRecord[][] incomingBuffer;  //[SrcParBucId]: <dstId, msgValue>
-	private MsgRecord[][] incomedBuffer;  //[SrcParBucId]: <dstId, msgValue>
-	private int[] incomingBufLen;  //[SrcParBucId]: the length of incomingBuffer
+	private MsgRecord<M>[][] incomingBuffer; //[SrcParBucId]: <dstId, msgValue>
+	private MsgRecord<M>[][] incomedBuffer; //[SrcParBucId]: <dstId, msgValue>
+	private int[] incomingBufLen; //[SrcParBucId]: the length of incomingBuffer
 	private long[] incomingBufByte;
 	
 	private ExecutorService locMemPullExecutor;
@@ -174,15 +177,16 @@ public class MsgDataServer {
 		this.bspStyle = job.getBspStyle();
 		this.taskNum = job.getNumBspTask();
 		
-		cache = new MsgRecord[_bucLen];
+		cache = (MsgRecord<M>[]) new MsgRecord[_bucLen];
 		verMinIds = _verMinIds;
 		this.locBucLen = _bucLen;
 		this.locBucNum = _bucNum;
 		this.memUsage = new MemoryUsage();
 		
 		userTool = 
-	    	(UserTool) ReflectionUtils.newInstance(job.getConf().getClass(
-	    			Constants.USER_JOB_TOOL_CLASS, UserTool.class), job.getConf());
+	    	(UserTool<V, W, M, I>) 
+	    	ReflectionUtils.newInstance(job.getConf().getClass(
+	    		Constants.USER_JOB_TOOL_CLASS, UserTool.class), job.getConf());
 		this.isAccumulated = userTool.isAccumulated();
 		for (int i = 0; i < _bucLen; i++) {
 			cache[i] = userTool.getMsgRecord();
@@ -193,7 +197,7 @@ public class MsgDataServer {
 		/** used in push or pull/hybrid&accumulated **/
 		if (this.bspStyle!=Constants.STYLE.Pull 
 				|| this.isAccumulated) {
-			this.pre_cache = new MsgRecord[this.locBucLen];
+			this.pre_cache = (MsgRecord<M>[]) new MsgRecord[this.locBucLen];
 			this.pre_msgNum = 0L;
 			for (int i = 0; i < _bucLen; i++) {
 				this.pre_cache[i] = userTool.getMsgRecord();
@@ -206,9 +210,11 @@ public class MsgDataServer {
 			MESSAGE_SEND_BUFFER_THRESHOLD = job.getMsgSendBufSize(); 
 			MESSAGE_RECEIVE_BUFFER_THRESHOLD = 1 + 
 				job.getMsgRecBufSize() / (this.taskNum*this.locBucNum);
-			LOG.info("initialize send_buffer=" + MESSAGE_SEND_BUFFER_THRESHOLD 
+			LOG.info("initialize send_buffer=" 
+					+ MESSAGE_SEND_BUFFER_THRESHOLD 
 					+ " (#, per dstTask, used in Push)");
-			LOG.info("initialize receive_buffer=" + MESSAGE_RECEIVE_BUFFER_THRESHOLD 
+			LOG.info("initialize receive_buffer=" 
+					+ MESSAGE_RECEIVE_BUFFER_THRESHOLD 
 					+ " (#, per (#tasks*#local_buckets), used in Push)" 
 					+ " and total_buffer=" + job.getMsgRecBufSize() 
 					+ " (#, per dstTask)");
@@ -217,14 +223,15 @@ public class MsgDataServer {
 			this.sendBuffer = new ArrayList[this.taskNum];
 			this.sendBufferLen = new int[this.taskNum];
 			for (int index = 0; index < this.taskNum; index++) {
-				this.sendBuffer[index] = new ArrayList<MsgRecord>();
+				this.sendBuffer[index] = new ArrayList<MsgRecord<M>>();
 			}
 			
 			this.rootDir = new File(_rootDir);
 			if (!this.rootDir.exists()) {
 				this.rootDir.mkdirs();
 			}
-			this.msgDataDir = new File(this.rootDir, Constants.Graph_Msg_Dir);
+			this.msgDataDir = 
+				new File(this.rootDir, Constants.Graph_Msg_Dir);
 			if (!this.msgDataDir.exists()) {
 				this.msgDataDir.mkdir();
 			}
@@ -237,8 +244,8 @@ public class MsgDataServer {
 			
 			/** used in push: receive messages */
 			int length = this.taskNum * this.locBucNum;
-		    this.incomingBuffer = new MsgRecord[length][];
-		    this.incomedBuffer = new MsgRecord[length][];
+		    this.incomingBuffer = (MsgRecord<M>[][]) new MsgRecord[length][];
+		    this.incomedBuffer = (MsgRecord<M>[][])new MsgRecord[length][];
 		    this.incomingBufLen = new int[length];
 		    this.incomingBufByte = new long[length];
 		    
@@ -270,7 +277,7 @@ public class MsgDataServer {
 	//       Used for push: manage sending and receiving messages
 	//===============================================================
 	/** Put messages into the sendBuffer and return the status of buffer */
-	public BufferStatus putIntoSendBuffer(int dstPid, MsgRecord msg) {
+	public BufferStatus putIntoSendBuffer(int dstPid, MsgRecord<M> msg) {
 		/*if (this.sendBuffer[dstPid].containsKey(msg.getDstVerId())) {
 			this.sendBuffer[dstPid].get(msg.getDstVerId()).collect(msg);
 			if (!this.isAccumulated) {
@@ -284,7 +291,8 @@ public class MsgDataServer {
 		this.sendBuffer[dstPid].add(msg);
 		this.sendBufferLen[dstPid]++;
 		
-		if (this.sendBufferLen[dstPid] >= this.MESSAGE_SEND_BUFFER_THRESHOLD) {
+		if (this.sendBufferLen[dstPid] 
+		                       >= this.MESSAGE_SEND_BUFFER_THRESHOLD) {
 			return BufferStatus.OVERFLOW;
 		} else {
 			return BufferStatus.NORMAL;
@@ -292,24 +300,27 @@ public class MsgDataServer {
 	}
 	
 	/** Get one {@link MsgPack} and then clear the related buffer */
-	public MsgPack getMsgPack(int dstPid) throws Exception {
-		MsgPack msgPack = new MsgPack(userTool); //message pack
+	public MsgPack<V, W, M, I> getMsgPack(int dstPid) throws Exception {
+		MsgPack<V, W, M, I> msgPack = 
+			new MsgPack<V, W, M, I>(userTool); //message pack
 		int counter = 0;
 		long mem = 0L;
 		
 		if (this.parId == dstPid) {
-			MsgRecord[] msgData = new MsgRecord[this.sendBuffer[dstPid].size()];
-			for (MsgRecord msg: this.sendBuffer[dstPid]) {
+			MsgRecord<M>[] msgData = 
+				(MsgRecord<M>[]) new MsgRecord[this.sendBuffer[dstPid].size()];
+			for (MsgRecord<M> msg: this.sendBuffer[dstPid]) {
 				msgData[counter++] = msg;
 				mem += msg.getMsgByte();
 			}
-			/** counter may not be equal with this.sendBufferLen[dstPid] due to Combiner */
+			/** counter may != this.sendBufferLen[dstPid] due to Combiner */
 			msgPack.setEdgeInfo(0L, 0L, 0L);
 			msgPack.setLocal(msgData, counter, 0L, this.sendBufferLen[dstPid]);
 		} else {
-			ByteArrayOutputStream bytes = new ByteArrayOutputStream(this.sendBuffer[dstPid].size());
+			ByteArrayOutputStream bytes = 
+				new ByteArrayOutputStream(this.sendBuffer[dstPid].size());
 			DataOutputStream stream = new DataOutputStream(bytes);
-			for (MsgRecord msg: this.sendBuffer[dstPid]) {
+			for (MsgRecord<M> msg: this.sendBuffer[dstPid]) {
 				msg.serialize(stream);
 				counter++;
 			}
@@ -317,7 +328,7 @@ public class MsgDataServer {
 			bytes.close();
 			mem += stream.size();
 			
-			/** counter may not be equal with this.sendBufferLen[dstPid] due to Combiner */
+			/** counter may != this.sendBufferLen[dstPid] due to Combiner */
 			msgPack.setEdgeInfo(0L, 0L, 0L);
 			msgPack.setRemote(bytes, counter, 0L, this.sendBufferLen[dstPid]);
 		}
@@ -345,19 +356,21 @@ public class MsgDataServer {
 	/** 
 	 *  Receive messages, used in push.
 	 *  Store them in incomingBuffer first, 
-	 *  and spill the buffer targeted to one bucket onto disk if it is overflow.
+	 *  and spill the buffer targeted to one bucket 
+	 *  onto disk if it is overflow.
 	 *  
 	 * @param srcParId
 	 * @param pack
 	 * 
 	 * @return #messages on disk
 	 */
-	public long recMsgData(int srcParId, MsgPack pack) throws Exception {
+	public long recMsgData(int srcParId, MsgPack<V, W, M, I> pack) 
+			throws Exception {
 		pack.setUserTool(this.userTool);
 		int bid = -1, pbid = -1;
 		long msgCountOnDisk = 0L;
 		
-		for (MsgRecord msg: pack.get()) {
+		for (MsgRecord<M> msg: pack.get()) {
 			bid = (msg.getDstVerId()-this.locVerMinId) / this.locBucLen;
 			pbid = srcParId * this.locBucNum + bid;
 			if (!this.locBucHitFlags[srcParId][bid]) {
@@ -369,14 +382,16 @@ public class MsgDataServer {
 			this.incomingBufByte[pbid] += msg.getMsgByte();
 			
 			if (this.incomingBufLen[pbid] >= MESSAGE_RECEIVE_BUFFER_THRESHOLD) {
-				File file = new File(this.msgDataIncomingDir, getBucketDirName(bid));
+				File file = 
+					new File(this.msgDataIncomingDir, getBucketDirName(bid));
 				msgCountOnDisk = this.incomingBufLen[pbid];
 				
 				spillMsgToDisk(file, srcParId, this.incomingBuffer[pbid], 
 						this.incomingBufLen[pbid], this.incomingBufByte[pbid]);
 				this.memUsage.updateIncomingBuf(pbid, this.incomingBufByte[pbid]);
 				
-				this.incomingBuffer[pbid] = new MsgRecord[MESSAGE_RECEIVE_BUFFER_THRESHOLD];
+				this.incomingBuffer[pbid] = 
+					(MsgRecord<M>[]) new MsgRecord[MESSAGE_RECEIVE_BUFFER_THRESHOLD];
 				this.incomingBufLen[pbid] = 0;
 				this.incomingBufByte[pbid] = 0;
 			}
@@ -390,7 +405,7 @@ public class MsgDataServer {
 	 * instead of sending them at the same time.
 	 * */
 	private boolean spillMsgToDisk(File mes, int srcParId, 
-			MsgRecord[] messages, int length, long bytes) throws Exception {
+			MsgRecord<M>[] messages, int length, long bytes) throws Exception {
 		File mes_spill;
 		if(!mes.exists()) {
 			mes.mkdir();
@@ -424,7 +439,8 @@ public class MsgDataServer {
 		int length = this.taskNum * this.locBucNum;
 		for (int pbid = 0; pbid < length; pbid++) {
 			if (this.incomingBufLen[pbid] > 0) {
-				this.incomedBuffer[pbid] = new MsgRecord[this.incomingBufLen[pbid]];
+				this.incomedBuffer[pbid] = 
+					(MsgRecord<M>[]) new MsgRecord[this.incomingBufLen[pbid]];
 				for (int i = 0; i < this.incomingBufLen[pbid]; i++) {
 					this.incomedBuffer[pbid][i] = this.incomingBuffer[pbid][i];
 				}
@@ -551,13 +567,14 @@ public class MsgDataServer {
 	 * @param recMsgPack
 	 * @throws Exception
 	 */
-	public void putIntoBuf(int _bid, int _iteNum, MsgPack recMsgPack) throws Exception {
+	public void putIntoBuf(int _bid, int _iteNum, MsgPack<V, W, M, I> recMsgPack) 
+			throws Exception {
 		recMsgPack.setUserTool(userTool);
 		
 		if (this.isAccumulated) {
 			this.addPreMsgNum(recMsgPack.getMsgRecNum());
 			int index = 0;
-			for (MsgRecord msg: recMsgPack.get()) {
+			for (MsgRecord<M> msg: recMsgPack.get()) {
 				index = msg.getDstVerId() - verMinIds[_bid];
 				/** Lock for each target vertex, 
 				 * different ones may be processed at the same time */
@@ -566,7 +583,7 @@ public class MsgDataServer {
 		} else {
 			this.addMsgNum(recMsgPack.getMsgRecNum()); //synchronize method
 			int index = 0;
-			for (MsgRecord msg: recMsgPack.get()) {
+			for (MsgRecord<M> msg: recMsgPack.get()) {
 				index = msg.getDstVerId() - verMinIds[_bid];
 				/** Lock for each target vertex, 
 				 * different ones may be processed at the same time */
@@ -585,12 +602,17 @@ public class MsgDataServer {
 	 * Also, the receiving buffer should be cleared and created.
 	 * Single-Thread.
 	 **/
-	public void clearBefIte(int _iteNum, int _preIteStyle, int _curIteStyle) throws Exception {
+	public void clearBefIte(int _iteNum, int _preIteStyle, int _curIteStyle) 
+			throws Exception {
 		this.io_byte = 0L;
 		int cur_IteNum = _iteNum, next_IteNum = _iteNum+1;
 		
-		/** if preStyle==Push, switch incoming messages into incomed messages buffer,
-		 * also, initialize the disk dir of messages to prepare to read messages from disk */
+		/** 
+		 * if preStyle==Push, switch incoming messages 
+		 * into incomed messages buffer,
+		 * also, initialize the disk dir of messages 
+		 * to prepare to read messages from disk 
+		 **/
 		if (_preIteStyle == Constants.STYLE.Push) {
 			switchIncomingToIncomed();
 			this.msgDataIncomedDir = new File(this.msgDataDir, "ss-" + cur_IteNum);
@@ -603,7 +625,7 @@ public class MsgDataServer {
 			int length = this.taskNum * this.locBucNum;
 			for (int index = 0; index < length; index++) {
 				this.incomingBuffer[index] = 
-					new MsgRecord[MESSAGE_RECEIVE_BUFFER_THRESHOLD];
+					(MsgRecord<M>[]) new MsgRecord[MESSAGE_RECEIVE_BUFFER_THRESHOLD];
 				this.incomingBufLen[index] = 0;
 				this.incomingBufByte[index] = 0;
 			}
@@ -645,7 +667,7 @@ public class MsgDataServer {
 	}
 	
 	/** Get messages targeted to the _vid. null is returned if no messages */
-	public MsgRecord getMsg(int _bid, int _vid) {
+	public MsgRecord<M> getMsg(int _bid, int _vid) {
 		int index = _vid - verMinIds[_bid];
 		if (this.cache[index].isValid()) {
 			this.cacheMem += this.cache[index].getMsgByte();
@@ -661,7 +683,8 @@ public class MsgDataServer {
 	}
 	
 	/**
-	 * Return partial memory usage, must be invoked before getAndClearMemUsage().
+	 * Return partial memory usage, 
+	 * must be invoked before getAndClearMemUsage().
 	 * Only include: incomingBuf, incomedBuf, cache, and pre_cache.
 	 * @return
 	 */
@@ -715,7 +738,8 @@ public class MsgDataServer {
 						continue;
 					}
 					
-					for (int index = 0; index < incomedBuffer[srcPBID].length; index++) {
+					for (int index = 0; 
+							index < incomedBuffer[srcPBID].length; index++) {
 						dstId = incomedBuffer[srcPBID][index].getDstVerId();
 						msgIndex = dstId - this.startIndex;
 						pre_cache[msgIndex].collect(incomedBuffer[srcPBID][index]);
@@ -740,7 +764,6 @@ public class MsgDataServer {
 	private class LocalDiskPullThread implements Callable<Boolean> {
 		private int startIndex;
 		private File fileName;
-		private long io = 0L;
 		
 		public LocalDiskPullThread(int _startIndex, File _fileName) {
 			this.startIndex = _startIndex;
@@ -751,13 +774,15 @@ public class MsgDataServer {
 		public Boolean call() {
 			boolean flag = false;
 			try{
-				FileChannel fc = new RandomAccessFile(this.fileName, "r").getChannel();
-				MappedByteBuffer mbb = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+				FileChannel fc = 
+					new RandomAccessFile(this.fileName, "r").getChannel();
+				MappedByteBuffer mbb = 
+					fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
 				int dstId = -1, msgIndex = 0;
 				long counter = 0L;
 				
 				while (mbb.hasRemaining()) {
-					MsgRecord message = userTool.getMsgRecord();
+					MsgRecord<M> message = userTool.getMsgRecord();
 					message.deserialize(mbb);
 					dstId = message.getDstVerId();
 					msgIndex = dstId - this.startIndex;
