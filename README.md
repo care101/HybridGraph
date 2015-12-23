@@ -12,20 +12,19 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern Univeristy (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
-This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). 
-Suppose that HybridGraph is installed in `/usr/HybridGraph`.
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. Without loss of generality, suppose that HybridGraph is installed in `/usr/HybridGraph`.
 
 ###2.1 Requirements
 * Apache Ant 1.7.1 or higher version
 * Apache hadoop-0.20.2
 * Sun Java JDK 1.6.x or higher version
 
-###2.2 Deploying HybridGraph
-####2.2.1 download
+###2.2 Deploying HybridGraph   
+####2.2.1 download  
 `cd /usr`  
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
-####2.2.2 configuration
+####2.2.2 configuration  
 First, edit `/etc/profile` and add the following information:  
 `export HybridGraph_HOME=/usr/HybridGraph`   
 `export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
@@ -80,7 +79,7 @@ Second, edit configuration files in `HybridGraph_HOME/conf` as follows:
 `slave1`  
 `slave2`  
 
-####2.2.3  building  
+####2.2.3  building on   
 `cd $HybridGraph_HOME`  
 `ant`  
 Notice that you can build a specified part of HybridGraph as follows:  
@@ -90,9 +89,9 @@ Only build examples
 `ant examples.jar`   
 By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building.  
 
-####2.2.4 deploying
-Configurate three physical machines as described in Section 2.2.2, and then copy `termite-core-0.1.jar` to `$HybridGraph_HOME`. 
-In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HOME` on master.
+####2.2.4 deploying  
+First, configurate HybridGraph on the master machine as described in Sections 2.2.1-2.2.3, and then copy `$HybridGraph_HOME` to the same location on all slaves. 
+Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top level directory `$HybridGraph_HOME` on all machines.  
 
 ###2.3 Starting HybridGraph  
 * __starting HDFS:__  
@@ -102,7 +101,7 @@ In addition, `termite-examples-0.1.jar` also should be moved to `$HybridGraph_HO
 * __stopping HybridGraph:__  
 `stop-termite.sh`  
 
-###2.4 Running a Single Source Shortest Path (SSSP) job  
+###2.4 Running a Single Source Shortest Path (SSSP) job on master  
 First, create an example graph under input/file.txt on HDFS with the follwing:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
 `1	2:3:4`  
@@ -111,7 +110,7 @@ First, create an example graph under input/file.txt on HDFS with the follwing:
 `4	2`  
 Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
-`termite jar $HybridGraph_HOME/termite-examples-0.2.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+`termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -122,7 +121,7 @@ About arguments:
 [7] the sending threshold  
 [8] the source vertex id  
 * __SSSP (using hybrid):__  
-`termite jar $TERMITE_HOME/termite-examples-0.2.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+`termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
