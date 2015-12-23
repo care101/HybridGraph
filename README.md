@@ -12,14 +12,22 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern Univeristy (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
+This section describes how to compile, configurate, and deploy HybridGraph onto a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). 
+Suppose that HybridGraph is installed in `/usr/HybridGraph`.
+
 ###2.1 Requirements
-* hadoop-0.20.2
+* Apache Ant 1.7.1 or higher version
+* Apache hadoop-0.20.2
 * Sun Java JDK 1.6.x or higher version
 
-###2.2 Configurations
+###2.2 Deploying HybridGraph
+####2.2.1 download HybridGraph
+`cd /usr/`
+`git clone https://github.com/HybridGraph/HybridGraph.git`
+
 * __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
-* __$HybridGraph_HOME/conf/termite-site.xml:__ setting up the configurations of HybridGraph engine.  
+* __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
   `<property>`  
     `<name>bsp.master.address</name>`  
     `<value>master:40000</value>`  
@@ -68,7 +76,9 @@ The HybridGraph project started at Northeastern Univeristy (China) in 2011. Hybr
 `export TERMITE_CONF_DIR=/usr/termite-0.1/conf`  
 `export PATH=$PATH:$TERMITE_HOME/sbin`  
 
-###2.3 Starting HybridGraph  
+###2.3 
+
+###2.4 Starting HybridGraph  
 * __starting HDFS:__  
 `start-dfs.sh`  
 * __starting HybridGraph after NameNode has left safemode:__  
@@ -76,7 +86,7 @@ The HybridGraph project started at Northeastern Univeristy (China) in 2011. Hybr
 * __stopping HybridGraph:__  
 `$TERMITE_HOME/sbin/stop-termite.sh`  
 
-###2.4 Running a Single Source Shortest Path (SSSP) job  
+###2.5 Running a Single Source Shortest Path (SSSP) job  
 First, create an example graph under input/file.txt on HDFS with the follwing:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
 `1	2:3:4`  
