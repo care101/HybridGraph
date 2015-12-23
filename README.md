@@ -88,7 +88,7 @@ Notice that you can build a specified part of HybridGraph as follows:
 2) build examples  
 `ant examples.jar`   
 
-By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building. In addition, users also can import source code into Eplise as an existing Java project and build it using the `$HybridGraph_HOME/build.xml` file.
+By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building. In addition, users also can import source code into Eclipse as an existing Java project and build it using the `$HybridGraph_HOME/build.xml` file.
 
 ####2.2.4 deploying  
 First, configurate HybridGraph on the master machine as described in Sections 2.2.1-2.2.3, and then copy `$HybridGraph_HOME` to the same location on all slaves. 
