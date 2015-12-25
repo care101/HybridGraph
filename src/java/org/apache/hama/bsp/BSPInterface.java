@@ -4,8 +4,8 @@
 package org.apache.hama.bsp;
 
 import org.apache.hama.Constants.Opinion;
-import org.apache.hama.myhama.api.GraphRecord;
-import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.util.GraphContextInterface;
 import org.apache.hama.myhama.util.SuperStepContext;
 import org.apache.hama.myhama.util.TaskContext;
 
@@ -15,8 +15,13 @@ import org.apache.hama.myhama.util.TaskContext;
  * 
  * @author 
  * @version 0.1
+ * 
+ * @param <V> vertex value
+ * @param <W> edge weight
+ * @param <M> message value
+ * @param <I> graph information
  */
-public interface BSPInterface {
+public interface BSPInterface<V, W, M, I> {
 	/**
 	 * Setup befor executing the user-defined algorithm.
 	 * This function will be invoked by framework only once during the whole task.
@@ -32,7 +37,7 @@ public interface BSPInterface {
 	public void superstepSetup(SuperStepContext context);
 	
 	/**
-	 * Judge this bucket weather need to be processed.
+	 * Does this bucket need to be processed?
 	 * This function will be invoked for every Bucket in every SuperStep.
 	 * @param bucketId
 	 * @param currentSuperStepCounter
@@ -41,13 +46,26 @@ public interface BSPInterface {
 	public Opinion processThisBucket(int bucketId, int currentSuperStepCounter);
 	
 	/**
-	 * User-defined algorithm to process every Vertex.
-	 * This function must be implemented by user.
-	 * This function will be invoked for every {@link GraphRecord} 
-	 * in every SuperStep.
+	 * A user-defined function used to update the value of 
+	 * an active vertex.
+	 * 
 	 * @throws Exception
 	 */
-	public void compute(GraphContext context) throws Exception;
+	public void update(GraphContextInterface<V, W, M, I> context) 
+			throws Exception;
+	
+	/**
+	 * A user-defined function used to generate messages 
+	 * sent from the source vertex to its neighbors. 
+	 * Note: the edge collection may be varied with the value 
+	 * fo context.getIteStyle().
+	 * 
+	 * @param context
+	 * @return
+	 * @throws Exception
+	 */
+	public MsgRecord<M>[] getMessages(GraphContextInterface<V, W, M, I> context) 
+			throws Exception;
 	
 	/**
 	 * Cleanup after executing the user-defined algorithm.

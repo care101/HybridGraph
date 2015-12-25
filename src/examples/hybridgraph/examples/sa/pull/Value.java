@@ -1,7 +1,7 @@
 package hybridgraph.examples.sa.pull;
 
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 
 public class Value {
 	private int aId; //advertisement id
@@ -37,12 +37,12 @@ public class Value {
 		return 8;
 	}
 	
-    public void write(MappedByteBuffer out) throws IOException {
+    public void write(ByteBuffer out) throws IOException {
     	out.putInt(this.aId);
     	out.putInt(this.aNum);
     }
     
-    public void read(MappedByteBuffer in) throws IOException {
+    public void read(ByteBuffer in) throws IOException {
     	this.aId = in.getInt();
     	this.aNum = in.getInt();
     }

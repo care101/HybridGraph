@@ -3,7 +3,7 @@ package org.apache.hama.myhama.api;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 
 public abstract class MsgRecord<M> {
 	protected int srcId = -1;
@@ -19,7 +19,7 @@ public abstract class MsgRecord<M> {
 	}
 	
 	/**
-	 * Process a new message by {@link GraphRecord.getMsg()}
+	 * Initialize a new message by {@link BSPInterface.getMessages()}.
 	 * @param srcId
 	 * @param dstId
 	 * @param msgValue
@@ -131,16 +131,16 @@ public abstract class MsgRecord<M> {
 	   /**
      * Serialize the content of {@link MessageRecord} 
      * as the binary byte stream for local disk.
-     * @param MappedByteBuffer out
+     * @param ByteBuffer out
      * @throws IOException
      */
-    public void serialize(MappedByteBuffer out) throws IOException {}
+    public void serialize(ByteBuffer out) throws IOException {}
     
     /**
      * Deserialize the content of {@link MessageRecord}
      * from the binary byte stream for local disk.
-     * @param MappedByteBuffer in
+     * @param ByteBuffer in
      * @throws IOException
      */
-    public void deserialize(MappedByteBuffer in) throws IOException {}
+    public void deserialize(ByteBuffer in) throws IOException {}
 }

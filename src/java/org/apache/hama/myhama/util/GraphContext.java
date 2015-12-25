@@ -15,50 +15,46 @@ import org.apache.hama.myhama.api.MsgRecord;
  * (3) message;
  * (4) jobAgg;
  * (5) vAgg;
+ * (6) iteStyle;
  * 
- * @author 
- * @version 0.1
- * @time 2013-10-11
+ * @param <V> vertex value
+ * @param <W> edge weight
+ * @param <M> message value
+ * @param <I> graph information
  */
-public class GraphContext {
-	private GraphRecord graph;
+public class GraphContext<V, W, M, I> 
+		implements GraphContextInterface<V, W, M, I> {
+	private GraphRecord<V, W, M, I> graph;
 	private int iteNum;
-	private MsgRecord msg;
+	private MsgRecord<M> msg;
 	private float jobAgg;
 	private float vAgg;
 	
-	private boolean acFlag;
-	private boolean upFlag;
+	private boolean actFlag;
+	private boolean resFlag;
+	
+	private int iteStyle;
 	
 	public GraphContext() {
 		
 	}
 	
-	@SuppressWarnings("unchecked")
-	public GraphContext(GraphRecord _graph, int _iteNum, MsgRecord _msg, float _jobAgg) {
+	public void initialize(GraphRecord<V, W, M, I> _graph, int _iteNum, 
+			MsgRecord<M> _msg, 
+			float _jobAgg, boolean _actFlag, int _iteStyle) {
 		graph = _graph; 
 		msg = _msg; 
 		iteNum = _iteNum; 
 		jobAgg = _jobAgg;
+		actFlag = _actFlag;
+		iteStyle = _iteStyle;
 	}
 	
-	@SuppressWarnings("unchecked")
-	public void initialize(GraphRecord _graph, int _iteNum, MsgRecord _msg, 
-			float _jobAgg, boolean _acFlag) {
-		graph = _graph; 
-		msg = _msg; 
-		iteNum = _iteNum; 
-		jobAgg = _jobAgg;
-		this.acFlag = _acFlag;
-	}
-	
-	@SuppressWarnings("unchecked")
-	public GraphRecord getGraphRecord() {
+	public GraphRecord<V, W, M, I> getGraphRecord() {
 		return graph;
 	}
 	
-	@SuppressWarnings("unchecked")
-	public MsgRecord getMsgRecord() {
+	public MsgRecord<M> getReceivedMsgRecord() {
 		return msg;
 	}
 	
@@ -70,33 +66,54 @@ public class GraphContext {
 		return iteNum;
 	}
 	
-	public float getVertexAgg() {
-		return this.vAgg;
+	public int getIteStyle() {
+		return iteStyle;
+	}
+	
+	public void setRespond() {
+		this.resFlag = true;
+	}
+	
+	public void voteToHalt() {
+		this.actFlag = false;
 	}
 	
 	public void setVertexAgg(float agg) {
 		this.vAgg = agg;
 	}
 	
-	@SuppressWarnings("unchecked")
+	
+	/**
+	 * Get the aggregator value from one vertex.
+	 * @return
+	 */
+	public float getVertexAgg() {
+		return this.vAgg;
+	}
+	
 	public void reset() {
-		this.acFlag = true;
-		this.upFlag = false;
+		this.actFlag = true;
+		this.resFlag = false;
 	}
 	
-	public void setUpdate() {
-		this.upFlag = true;
+	/**
+	 * Does this vertex need to send messages to its neighbors?
+	 * @return
+	 */
+	public boolean isRespond() {
+		return this.resFlag;
 	}
 	
-	public boolean isUpdate() {
-		return this.upFlag;
-	}
-	
+	/**
+	 * Is this vertex still active at the next superstep?
+	 * An active vertex means that it should be updated.
+	 * Here, the active flag can be changed by invoking 
+	 * voteToHalt(). However, an inactive vertex also 
+	 * will be active if it receives messages from neighbors 
+	 * at the next superstep.
+	 * @return
+	 */
 	public boolean isActive() {
-		return this.acFlag;
-	}
-	
-	public void voteToHalt() {
-		this.acFlag = false;
+		return this.actFlag;
 	}
 }

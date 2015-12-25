@@ -2,7 +2,7 @@ package hybridgraph.examples.sssp.hybrid;
 
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import org.apache.hama.myhama.comm.CommRouteTable;
@@ -66,7 +66,7 @@ public class EdgeSet {
 	   * @throws EOFException
 	   * @throws IOException
 	   */
-	public void readFields(MappedByteBuffer input) throws EOFException, IOException {
+	public void readFields(ByteBuffer input) throws EOFException, IOException {
 		num = input.getInt();
 		edgeIds = new Integer[num];
 		for (int i = 0; i < num; i++) {
@@ -81,7 +81,7 @@ public class EdgeSet {
 	   * @throws EOFException
 	   * @throws IOException
 	   */
-	public void write(MappedByteBuffer output) throws EOFException, IOException {
+	public void write(ByteBuffer output) throws EOFException, IOException {
 		output.putInt(num);
 		for (int i = 0; i < num; i++) {
 			output.putInt(edgeIds[i]);

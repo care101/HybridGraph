@@ -22,9 +22,11 @@ public class GlobalSketchGraph implements Writable {
 	private int bucNumJob = 0;
 	private int[] tidToBid; //taskId to the beginning of bucketId
 	
-	private int[] verNumBucs;
-	private int[] actVerNumBucs; //per bucket in one iteration
-	private long[][] sEdgeMatrix; //static edge matrix among buckets
+	private int[] verNumBlks;
+	/** number of responding source vertices of each VBlock */
+	private int[] resVerNumBlks;
+	/** dependency relationship among all VBlocks with responding vertices */
+	private boolean[][] resDepend;
 	
 	public GlobalSketchGraph() {
 		
@@ -60,38 +62,38 @@ public class GlobalSketchGraph implements Writable {
 			bidCounter += this.bucNumTask[tid];
 		}
 		
-		this.verNumBucs = new int[this.bucNumJob];
-		this.actVerNumBucs = new int[this.bucNumJob];
-		this.sEdgeMatrix = new long[this.bucNumJob][this.bucNumJob];
+		this.verNumBlks = new int[this.bucNumJob];
+		this.resVerNumBlks = new int[this.bucNumJob];
+		this.resDepend = new boolean[this.bucNumJob][this.bucNumJob];
 	}
 	
-	public void buildEdgeMatrix(int tid, long[][] outerEdge) {
-		if (outerEdge == null) {
+	public void buildRespondDependency(int tid, boolean[][] _resDepend) {
+		if (_resDepend == null) {
 			return;
 		}
 		
 		int beginId = this.tidToBid[tid];
 		for (int i = 0; i < this.bucNumTask[tid]; i++) {
-			this.sEdgeMatrix[i+beginId] = outerEdge[i];
+			this.resDepend[i+beginId] = _resDepend[i];
 		}
 	}
 	
-	public void buildVerNumBucs(int tid, int[] nums) {
+	public void buildVerNumBlks(int tid, int[] nums) {
 		if (nums == null) {
 			return;
 		}
 		
 		int beginId = this.tidToBid[tid];
 		for (int i = 0; i < this.bucNumTask[tid]; i++) {
-			this.verNumBucs[i+beginId] = nums[i];
-			this.actVerNumBucs[i+beginId] = 0;
+			this.verNumBlks[i+beginId] = nums[i];
+			this.resVerNumBlks[i+beginId] = 0;
 		}
 	}
 	
-	public void updateActVerNumBucs(int curIteNum, int tid, int[] nums) {
+	public void updateRespondVerNumBlks(int curIteNum, int tid, int[] nums) {
 		int beginId = this.tidToBid[tid];
 		for (int i = 0; i < this.bucNumTask[tid]; i++) {
-			this.actVerNumBucs[i+beginId] = nums[i];
+			this.resVerNumBlks[i+beginId] = nums[i];
 		}
 	}
 	
@@ -112,8 +114,8 @@ public class GlobalSketchGraph implements Writable {
 				boolean yes = false;
 				for (int j = 0; j < this.bucNumTask[srcTid]; j++) {
 					srcBucId = begSrcBucId + j;
-					if (this.actVerNumBucs[srcBucId]>0 
-							&& this.sEdgeMatrix[srcBucId][dstBucId]>0) {
+					if (this.resVerNumBlks[srcBucId]>0 
+							&& this.resDepend[srcBucId][dstBucId]) {
 						//has updated, && has edges.
 						yes = true;
 						break;
@@ -165,15 +167,6 @@ public class GlobalSketchGraph implements Writable {
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer("\n");
-		/*sb.append("\nEdgeMatrix:");
-		for (int i = 0; i < this.bucNumJob; i++) {
-			sb.append("\n" + i + "=");
-			sb.append(Arrays.toString(this.sEdgeMatrix[i]));
-		}*/
-		
-		//sb.append("\nActiveVerNum:");
-		//sb.append("\n");
-		//sb.append(Arrays.toString(this.actVerNumBucs));
 		
 		return sb.toString();
 	}

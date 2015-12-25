@@ -22,13 +22,14 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hama.Constants;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.bsp.TaskAttemptID;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.io.OutputFormat;
 import org.apache.hama.myhama.io.RecordWriter;
+import org.apache.hama.myhama.util.GraphContext;
 
 /**
  * GraphDataDisk manages graph data on local disks.
@@ -161,7 +162,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		private MappedByteBuffer mbb_e, mbb_v;
 		
 		private boolean ck; //has been ck, true
-		private int curLocVerId, resMiniBid, counter;
+		private int curLocVerId, counter;
 		
 		public VEBlockFileHandler(int _tid) { 
 			tid = _tid; 
@@ -221,9 +222,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			fc_v.close(); raf_v.close();
 		}
 		
-		public void setCheckPoint(int _resMiniBid, int _curLocVerId, 
+		public void setCheckPoint(int _curLocVerId, 
 				int _counter) {
-			resMiniBid = _resMiniBid;
 			curLocVerId = _curLocVerId;
 			counter = _counter;
 			ck = true;
@@ -231,10 +231,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 		public boolean hasCheckPoint() {
 			return ck;
-		}
-		
-		public int getResMiniBid() {
-			return resMiniBid;
 		}
 		
 		public int getCurLocVerId() {
@@ -246,7 +242,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		}
 		
 		public void resetCheckPoint() {
-			resMiniBid = -1;
 			curLocVerId = -1;
 			counter = -1;
 			ck = false;
@@ -363,14 +358,12 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				this.gBuf[i].serVerId(mbb);
 				this.gBuf[i].serEdges(mbb);
 				vid = this.gBuf[i].getVerId();
-				verBucMgr.updateBucEVidEdgeLen(this.gBuf[i].getSrcBucId(), 
+				verBlkMgr.updateBlkFragmentLenAndNum(this.gBuf[i].getSrcBucId(), 
 						this.tid, this.bid, 
 						vid, VERTEX_ID_BYTE+this.gBuf[i].getEdgeByte());
-				verBucMgr.updateBucEVerNum(this.gBuf[i].getSrcBucId(), 
-						this.tid, this.bid, vid, 1);
-				edgeBucMgr.updateBucNum(this.tid, this.bid, 1, this.gBuf[i].getEdgeNum());
+				edgeBlkMgr.updateBucNum(this.tid, this.bid, 1, this.gBuf[i].getEdgeNum());
 				for (int eid: this.gBuf[i].getEdgeIds()) {
-					edgeBucMgr.updateBucEdgeIdBound(this.tid, this.bid, eid);
+					edgeBlkMgr.updateBucEdgeIdBound(this.tid, this.bid, eid);
 				}
 			}
 			
@@ -411,14 +404,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	}
 	
 	@Override
-	public void initMemOrDiskMetaData(LocalStatistics lStatis, 
-			final CommRouteTable<V, W, M, I> _commRT) throws Exception {
-		this.vbFile = new VBlockFileHandler();
+	public void initMemOrDiskMetaData() throws Exception {
+		vbFile = new VBlockFileHandler();
 		verBuf = (GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 		spillVerTh = Executors.newSingleThreadExecutor();
 		spillVerThRe = null;
 		
-		this.hitFlag = new boolean[this.taskNum][this.commRT.getLocBucNum()];
+		int taskNum = this.commRT.getTaskNum();
+		this.hitFlag = new boolean[taskNum][this.verBlkMgr.getBlkNum()];
 		this.numOfReadVal = new long[]{0L, 0L};
 		
 		/** only used in pull or hybrid */
@@ -445,8 +438,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 			this.vebFile = 
 				(VEBlockFileHandler<V, W, M, I>[]) 
-				new VEBlockFileHandler[this.taskNum];
-			for (int i = 0; i < this.taskNum; i++) {
+				new VEBlockFileHandler[taskNum];
+			for (int i = 0; i < taskNum; i++) {
 				this.vebFile[i] = new VEBlockFileHandler<V, W, M, I>(i);
 			}
 		}
@@ -583,7 +576,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	}
 	
 	@Override
-	public void loadGraphData(LocalStatistics lStatis, BytesWritable rawSplit, 
+	public void loadGraphData(TaskInformation taskInfo, BytesWritable rawSplit, 
 			String rawSplitClass) throws Exception {
 		long startTime = System.currentTimeMillis();
 		long edgeNum = 0L;
@@ -596,12 +589,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 					input.getCurrentValue().toString());
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
-			curBid = commRT.getDstBucId(parId, vid);
+			curBid = commRT.getDstBucId(taskId, vid);
 			bid = bid<0? curBid:bid;
 			graph.setSrcBucId(curBid);
-			this.verBucMgr.updateBucEdgeNum(curBid, vid, graph.getEdgeNum());
-			this.verBucMgr.updateBucVerInfoLen(curBid, vid, 
-					graph.getVerByte(), graph.getGraphInfoByte());
 			
 			if (bid != curBid) {
 				flushVerBuf(bid);
@@ -611,7 +601,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			
 			if (this.bspStyle != Constants.STYLE.Push) {
 				ArrayList<GraphRecord<V, W, M, I>> graphs = 
-					graph.decompose(commRT, lStatis);
+					graph.decompose(commRT, taskInfo);
 				putIntoEdgeBuf(graphs);
 			}
 		}
@@ -619,22 +609,24 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		if (this.bspStyle != Constants.STYLE.Push) {
 			clearEdgeBuf();
 		}
-		this.verBucMgr.loadOver(this.bspStyle);
+		this.verBlkMgr.setEdgeNum(edgeNum);
+		this.verBlkMgr.loadOver(this.bspStyle, this.commRT.getTaskNum(), 
+				this.commRT.getGlobalSketchGraph().getBucNumTask());
 		
 		
-		int[] verNumBucs = new int[this.verBucMgr.getHashBucNum()];
-		for (int i = 0; i < this.verBucMgr.getHashBucNum(); i++) {
-			verNumBucs[i] = this.verBucMgr.getVerHashBucBeta(i).getVerNum();
+		int[] verNumBlks = new int[this.verBlkMgr.getBlkNum()];
+		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
+			verNumBlks[i] = this.verBlkMgr.getVerBlkBeta(i).getVerNum();
 		}
-		int[] actVerNumBucs = new int[this.verBucMgr.getHashBucNum()];
-		Arrays.fill(actVerNumBucs, 0);
-		lStatis.setVerNumBucs(verNumBucs);
-		lStatis.setActVerNumBucs(actVerNumBucs);
-		lStatis.setEdgeNum(edgeNum);
-		lStatis.setLoadByte(this.loadByte);
-		this.memUsedByMetaData = this.verBucMgr.getMemUsage();
+		int[] resVerNumBlks = new int[this.verBlkMgr.getBlkNum()];
+		Arrays.fill(resVerNumBlks, 0);
+		taskInfo.setVerNumBlks(verNumBlks);
+		taskInfo.setRespondVerNumBlks(resVerNumBlks);
+		taskInfo.setEdgeNum(edgeNum);
+		taskInfo.setLoadByte(this.loadByte);
+		this.memUsedByMetaData = this.verBlkMgr.getMemUsage();
 		if (this.bspStyle != Constants.STYLE.Push) {
-			this.memUsedByMetaData += this.edgeBucMgr.getMemUsage();
+			this.memUsedByMetaData += this.edgeBlkMgr.getMemUsage();
 		}
 		
 		long endTime = System.currentTimeMillis();
@@ -648,15 +640,15 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		long bytes = 0L;
 		
 		if (this.estimatePullByte) {
-			int[] bucNumTask = this.verBucMgr.getBucNumTasks();
-			for (int dstTid = 0; dstTid < this.taskNum; dstTid++) {
+			int[] bucNumTask = this.commRT.getGlobalSketchGraph().getBucNumTask();
+			for (int dstTid = 0; dstTid < this.commRT.getTaskNum(); dstTid++) {
 				for (int dstBid = 0; dstBid < bucNumTask[dstTid]; dstBid++) {
 					for (int srcBid = 0; 
-							srcBid < this.verBucMgr.getHashBucNum(); srcBid++) {
-						VerHashBucBeta vHbb = this.verBucMgr.getVerHashBucBeta(srcBid);
-						if (!vHbb.isUpdated(type) ||
-								vHbb.getEVerNum(dstTid, dstBid)==0) {continue;} //skip
-						bytes += vHbb.getEVidEdgeLen(dstTid, dstBid);
+							srcBid < this.verBlkMgr.getBlkNum(); srcBid++) {
+						VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(srcBid);
+						if (!vHbb.isRespond(type) ||
+								vHbb.getFragmentNum(dstTid, dstBid)==0) {continue;} //skip
+						bytes += vHbb.getFragmentLen(dstTid, dstBid);
 					}
 				}
 			}
@@ -690,9 +682,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			return msgPack;
 		}
 		
-		int dstVerMinId = this.edgeBucMgr.getBucEdgeMinId(_tid, _bid);
-		int dstVerMaxId = this.edgeBucMgr.getBucEdgeMaxId(_tid, _bid);
-		int srcVerNum = this.edgeBucMgr.getBucVerNum(_tid, _bid);
+		int dstVerMinId = this.edgeBlkMgr.getBucEdgeMinId(_tid, _bid);
+		int dstVerMaxId = this.edgeBlkMgr.getBucEdgeMaxId(_tid, _bid);
+		int srcVerNum = this.edgeBlkMgr.getBucVerNum(_tid, _bid);
 		int type = _iteNum % 2; //compute the type to read upFlag and upFlagBuc
 		if (srcVerNum == 0) {
 			return new MsgPack<V, W, M, I>(this.userTool); 
@@ -705,20 +697,18 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		long[] statis = new long[6];
 		int resBid = this.vebFile[_tid].getResBid();
 		this.vebFile[_tid].openEdgeHandler(_bid);
-		for (; resBid < this.verBucMgr.getHashBucNum(); resBid++) {
-			VerHashBucBeta vHbb = this.verBucMgr.getVerHashBucBeta(resBid);
-			VerMiniBucMgr vMbMgr = vHbb.getVerMiniBucMgr();
-			
-			if (!vHbb.isUpdated(type) || (vHbb.getEVerNum(_tid, _bid)==0)) {
+		for (; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
+			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(resBid);			
+			if (!vHbb.isRespond(type) || (vHbb.getFragmentNum(_tid, _bid)==0)) {
 				continue; //skip the whole hash bucket
 			}
 			
 			this.vebFile[_tid].openVerHandler(resBid, _iteNum);
-			//vMbMgr and cache: pass-by-reference
-			this.getMsgMiniBucket(statis, vMbMgr, 
+			//cache: pass-by-reference
+			this.getMsgFromOneVBlock(statis, resBid, 
 					this.vebFile[_tid].getVerHandler(), 
 					this.vebFile[_tid].getEdgeHandler(), 
-					type, _tid, _bid, cache, dstVerMinId);
+					type, _tid, _bid, _iteNum, cache, dstVerMinId);
 			if (this.vebFile[_tid].hasCheckPoint()) {
 				break;
 			}
@@ -741,7 +731,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 		if (_statis[5] > 0) {
 			/** msg for local task, send all messages by one pack. */
-			if (reqTid == this.parId) {
+			if (reqTid == this.taskId) {
 				MsgRecord<M>[] tmp = 
 					(MsgRecord<M>[]) new MsgRecord[(int)_statis[5]];
 				int vCounter = 0;
@@ -824,7 +814,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	/**
 	 * Get {@link MsgRecord}s for each {@link VerMiniBucBeta} bucket.
-	 * @param vMbMgr
+	 * @param resBid
 	 * @param mbb_s
 	 * @param mbb
 	 * @param type
@@ -835,88 +825,82 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	 * @return
 	 * @throws Exception
 	 */
-	private void getMsgMiniBucket(long[] statis, VerMiniBucMgr vMbMgr, 
+	private void getMsgFromOneVBlock(long[] statis, int resBid, 
 			MappedByteBuffer mbb_v, MappedByteBuffer mbb_e, 
-			int type, int _tid, int _bid, 
-			MsgRecord<M>[] cache, 
-			int dstVerMinId) throws Exception {
-		int resMiniBid = 0, curLocVerId = 0, counter = 0; 
+			int type, int _tid, int _bid, int _iteNum, 
+			MsgRecord<M>[] cache, int dstVerMinId) throws Exception {
+		int curLocVerId = 0, counter = 0; 
 		int skip = 0, curLocVerPos = 0;
 		int dstBucIndex = this.commRT.getGlobalSketchGraph().getGlobalBucIndex(_tid, _bid);
+		int verMinId = this.verBlkMgr.getVerMinId();
+		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
 		GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 		
 		/** recover the scenario */
 		if (this.vebFile[_tid].hasCheckPoint()) {
-			resMiniBid = this.vebFile[_tid].getResMiniBid();
 			curLocVerId = this.vebFile[_tid].getCurLocVerId();
 			counter = this.vebFile[_tid].getCounter() + 1;
 		}
-		for (; resMiniBid < vMbMgr.getMiniBucNum(); resMiniBid++) {
-			VerMiniBucBeta vMbb = vMbMgr.getVerMiniBucBeta(resMiniBid);
-			if (!vMbb.isUpdated(type) || (vMbb.getEVerNum(_tid, _bid)==0)){
-				continue; //skip this mini bucket
-			}
+		
+		VerBlockBeta vBeta = this.verBlkMgr.getVerBlkBeta(resBid);		
+		if (!this.vebFile[_tid].hasCheckPoint()) {
+			mbb_e.position((int)vBeta.getFragmentStart(_tid, _bid)); //re-position
+			curLocVerId = vBeta.getVerMinId();
+			statis[0] += vBeta.getFragmentLen(_tid, _bid);
+		} else {
+			this.vebFile[_tid].resetCheckPoint();
+		}
 			
-			if (!this.vebFile[_tid].hasCheckPoint()) {
-				mbb_v.position((int)vMbb.getVerStart());
-				mbb_e.position((int)vMbb.getEVidEdgeStart(_tid, _bid)); //re-position
-				curLocVerId = vMbb.getVerMinId();
-				statis[0] += vMbb.getEVidEdgeLen(_tid, _bid);
+		int fragNum = vBeta.getFragmentNum(_tid, _bid);
+		for (; counter < fragNum; counter++) {
+			skip = 0;
+			graph.deserVerId(mbb_e); 
+			graph.deserEdges(mbb_e); //deserialize edges 
+			statis[1] += graph.getEdgeNum(); //edge_read
+			statis[2]++; //fragment_read
+			
+			while((graph.getVerId()>curLocVerId)) {
+				skip++; curLocVerId++; //find local vid based on srcVerId of edges
+			}
+				
+			if (skip > 0) {//re-position of the local sendValue file
+				curLocVerPos = mbb_v.position();
+				mbb_v.position(curLocVerPos + skip*graph.getVerByte());
+			}
+				
+			if (!resFlag[type][curLocVerId-verMinId]) {
+				curLocVerPos = mbb_v.position();
+				mbb_v.position(curLocVerPos + graph.getVerByte());
+				curLocVerId++;
+				continue; //skip if vertex isn't updated at the previous iteration
 			} else {
-				this.vebFile[_tid].resetCheckPoint();
+				curLocVerId++;
 			}
+				
+			graph.deserVerValue(mbb_v); //deserialize value
+			statis[0] += graph.getVerByte(); //io for value.
+			context.reset();
+			context.initialize(graph, _iteNum, null, 0.0f, true, this.preIteStyle);
+			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 			
-			for (; counter < vMbb.getEVerNum(_tid, _bid); counter++) {
-				skip = 0;
-				graph.deserVerId(mbb_e); 
-				graph.deserEdges(mbb_e); //deserialize edges 
-				statis[1] += graph.getEdgeNum(); //edge_read
-				statis[2]++; //fragment_read
-				
-				while((graph.getVerId()>curLocVerId)) {
-					skip++; curLocVerId++; //find local vid based on srcVerId of edges
-				}
-				
-				if (skip > 0) {//re-position of the local sendValue file
-					curLocVerPos = mbb_v.position();
-					mbb_v.position(curLocVerPos + skip*graph.getVerByte());
-				}
-				
-				if (!upFlag[type][curLocVerId-this.verMinId]) {
-					curLocVerPos = mbb_v.position();
-					mbb_v.position(curLocVerPos + graph.getVerByte());
-					curLocVerId++;
-					continue; //skip if vertex isn't updated at the previous iteration
+			this.resDepend[resBid][dstBucIndex] = true;
+			statis[3] += msgs.length; //msg_pro
+			for (MsgRecord<M> msg: msgs) {
+				int index = msg.getDstVerId() - dstVerMinId;
+				if (cache[index] == null) {
+					cache[index] = msg;
+					statis[4]++; //msg_rec
+					statis[5]++; //dstVerHasMsg
 				} else {
-					curLocVerId++;
-				}
-				
-				graph.deserVerValue(mbb_v); //deserialize value
-				statis[0] += graph.getVerByte(); //io for value.
-				MsgRecord<M>[] msgs = graph.getMsg(this.preIteStyle);				
-				
-				this.locMatrix[vMbMgr.getBucId()][dstBucIndex] += msgs.length;
-				statis[3] += msgs.length; //msg_pro
-				for (MsgRecord<M> msg: msgs) {
-					int index = msg.getDstVerId() - dstVerMinId;
-					if (cache[index] == null) {
-						cache[index] = msg;
+					cache[index].collect(msg);
+					if (!this.isAccumulated) {
 						statis[4]++; //msg_rec
-						statis[5]++; //dstVerHasMsg
-					} else {
-						cache[index].collect(msg);
-						if (!this.isAccumulated) {
-							statis[4]++; //msg_rec
-						}
 					}
 				}
-				
-				if (!this.isAccumulated && statis[4]>this.job.getMsgPackSize()) {
-					this.vebFile[_tid].setCheckPoint(resMiniBid, curLocVerId, counter);
-					break;
-				}
 			}
-			if (this.vebFile[_tid].hasCheckPoint()) {
+				
+			if (!this.isAccumulated && statis[4]>this.job.getMsgPackSize()) {
+				this.vebFile[_tid].setCheckPoint(curLocVerId, counter);
 				break;
 			}
 		}
@@ -925,13 +909,13 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	@Override
 	public void clearBefIteMemOrDisk(int _iteNum) {
 		int type = _iteNum % 2;
-		for (int bid = 0; bid < this.verBucMgr.getHashBucNum(); bid++) {
+		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
 			File dir = getVerDir(bid);
-			VerHashBucBeta vHbb = this.verBucMgr.getVerHashBucBeta(bid);
+			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
 			/** if it is updated, new file (_iteNum) should exist, 
 			 * then the old one (_iteNum-1) is useless. 
 			 * So, we delete it right now to save the disk space */
-			if (vHbb.isUpdated(type)) {
+			if (vHbb.isRespond(type)) {
 				File f = new File(dir, Ver_File_Value + (_iteNum-1));
 				f.delete();
 			} else {
@@ -949,7 +933,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 		}
 		
-		for (int i = 0; i < this.taskNum; i++) {
+		for (int i = 0; i < this.commRT.getTaskNum(); i++) {
 			Arrays.fill(hitFlag[i], false);
 		}
 	}
@@ -983,12 +967,11 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
 		this.vbFile.openVerReadHandler(f_v_r);
 		
+		File f_info_r = new File(dir, Ver_File_Info);
 		if (this.useGraphInfo) {
-			File f_info_r = new File(dir, Ver_File_Info);
 			this.vbFile.openInfoReadHandler(f_info_r);
 		} else {
-			this.estimatePushByte += 
-				this.verBucMgr.getVerHashBucBeta(_bid).getInfoLen();
+			this.estimatePushByte += f_info_r.length();
 		}
 		
 		File f_v_w = new File(dir, Ver_File_Value + (_iteNum+1));
@@ -1008,7 +991,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	@Override
 	public GraphRecord<V, W, M, I> getNextGraphRecord(int _bid) throws Exception {
-		graph_rw.setVerId(this.verBucMgr.getVerHashBucBeta(_bid).getVerId());
+		graph_rw.setVerId(this.verBlkMgr.getVerBlkBeta(_bid).getVerId());
 		graph_rw.deserVerValue(this.vbFile.getVerReadHandler());
 		io_byte_ver += (VERTEX_ID_BYTE + graph_rw.getVerByte());
 		
@@ -1023,13 +1006,13 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	@Override
 	public void saveGraphRecord(int _bid, int _iteNum, 
 			boolean _acFlag, boolean _upFlag) throws Exception {
-		int index = graph_rw.getVerId() - this.verMinId; //global index
+		int index = graph_rw.getVerId() - this.verBlkMgr.getVerMinId(); //global index
 		int type = (_iteNum+1)%2;
-		acFlag[index] = _acFlag;
-		upFlag[type][index] = _upFlag;
+		actFlag[index] = _acFlag;
+		resFlag[type][index] = _upFlag;
 		if (_upFlag) {
-			this.verBucMgr.setBucUpdated(type, _bid, graph_rw.getVerId(), _upFlag);
-			this.verBucMgr.incUpdVerNumBuc(_bid);
+			this.verBlkMgr.setBlkRespond(type, _bid, _upFlag);
+			this.verBlkMgr.incRespondVerNum(_bid);
 			if (this.estimatePullByte) {
 				this.numOfReadVal[type] += 
 					this.graph_rw.getNumOfFragments(this.curIteStyle,
@@ -1052,7 +1035,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
         RecordWriter output = outputformat.getRecordWriter(job, taskId);
         int saveNum = 0;
         
-        for (int bid = 0; bid < this.verBucMgr.getHashBucNum(); bid++) {
+        for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
         	File dir = getVerDir(bid);
     		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
     		this.vbFile.openVerReadHandler(f_v_r);
@@ -1062,8 +1045,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
         		this.vbFile.openInfoReadHandler(f_info_r);
     		}
         	
-    		int bucVerNum = this.verBucMgr.getVerHashBucBeta(bid).getVerNum();
-    		int min = this.verBucMgr.getVerHashBucBeta(bid).getVerMinId();
+    		int bucVerNum = this.verBlkMgr.getVerBlkBeta(bid).getVerNum();
+    		int min = this.verBlkMgr.getVerBlkBeta(bid).getVerMinId();
             
     		for (int idx = 0; idx < bucVerNum; idx++) {
     			graph_rw.deserVerValue(this.vbFile.getVerReadHandler());

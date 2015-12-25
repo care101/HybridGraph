@@ -7,12 +7,12 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
@@ -31,10 +31,12 @@ import org.apache.hama.myhama.api.UserTool;
  * @param <I> graph information
  * @param <S> send value
  */
-public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer> {
+public class PageRankUserTool 
+		extends UserTool<Double, Integer, Double, Integer> {
 	public static final Log LOG = LogFactory.getLog(PageRankUserTool.class);
 	
-	public class PRGraphRecord extends GraphRecord<Double, Integer, Double, Integer> {
+	public static class PRGraphRecord 
+			extends GraphRecord<Double, Integer, Double, Integer> {
 		
 		@Override
 	    public void initGraphData(String vData, String eData) {
@@ -57,10 +59,12 @@ public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer>
 	            if(edges[end] != ':') {
 	                continue;
 	            }
-	            tmpEdgeId.add(Integer.valueOf(new String(edges, begin, end - begin)));
+	            tmpEdgeId.add(Integer.valueOf(
+	            		new String(edges, begin, end-begin)));
 	            begin = ++end;
 	        }
-	        tmpEdgeId.add(Integer.valueOf(new String(edges, begin, end - begin)));
+	        tmpEdgeId.add(Integer.valueOf(
+	        		new String(edges, begin, end-begin)));
 	        
 	        Integer[] tmpTransEdgeId = new Integer[tmpEdgeId.size()];
 	        tmpEdgeId.toArray(tmpTransEdgeId);
@@ -70,38 +74,53 @@ public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer>
 	    }
 		
 		@Override
-		public void serVerId(MappedByteBuffer vOut) throws EOFException, IOException {
+		public void serVerId(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putInt(this.verId);
 		}
 
-		public void deserVerId(MappedByteBuffer vIn) throws EOFException, IOException {
+		@Override
+		public void deserVerId(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verId = vIn.getInt();
 		}
 
-		public void serVerValue(MappedByteBuffer vOut) throws EOFException, IOException {
+		@Override
+		public void serVerValue(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putDouble(this.verValue);
 		}
 
-		public void deserVerValue(MappedByteBuffer vIn) throws EOFException, IOException {
+		@Override
+		public void deserVerValue(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verValue = vIn.getDouble();
 		}
 
-		public void serGrapnInfo(MappedByteBuffer eOut) throws EOFException, IOException {
+		@Override
+		public void serGrapnInfo(ByteBuffer eOut) 
+				throws EOFException, IOException {
 			eOut.putInt(this.graphInfo);
 		}
 
-		public void deserGraphInfo(MappedByteBuffer eIn) throws EOFException, IOException {
+		@Override
+		public void deserGraphInfo(ByteBuffer eIn) 
+				throws EOFException, IOException {
 			this.graphInfo = eIn.getInt();
 		}
 
-		public void serEdges(MappedByteBuffer eOut) throws EOFException, IOException {
+		@Override
+		public void serEdges(ByteBuffer eOut) 
+				throws EOFException, IOException {
 			eOut.putInt(this.edgeNum);
 	    	for (int index = 0; index < this.edgeNum; index++) {
 	    		eOut.putInt(this.edgeIds[index]);
 	    	}
 		}
 
-		public void deserEdges(MappedByteBuffer eIn) throws EOFException, IOException {
+		@Override
+		public void deserEdges(ByteBuffer eIn) 
+				throws EOFException, IOException {
 			this.edgeNum = eIn.getInt();
 	    	this.edgeIds = new Integer[this.edgeNum];
 	    	for (int index = 0; index < this.edgeNum; index++) {
@@ -111,7 +130,7 @@ public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer>
 		
 		@Override
 		public ArrayList<GraphRecord<Double, Integer, Double, Integer>> 
-    			decompose(CommRouteTable commRT, LocalStatistics local) {
+    			decompose(CommRouteTable commRT, TaskInformation taskInfo) {
 			int dstTid, dstBid, tNum = commRT.getTaskNum();
 			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
 			ArrayList<Integer>[][] container = new ArrayList[tNum][];
@@ -133,9 +152,11 @@ public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer>
 			for (dstTid = 0; dstTid < tNum; dstTid++) {
 				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
 					if (container[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = new Integer[container[dstTid][dstBid].size()];
+						Integer[] tmpEdgeIds = 
+							new Integer[container[dstTid][dstBid].size()];
 						container[dstTid][dstBid].toArray(tmpEdgeIds);
-						local.updateLocMatrix(dstTid, dstBid, verId, tmpEdgeIds.length);
+						taskInfo.updateRespondDependency(
+								dstTid, dstBid, verId, tmpEdgeIds.length);
 						PRGraphRecord graph = new PRGraphRecord();
 						graph.setVerId(verId);
 						graph.setDstParId(dstTid);
@@ -150,20 +171,11 @@ public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer>
 
 			return result;
 		}
-
-		@Override
-		public MsgRecord<Double>[] getMsg(int iteStyle) {
-			PRMsgRecord[] result = new PRMsgRecord[this.edgeNum];
-			for (int i = 0; i < this.edgeNum; i++) {
-				result[i] = new PRMsgRecord();
-				result[i].initialize(this.verId, this.edgeIds[i], this.verValue);
-			}
-			return result;
-		}
 		
 		@Override
 		public Double getFinalValue() {
-			return this.graphInfo==0? this.verValue:this.verValue*this.graphInfo;
+			return this.graphInfo==0? 
+					this.verValue:this.verValue*this.graphInfo;
 		}
 		
 		/**
@@ -190,7 +202,7 @@ public class PageRankUserTool extends UserTool<Double, Integer, Double, Integer>
 		}
 	}
 	
-	public class PRMsgRecord extends MsgRecord<Double> {
+	public static class PRMsgRecord extends MsgRecord<Double> {
 		@Override
 		public void combiner(MsgRecord<Double> msg) {
 			this.msgValue += msg.getMsgValue();

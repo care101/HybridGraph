@@ -20,7 +20,7 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hama.Constants;
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.ipc.MasterProtocol;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
@@ -59,9 +59,9 @@ public class BSPTask<V, W, M, I> extends Task {
 	
 	private int iteNum = 0;
 	private boolean conExe;
-	private BSP bsp;
+	private BSP<V, W, M, I> bsp;
 	private SuperStepCommand ssc;
-	private LocalStatistics lStatis;
+	private TaskInformation lStatis;
 	private float jobAgg = 0.0f; //the global aggregator
 	private float taskAgg = 0.0f; //the local aggregator
 	
@@ -189,7 +189,8 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.counters = new Counters();
 		this.iteNum = 0;
 		this.conExe = true;
-		this.bsp = (BSP) ReflectionUtils.newInstance(this.job.getConf().getClass(
+		this.bsp = (BSP<V, W, M, I>) 
+			ReflectionUtils.newInstance(this.job.getConf().getClass(
 				"bsp.work.class", BSP.class), this.job.getConf());
 		this.trt = new TaskReportTimer(this.jobId, this.taskId, this, 3000);
 	}
@@ -198,7 +199,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * Build route table and get the global information 
 	 * about real and virtual hash buckets.
 	 * First read only one {@link GraphRecord} and get the min vertex id.
-	 * Second, report {@link LocalStatistics} to the {@link JobInProgress}.
+	 * Second, report {@link TaskInformation} to the {@link JobInProgress}.
 	 * The report information includes: verMinId, parId, 
 	 * RPC server port and hostName.
 	 * This function should be invoked before load().
@@ -207,7 +208,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	private void buildRouteTable(BSPPeerProtocol umbilical) throws Exception {
 		int verMinId = this.graphDataServer.getVerMinId(this.rawSplit, 
 				this.rawSplitClass);
-		this.lStatis = new LocalStatistics(this.parId, verMinId, 
+		this.lStatis = new TaskInformation(this.parId, verMinId, 
 				this.commServer.getPort(), this.commServer.getAddress(), 
 				this.graphDataServer.getByteOfOneMessage(), 
 				this.graphDataServer.isAccumulated());
@@ -218,11 +219,11 @@ public class BSPTask<V, W, M, I> extends Task {
 		LOG.info("task leave the buildRouteTable() barrier");
 		
 		this.lStatis.init(this.commServer.getGlobalStatis());
-		this.fulLoad = this.lStatis.getBucNum();
+		this.fulLoad = this.lStatis.getBlkNum();
 		this.trt.setAgent(umbilical);
 		this.trt.start();
-		job.setLocHashBucLen(this.lStatis.getBucLen());
-		job.setLocHashBucNum(this.lStatis.getBucNum());
+		job.setLocHashBucLen(this.lStatis.getBlkLen());
+		job.setLocHashBucNum(this.lStatis.getBlkNum());
 		job.setLocMinVerId(this.lStatis.getVerMinId());
 	}
 	
@@ -230,23 +231,22 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * Load data from HDFS, build VE-Block, 
 	 * and then save them on the local disk.
 	 * After that, begin to register to the {@link JobInProgress} to 
-	 * report {@link LocalStatistics}.
+	 * report {@link TaskInformation}.
 	 * The report information includes: #edges, 
 	 * the relationship among virtual buckets.
 	 */
 	private void loadData() throws Exception {
 		this.graphDataServer.initialize(this.lStatis, 
 				this.commServer.getCommRouteTable());
-		this.graphDataServer.initMemOrDiskMetaData(this.lStatis, 
-				this.commServer.getCommRouteTable());
+		this.graphDataServer.initMemOrDiskMetaData();
 		this.graphDataServer.loadGraphData(lStatis, this.rawSplit, 
 				this.rawSplitClass);
 		
-		this.msgDataServer.init(job, lStatis.getBucLen(), lStatis.getBucNum(), 
+		this.msgDataServer.init(job, lStatis.getBlkLen(), lStatis.getBlkNum(), 
 				this.graphDataServer.getLocBucMinIds(), 
 				this.parId, this.rootDir + "/" + Constants.Graph_Dir);
 		this.commServer.bindMsgDataServer(msgDataServer);
-		this.commServer.bindGraphData(graphDataServer, this.lStatis.getBucNum());
+		this.commServer.bindGraphData(graphDataServer, this.lStatis.getBlkNum());
 		
 		LOG.info("task enter the registerTask() barrier");
 		this.reportServer.registerTask(this.jobId, this.lStatis);
@@ -274,7 +274,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.graphDataServer.clearBefIteMemOrDisk(iteNum);
 		this.commServer.clearBefIte(iteNum, this.curIteStyle);
 		this.msgDataServer.clearBefIte(iteNum, this.preIteStyle, this.curIteStyle);
-		this.lStatis.clearLocalMatrix();
+		this.lStatis.clear();
 		if (iteNum%2 == 0) {
 			updateMemInfo();
 		}
@@ -298,7 +298,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		
 		ssr.setCounters(this.counters);
 		ssr.setTaskAgg(this.taskAgg);
-		ssr.setActVerNumBucs(this.lStatis.getActVerNumBucs());
+		ssr.setActVerNumBucs(this.lStatis.getRespondVerNumBlks());
 		LOG.info("the local information is as follows:\n" + ssr.toString());
 		
 		LOG.info("task enter the finishSuperStep() barrier");
@@ -392,7 +392,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	private long runBucket(int bucketId) throws Exception {
 		long bucStaTime, bucEndTime;
 		bucStaTime = System.currentTimeMillis();
-		GraphContext context = new GraphContext();
+		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
 		GraphRecord<V, W, M, I> graph = null;
 		this.graphDataServer.openGraphDataStream(parId, bucketId, iteNum);
 		
@@ -401,17 +401,18 @@ public class BSPTask<V, W, M, I> extends Task {
 			context.reset();
 			if (isActive(bucketId, graph.getVerId())) {
 				MsgRecord<M> msg = this.msgDataServer.getMsg(bucketId, graph.getVerId());
-				context.initialize(graph, iteNum, msg, this.jobAgg, true);
-				this.bsp.compute(context); //execute the local computation
+				context.initialize(graph, iteNum, msg, 
+						this.jobAgg, true, this.curIteStyle);
+				this.bsp.update(context); //execute the local computation
 				this.taskAgg += context.getVertexAgg();
 				
 				this.counters.addCounter(COUNTER.Ver_Act, 1);
-				if (context.isUpdate()) {
+				if (context.isRespond()) {
 					this.counters.addCounter(COUNTER.Ver_Upd, 1);
 					
 					if (this.preIteStyle==Constants.STYLE.Push && 
 							this.curIteStyle==Constants.STYLE.Push) {
-						MsgRecord<M>[] msgs = graph.getMsg(this.curIteStyle);
+						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 						this.commServer.pushMsgData(msgs, iteNum);
 					}
 				}
@@ -419,7 +420,7 @@ public class BSPTask<V, W, M, I> extends Task {
 				context.voteToHalt();
 			}
 			this.graphDataServer.saveGraphRecord(bucketId, iteNum, 
-					context.isActive(), context.isUpdate());
+					context.isActive(), context.isRespond());
 			this.counters.addCounter(COUNTER.Ver_Read, 1);
 		}
 		
@@ -454,7 +455,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		long totalMsgTime=0, totalCompTime=0;
 		StringBuffer hbInfo = new StringBuffer();
 		SuperStepContext superstepContext = new SuperStepContext(job);
-		int bucNum = this.lStatis.getBucNum();
+		int bucNum = this.lStatis.getBlkNum();
 		
 		this.trt.force();
 		superstepContext.setBSPJob(job);
@@ -502,7 +503,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			this.msgDataServer.clearAftBucket();
 		}
 		
-		this.graphDataServer.updateLocalEdgeMatrix(this.lStatis, this.iteNum);
+		this.graphDataServer.updateRespondDependency(this.lStatis, this.iteNum);
 		
 		/** switch from Pull to Push in auto-version: first pull, and then push */
 		if (this.preIteStyle==Constants.STYLE.Pull &&
@@ -534,7 +535,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	 */
 	private void runIterationOnlyForPush() throws Exception {
 		SuperStepContext superstepContext = new SuperStepContext(job);
-		int bucNum = this.lStatis.getBucNum();
+		int bucNum = this.lStatis.getBlkNum();
 		
 		superstepContext.setBSPJob(job);
 		this.bsp.superstepSetup(superstepContext);
@@ -543,6 +544,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.graphDataServer.clearAftIte(iteNum);
 		this.graphDataServer.clearOnlyForPush(nextIteNum);
 		
+		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
 		GraphRecord<V, W, M, I> graph = null;
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
 			if (this.graphDataServer.isDoOnlyForPush(bucketId, nextIteNum)) {
@@ -550,12 +552,15 @@ public class BSPTask<V, W, M, I> extends Task {
 				 * it must be updated and saved as iteNum+1. */
 				this.graphDataServer.openGraphDataStreamOnlyForPush(
 						parId, bucketId, nextIteNum);
-				
+
 				while (this.graphDataServer.hasNextGraphRecord(bucketId)) {
 					graph = this.graphDataServer.getNextGraphRecord(bucketId);
 					if (this.graphDataServer.isUpdatedOnlyForPush(
 							bucketId, graph.getVerId(), nextIteNum)) {
-						MsgRecord<M>[] msgs = graph.getMsg(this.curIteStyle);
+						context.reset();
+						context.initialize(graph, iteNum, null, 
+								this.jobAgg, true, this.curIteStyle);
+						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 						this.commServer.pushMsgData(msgs, iteNum);
 					}
 				}

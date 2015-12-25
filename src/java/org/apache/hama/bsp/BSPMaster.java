@@ -49,7 +49,7 @@ import org.apache.hama.HamaConfiguration;
 import org.apache.hama.ipc.JobSubmissionProtocol;
 import org.apache.hama.ipc.MasterProtocol;
 import org.apache.hama.ipc.WorkerProtocol;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.SuperStepReport;
 
 /**
@@ -701,12 +701,12 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   }
   
   @Override
-  public void buildRouteTable(BSPJobID jobId, LocalStatistics statis) {
+  public void buildRouteTable(BSPJobID jobId, TaskInformation statis) {
 	  jobs.get(jobId).buildRouteTable(statis);
   }
   
   @Override
-  public void registerTask(BSPJobID jobId, LocalStatistics statis) {
+  public void registerTask(BSPJobID jobId, TaskInformation statis) {
 	  jobs.get(jobId).registerTask(statis);
   }
   

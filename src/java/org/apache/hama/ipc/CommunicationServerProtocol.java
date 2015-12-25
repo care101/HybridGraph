@@ -7,7 +7,7 @@ import java.io.Closeable;
 
 import org.apache.hama.Constants;
 import org.apache.hama.bsp.BSPRPCProtocolVersion;
-import org.apache.hama.monitor.GlobalStatistics;
+import org.apache.hama.monitor.JobInformation;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.comm.SuperStepCommand;
@@ -26,12 +26,12 @@ public interface CommunicationServerProtocol<V, W, M, I>
 	/**
 	 * Build RouteTable.
 	 */
-	public void buildRouteTable(GlobalStatistics global);
+	public void buildRouteTable(JobInformation global);
 	
 	/**
 	 * Set the preparation information.
 	 */
-	public void setPreparation(GlobalStatistics local);
+	public void setPreparation(JobInformation local);
 	
 	/**
 	 * Receive messages from source vertices.

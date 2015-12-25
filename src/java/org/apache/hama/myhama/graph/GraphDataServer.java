@@ -15,7 +15,8 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hama.Constants;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.bsp.TaskAttemptID;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
+import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
@@ -38,25 +39,39 @@ public abstract class GraphDataServer<V, W, M, I> {
 	private static final Log LOG = LogFactory.getLog(GraphDataServer.class);
 	
 	protected BSPJob job;
-	protected RecordReader<?,?> input; //load graph data
+	protected RecordReader<?,?> input; //used to load graph data
 	protected UserTool<V, W, M, I> userTool;
-	protected int parId;
+	protected BSP<V, W, M, I> bsp;
+	/** messages are accumulated or not? */
 	protected boolean isAccumulated;
 	protected CommRouteTable<V, W, M, I> commRT;
-	protected int taskNum;
-	protected int verMinId, verMaxId, verNum;
+	protected int taskId;
 	
+	/** the model of BSP implementation: b-pull, push, or hybrid */
 	protected int bspStyle;
+	/** the actual model of the previous superstep */
 	protected int preIteStyle;
+	/** the actual model of the current superstep */
 	protected int curIteStyle;
+	/** graphInfo is required or not? */
 	protected boolean useGraphInfo;
 	
-	protected VerHashBucMgr verBucMgr; //local vertex hash bucket manager
-	protected EdgeHashBucMgr edgeBucMgr; //local edge hash bucket manager
-	protected boolean[] acFlag; //active-flag/vertex, single thread, true as default
-	protected boolean[][] upFlag; //update-flag/vertex, two threads, false as default
-	//private int bufSize; //final
-	protected long[][] locMatrix; //collect edge info. for LocalStatistics
+	protected VerBlockMgr verBlkMgr; //local VBlock manager
+	protected EdgeHashBucMgr edgeBlkMgr; //local EBlock manager
+	/** active-flag, accessed by a single thread. 
+	 *  true as default.
+	 *  True: this source vertex should be updated/computed */
+	protected boolean[] actFlag;
+	/** responding-flag, accessed by two threads. 
+	 * flags at superstep t are read by getMsg(), i.e., pull-respond(), 
+	 * flags at superstep t+1 are modified by saveGraphRecord(), 
+	 * i.e., pull-request().
+	 * all flags are false as default.
+	 * True: this source vertex should send messages to its neighbors. */
+	protected boolean[][] resFlag;
+	/** dependency relationship among VBlocks with responding vertices,
+	 * #row=locBlkNum, #col=globalBlkNum */
+	protected boolean[][] resDepend;
 	
 	protected GraphRecord<V, W, M, I> graph_rw;
 	protected Long read_edge; //read edges, used in push, i.e. GraphInfo
@@ -72,20 +87,23 @@ public abstract class GraphDataServer<V, W, M, I> {
 	protected ArrayList<Integer>[] msgBufLen;
 	protected boolean[] proMsgOver;
 	/** memory usage */
-	protected long memUsedByMetaData = 0L; //used when pulling messages
-	protected long[] memUsedByMsgPull; //the maximal memory used when pulling messages
+	protected long memUsedByMetaData = 0L; //including VBlocks and EBlocks
+	protected long[] memUsedByMsgPull; //the maximal memory usage for messages in b-pull
 	
 	@SuppressWarnings("unchecked")
-	public GraphDataServer(int _parId, BSPJob _job) {
-		parId = _parId;
+	public GraphDataServer(int _taskId, BSPJob _job) {
+		taskId = _taskId;
 		job = _job;
-		this.useGraphInfo = _job.isUseGraphInfo();
-		this.bspStyle = _job.getBspStyle();
+		useGraphInfo = _job.isUseGraphInfo();
+		bspStyle = _job.getBspStyle();
 		
 		userTool = 
 	    	(UserTool<V, W, M, I>) ReflectionUtils.newInstance(job.getConf().getClass(
 	    			Constants.USER_JOB_TOOL_CLASS, UserTool.class), job.getConf());
-	    this.isAccumulated = userTool.isAccumulated();
+		bsp = 
+			(BSP<V, W, M, I>) ReflectionUtils.newInstance(this.job.getConf().getClass(
+					"bsp.work.class", BSP.class), this.job.getConf());
+	    isAccumulated = userTool.isAccumulated();
 	    graph_rw = userTool.getGraphRecord();
 	}
 	
@@ -126,48 +144,46 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * and the number of Vblocks has been calculated/initialized 
 	 * by {@link JobInProgress}/the user-specified parameter. 
 	 * 
-	 * @param lStatis
+	 * @param taskInfo
 	 * @param _commRT
 	 * @throws Exception
 	 */
-	public void initialize(LocalStatistics lStatis, 
+	public void initialize(TaskInformation taskInfo, 
 			final CommRouteTable<V, W, M, I> _commRT) throws Exception {
 		commRT = _commRT;
-		taskNum = commRT.getTaskNum();
-		verMinId = lStatis.getVerMinId();
-		verMaxId = lStatis.getVerMaxId();
-		verNum = lStatis.getVerNum();
-		locMinVerIds = new int[lStatis.getBucNum()];
+		locMinVerIds = new int[taskInfo.getBlkNum()];
 		
-		int[] bucNumTask = commRT.getGlobalSketchGraph().getBucNumTask();
-		this.verBucMgr = new VerHashBucMgr(lStatis.getVerMinId(), lStatis.getVerMaxId(), 
-				lStatis.getBucNum(), lStatis.getBucLen(), 
-				taskNum, bucNumTask, this.userTool, this.bspStyle);
+		int[] blkNumTask = commRT.getGlobalSketchGraph().getBucNumTask();
+		int taskNum = commRT.getTaskNum();
+		verBlkMgr = new VerBlockMgr(taskInfo.getVerMinId(), taskInfo.getVerMaxId(), 
+				taskInfo.getBlkNum(), taskInfo.getBlkLen(), 
+				taskNum, blkNumTask, bspStyle);
 		
-		int bucNumJob = commRT.getGlobalSketchGraph().getBucNumJob();
-		this.locMatrix = new long[lStatis.getBucNum()][];
-		for (int i = 0; i < lStatis.getBucNum(); i++) {
-			this.locMatrix[i] = new long[bucNumJob];
+		int blkNumJob = commRT.getGlobalSketchGraph().getBucNumJob();
+		resDepend = new boolean[taskInfo.getBlkNum()][];
+		for (int i = 0; i < taskInfo.getBlkNum(); i++) {
+			resDepend[i] = new boolean[blkNumJob];
+			Arrays.fill(resDepend[i], false);
 		}
 		
-		acFlag = new boolean[verNum]; Arrays.fill(acFlag, true);
-		upFlag = new boolean[2][];
-		upFlag[0] = new boolean[verNum]; Arrays.fill(upFlag[0], false);
-		upFlag[1] = new boolean[verNum]; Arrays.fill(upFlag[1], false);
+		int verNum = this.verBlkMgr.getVerNum();
+		actFlag = new boolean[verNum]; Arrays.fill(actFlag, true);
+		resFlag = new boolean[2][];
+		resFlag[0] = new boolean[verNum]; Arrays.fill(resFlag[0], false);
+		resFlag[1] = new boolean[verNum]; Arrays.fill(resFlag[1], false);
 		
-		//this.bufSize = this.commRT.getGlobalStatis().getCachePerTask();
 		this.io_byte_ver = 0L;
 		this.io_byte_edge = 0L;
 		this.read_edge = 0L;
-		this.memUsedByMsgPull = new long[this.taskNum];
+		this.memUsedByMsgPull = new long[taskNum];
 		
 		/** only used in pull or hybrid */
 		if (this.bspStyle != Constants.STYLE.Push) {
-			this.edgeBucMgr = new EdgeHashBucMgr(taskNum, bucNumTask);
-			this.proMsgOver = new boolean[this.taskNum];
-			this.msgBufLen = new ArrayList[this.taskNum];
-			this.msgBuf = new ArrayList[this.taskNum];
-			for (int i = 0; i < this.taskNum; i++) {
+			this.edgeBlkMgr = new EdgeHashBucMgr(taskNum, blkNumTask);
+			this.proMsgOver = new boolean[taskNum];
+			this.msgBufLen = new ArrayList[taskNum];
+			this.msgBuf = new ArrayList[taskNum];
+			for (int i = 0; i < taskNum; i++) {
 				this.msgBufLen[i] = new ArrayList<Integer>();
 				this.msgBuf[i] = new ArrayList<ByteArrayOutputStream>();
 			}
@@ -203,31 +219,31 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @return
 	 */
 	public int[] getLocBucMinIds() {
-		int bucNum = this.verBucMgr.getHashBucNum();
+		int bucNum = this.verBlkMgr.getBlkNum();
 		this.locMinVerIds = new int[bucNum];
 		for (int i = 0; i < bucNum; i++) {
-			this.locMinVerIds[i] = this.verBucMgr.getVerHashBucBeta(i).getVerMinId();
+			this.locMinVerIds[i] = this.verBlkMgr.getVerBlkBeta(i).getVerMinId();
 		}
 		
 		return this.locMinVerIds;
 	}
 	
 	/**
-	 * Update local statistics information, 
-	 * mainly including the number of active vertices  
-	 * and the relationship among VBlocks.
+	 * Update the dependency information among VBlocks with 
+	 * responding source vertices, 
+	 * and the number of responding source vertices of each VBlock.  
 	 * 
-	 * @param lStatis
+	 * @param taskInfo
 	 * @param iteNum
 	 */
-	public void updateLocalEdgeMatrix(LocalStatistics lStatis, int iteNum) {
-		lStatis.updateLocalMatrix(this.locMatrix);
+	public void updateRespondDependency(TaskInformation taskInfo, int iteNum) {
+		taskInfo.updateRespondDependency(this.resDepend);
 		
-		int[] updVerNumBucs = new int[this.verBucMgr.getHashBucNum()];
-		for (int i = 0; i < this.verBucMgr.getHashBucNum(); i++) {
-			updVerNumBucs[i] = this.verBucMgr.getVerHashBucBeta(i).getUpdVerNum();
+		int[] resVerNumBlks = new int[this.verBlkMgr.getBlkNum()];
+		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
+			resVerNumBlks[i] = this.verBlkMgr.getVerBlkBeta(i).getRespondVerNum();
 		}
-		lStatis.setActVerNumBucs(updVerNumBucs);
+		taskInfo.setRespondVerNumBlks(resVerNumBlks);
 	}
 	
 	/**
@@ -353,13 +369,13 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @param _bid
 	 */
 	private void setDefFlagBuc(int _bid, int _iteNum) {
-		int min = this.verBucMgr.getVerHashBucBeta(_bid).getVerMinId();
-		int num = this.verBucMgr.getVerHashBucBeta(_bid).getVerNum();
+		int min = this.verBlkMgr.getVerBlkBeta(_bid).getVerMinId();
+		int num = this.verBlkMgr.getVerBlkBeta(_bid).getVerNum();
 		int type = (_iteNum+1)%2;
-		int index = min - this.verMinId;
-		Arrays.fill(this.acFlag, index, (index+num), false);
-		Arrays.fill(this.upFlag[type], index, (index+num), false);
-		this.verBucMgr.setBucUpdated(type, _bid, false);
+		int index = min - this.verBlkMgr.getVerMinId();
+		Arrays.fill(this.actFlag, index, (index+num), false);
+		Arrays.fill(this.resFlag[type], index, (index+num), false);
+		this.verBlkMgr.setBlkRespond(type, _bid, false);
 	}
 	
 	/**
@@ -370,12 +386,9 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * and the number of Vblocks has been calculated/initialized 
 	 * by {@link JobInProgress}/the user-specified parameter. 
 	 * 
-	 * @param lStatis
-	 * @param _commRT
 	 * @throws Exception
 	 */
-	public abstract void initMemOrDiskMetaData(LocalStatistics lStatis, 
-			final CommRouteTable<V, W, M, I> _commRT) throws Exception;
+	public abstract void initMemOrDiskMetaData() throws Exception;
 	
 	/**
 	 * Read data from HDFS, create {@link GraphRecord} and then save data 
@@ -392,7 +405,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 *    vertex data ---- VBlocks
 	 *    edge data ---- EBlocks and adjacency list.
 	 */
-	public abstract void loadGraphData(LocalStatistics lStatis, 
+	public abstract void loadGraphData(TaskInformation taskInfo, 
 			BytesWritable rawSplit, String rawSplitClass) throws Exception;
 	
 	/**
@@ -411,7 +424,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	/**
 	 * Do preprocessing work before launching a new iteration, 
 	 * such as deleting files out of date 
-	 * and clearing counters in {@link VerHashBucMgr}.
+	 * and clearing counters in {@link VerBlockMgr}.
 	 * Note that the latter can make sure the correct of 
 	 * the function hasNextGraphRecord().
 	 * 
@@ -433,13 +446,14 @@ public abstract class GraphDataServer<V, W, M, I> {
 						+ _curIteStyle + " at iteNum=" + _iteNum);
 			}
 		} //so, pagerank, cannot use Hybrid, since its Pull cannot use GraphInfo.
-		LOG.info("IteStyle=[pre:" + this.preIteStyle 
-				+ " cur:" + this.curIteStyle 
+		String pre = this.preIteStyle==Constants.STYLE.Pull? "pull":"push";
+		String cur = this.curIteStyle==Constants.STYLE.Pull? "pull":"push";
+		LOG.info("IteStyle=[pre:" + pre + " cur:" + cur 
 				+ "], useGraphInfo=" + this.useGraphInfo);
 		
 		/** clear the message buffer used in pull @getMsg */
 		if (this.bspStyle != Constants.STYLE.Push) {
-			for (int i = 0; i < this.taskNum; i++) {
+			for (int i = 0; i < this.commRT.getTaskNum(); i++) {
 				if (this.msgBuf[i].size() > 0) {
 					this.msgBuf[i].clear();
 					this.msgBufLen[i].clear();
@@ -448,14 +462,14 @@ public abstract class GraphDataServer<V, W, M, I> {
 			}
 		}
 		
-		this.verBucMgr.clearBefIte(_iteNum);
+		this.verBlkMgr.clearBefIte(_iteNum);
 		this.io_byte_ver = 0L;
 		this.io_byte_edge = 0L;
 		this.read_edge = 0L;
 		
 		/** only used in evaluate the maximum allocated memory */
-		for (int i = 0; i < this.verBucMgr.getHashBucNum(); i++) {
-			Arrays.fill(this.locMatrix[i], 0);
+		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
+			Arrays.fill(this.resDepend[i], false);
 		}
 	}
 	
@@ -471,7 +485,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @param _iteNum
 	 */
 	public void clearAftIte(int _iteNum) {
-		this.verBucMgr.clearAftIte(_iteNum);
+		this.verBlkMgr.clearAftIte(_iteNum);
 	}
 	
 	/** 
@@ -479,7 +493,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * 
 	 **/
 	public void clearOnlyForPush(int _iteNum) {
-		this.verBucMgr.clearBefIte(_iteNum);
+		this.verBlkMgr.clearBefIte(_iteNum);
 	}
 	
 	/** 
@@ -519,7 +533,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @return
 	 */
 	public boolean hasNextGraphRecord(int _bid) {
-		return this.verBucMgr.getVerHashBucBeta(_bid).hasNext();
+		return this.verBlkMgr.getVerBlkBeta(_bid).hasNext();
 	}
 	
 	/**
@@ -529,8 +543,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @return
 	 */
 	public boolean isActive(int _vid) {
-		int index = _vid - this.verMinId; //global index
-		return acFlag[index];
+		int index = _vid - this.verBlkMgr.getVerMinId(); //global index
+		return actFlag[index];
 	}
 	
 	/**
@@ -555,10 +569,10 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * 
 	 **/
 	public boolean isDoOnlyForPush(int bid, int iteNum) {
-		VerHashBucBeta vHbb = this.verBucMgr.getVerHashBucBeta(bid);
+		VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
 		
 		int type = iteNum % 2;
-		return vHbb.isUpdated(type);
+		return vHbb.isRespond(type);
 	}
 	
 	/** 
@@ -567,8 +581,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * 
 	 **/
 	public boolean isUpdatedOnlyForPush(int bid, int vid, int iteNum) {
-		int type = iteNum % 2;
-		return upFlag[type][vid-this.verMinId];
+		return resFlag[iteNum%2][vid-this.verBlkMgr.getVerMinId()];
 	}
 	
 	/**

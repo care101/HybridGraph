@@ -22,7 +22,7 @@ import java.io.IOException;
 import org.apache.hama.bsp.BSPJobID;
 import org.apache.hama.bsp.GroomServerStatus;
 import org.apache.hama.bsp.Directive;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.SuperStepReport;
 
 /**
@@ -55,7 +55,7 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
    * @param local
    * @return
    */
-  public void buildRouteTable(BSPJobID jobId, LocalStatistics local);
+  public void buildRouteTable(BSPJobID jobId, TaskInformation local);
   
   /**
    * Once the task has run successfully, it will register to the JobInProgress
@@ -66,7 +66,7 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
    * 
    * @author 
    */
-  public void registerTask(BSPJobID jobId, LocalStatistics statis);
+  public void registerTask(BSPJobID jobId, TaskInformation statis);
   
   /**
    * Make sure than all tasks have completed the preparation work 

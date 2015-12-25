@@ -17,13 +17,14 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hama.Constants;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.bsp.TaskAttemptID;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.io.OutputFormat;
 import org.apache.hama.myhama.io.RecordWriter;
+import org.apache.hama.myhama.util.GraphContext;
 
 /**
  * GraphDataServerMem manages graph data in memory.
@@ -217,10 +218,9 @@ public class GraphDataServerMem<V, W, M, I>
 	}
 	
 	@Override
-	public void initMemOrDiskMetaData(LocalStatistics lStatis, 
-			final CommRouteTable<V, W, M, I> _commRT) throws Exception {
-		int locBucNum = lStatis.getBucNum();
-		int locBucLen = lStatis.getBucLen();
+	public void initMemOrDiskMetaData() throws Exception {
+		int locBucNum = this.verBlkMgr.getBlkNum();
+		int locBucLen = this.verBlkMgr.getBlkLen();
 		this.vBlocks = 
 			(VertexTriple<V, W, M, I>[][]) new VertexTriple[locBucNum][];
 		for (int locBid = 0; locBid < locBucNum; locBid++) {
@@ -267,23 +267,22 @@ public class GraphDataServerMem<V, W, M, I>
 			this.eBlocks[locBid][gBucIdx].add(
 					new EdgeFragment<V, W, M, I>(graph));
 			
-			verBucMgr.updateBucEVidEdgeLen(locBid, dstTid, dstBid, 
+			verBlkMgr.updateBlkFragmentLenAndNum(locBid, dstTid, dstBid, 
 					vid, VERTEX_ID_BYTE+graph.getEdgeByte());
-			verBucMgr.updateBucEVerNum(locBid, dstTid, dstBid, vid, 1);
-			edgeBucMgr.updateBucNum(dstTid, dstBid, 1, graph.getEdgeNum());
+			edgeBlkMgr.updateBucNum(dstTid, dstBid, 1, graph.getEdgeNum());
 			for (int eid: graph.getEdgeIds()) {
-				edgeBucMgr.updateBucEdgeIdBound(dstTid, dstBid, eid);
+				edgeBlkMgr.updateBucEdgeIdBound(dstTid, dstBid, eid);
 			}
 		}
 	}
 	
 	@Override
-	public void loadGraphData(LocalStatistics lStatis, BytesWritable rawSplit, 
+	public void loadGraphData(TaskInformation taskInfo, BytesWritable rawSplit, 
 			String rawSplitClass) throws Exception {
 		long startTime = System.currentTimeMillis();
 		long edgeNum = 0L;
 		initInputSplit(rawSplit, rawSplitClass);
-		int[] idxs = new int[lStatis.getBucNum()]; //record index of triples
+		int[] idxs = new int[this.verBlkMgr.getBlkNum()]; //record index of triples
 		
 		int bid = -1, vid = 0;
 		while (input.nextKeyValue()) {
@@ -292,37 +291,36 @@ public class GraphDataServerMem<V, W, M, I>
 					input.getCurrentValue().toString());
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
-			bid = commRT.getDstBucId(parId, vid);
+			bid = commRT.getDstBucId(taskId, vid);
 			graph.setSrcBucId(bid);
-			this.verBucMgr.updateBucEdgeNum(bid, vid, graph.getEdgeNum());
-			this.verBucMgr.updateBucVerInfoLen(bid, vid, 
-					graph.getVerByte(), graph.getGraphInfoByte());
 			
 			putIntoVerBuf(graph, bid, idxs[bid]);
 			idxs[bid]++;
 			if (this.bspStyle != Constants.STYLE.Push) {
 				ArrayList<GraphRecord<V, W, M, I>> graphs = 
-					graph.decompose(commRT, lStatis);
+					graph.decompose(commRT, taskInfo);
 				putIntoEdgeBuf(graphs);
 			}
 		}
 		
-		this.verBucMgr.loadOver(this.bspStyle);
+		this.verBlkMgr.setEdgeNum(edgeNum);
+		this.verBlkMgr.loadOver(this.bspStyle, this.commRT.getTaskNum(), 
+				this.commRT.getGlobalSketchGraph().getBucNumTask());
 		this.veBlockByte = this.vBlockByte + this.eBlockByte;
 		
-		int[] verNumBucs = new int[this.verBucMgr.getHashBucNum()];
-		for (int i = 0; i < this.verBucMgr.getHashBucNum(); i++) {
-			verNumBucs[i] = this.verBucMgr.getVerHashBucBeta(i).getVerNum();
+		int[] verNumBlks = new int[this.verBlkMgr.getBlkNum()];
+		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
+			verNumBlks[i] = this.verBlkMgr.getVerBlkBeta(i).getVerNum();
 		}
-		int[] actVerNumBucs = new int[this.verBucMgr.getHashBucNum()];
-		Arrays.fill(actVerNumBucs, 0);
-		lStatis.setVerNumBucs(verNumBucs);
-		lStatis.setActVerNumBucs(actVerNumBucs);
-		lStatis.setEdgeNum(edgeNum);
-		lStatis.setLoadByte(this.veBlockByte);
-		this.memUsedByMetaData = this.verBucMgr.getMemUsage();
+		int[] resVerNumBlks = new int[this.verBlkMgr.getBlkNum()];
+		Arrays.fill(resVerNumBlks, 0);
+		taskInfo.setVerNumBlks(verNumBlks);
+		taskInfo.setRespondVerNumBlks(resVerNumBlks);
+		taskInfo.setEdgeNum(edgeNum);
+		taskInfo.setLoadByte(this.veBlockByte);
+		this.memUsedByMetaData = this.verBlkMgr.getMemUsage();
 		if (this.bspStyle != Constants.STYLE.Push) {
-			this.memUsedByMetaData += this.edgeBucMgr.getMemUsage();
+			this.memUsedByMetaData += this.edgeBlkMgr.getMemUsage();
 		}
 		
 		long endTime = System.currentTimeMillis();
@@ -350,9 +348,9 @@ public class GraphDataServerMem<V, W, M, I>
 			return msgPack;
 		}
 		
-		int dstVerMinId = this.edgeBucMgr.getBucEdgeMinId(_tid, _bid);
-		int dstVerMaxId = this.edgeBucMgr.getBucEdgeMaxId(_tid, _bid);
-		int srcVerNum = this.edgeBucMgr.getBucVerNum(_tid, _bid);
+		int dstVerMinId = this.edgeBlkMgr.getBucEdgeMinId(_tid, _bid);
+		int dstVerMaxId = this.edgeBlkMgr.getBucEdgeMaxId(_tid, _bid);
+		int srcVerNum = this.edgeBlkMgr.getBucVerNum(_tid, _bid);
 		int type = _iteNum % 2; //compute the type to read upFlag and upFlagBuc
 		if (srcVerNum == 0) {
 			return new MsgPack<V, W, M, I>(this.userTool); //no edge
@@ -362,17 +360,15 @@ public class GraphDataServerMem<V, W, M, I>
 			(MsgRecord<M>[]) new MsgRecord[dstVerMaxId-dstVerMinId+1];
 		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg.
 		long[] statis = new long[6];
-		for (int resBid = 0; resBid < this.verBucMgr.getHashBucNum(); resBid++) {
-			VerHashBucBeta vHbb = this.verBucMgr.getVerHashBucBeta(resBid);
-			VerMiniBucMgr vMbMgr = vHbb.getVerMiniBucMgr();
-			
-			if (!vHbb.isUpdated(type) || (vHbb.getEVerNum(_tid, _bid)==0)) {
+		for (int resBid = 0; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
+			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(resBid);
+			if (!vHbb.isRespond(type) || (vHbb.getFragmentNum(_tid, _bid)==0)) {
 				continue; //skip the whole hash bucket
 			}
 			
-			//vMbMgr and cache: pass-by-reference
-			this.getMsgMiniBucket(statis, vMbMgr, resBid, 
-					type, _tid, _bid, cache, dstVerMinId);
+			//cache: pass-by-reference
+			this.getMsgFromOneVBlock(statis, resBid, 
+					type, _tid, _bid, _iteNum, cache, dstVerMinId);
 		}
 		
 		MsgPack<V, W, M, I> msgPack = packMsg(_tid, cache, statis);
@@ -388,7 +384,7 @@ public class GraphDataServerMem<V, W, M, I>
 		
 		if (_statis[5] > 0) {
 			/** msg for local task, send all messages by one pack. */
-			if (reqTid == this.parId) {
+			if (reqTid == this.taskId) {
 				MsgRecord<M>[] tmp = (MsgRecord<M>[]) new MsgRecord[(int)_statis[5]];
 				int vCounter = 0;
 				for (MsgRecord<M> msg: cache) {
@@ -462,8 +458,7 @@ public class GraphDataServerMem<V, W, M, I>
 	}
 	
 	/**
-	 * Get {@link MsgRecord}s for each {@link VerMiniBucBeta} bucket.
-	 * @param vMbMgr
+	 * Get {@link MsgRecord}s for one VBlock.
 	 * @param resBid
 	 * @param type
 	 * @param _tid
@@ -473,12 +468,13 @@ public class GraphDataServerMem<V, W, M, I>
 	 * @return
 	 * @throws Exception
 	 */
-	private void getMsgMiniBucket(long[] statis, VerMiniBucMgr vMbMgr, int resBid, 
-			int type, int _tid, int _bid, 
-			MsgRecord<M>[] cache, 
-			int dstVerMinId) throws Exception {
+	private void getMsgFromOneVBlock(long[] statis, int resBid, 
+			int type, int _tid, int _bid, int _iteNum, 
+			MsgRecord<M>[] cache, int dstVerMinId) throws Exception {
 		int dstBucIdx = 
 			this.commRT.getGlobalSketchGraph().getGlobalBucIndex(_tid, _bid);
+		int verMinId = this.verBlkMgr.getVerMinId();
+		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
 		GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 		
 		for (EdgeFragment<V, W, M, I> frag : this.eBlocks[resBid][dstBucIdx]) {
@@ -486,14 +482,16 @@ public class GraphDataServerMem<V, W, M, I>
 			statis[1] += graph.getEdgeNum(); // edge_read
 			statis[2]++; // fragment_read
 
-			if (!upFlag[type][graph.getVerId()-this.verMinId]) {
+			if (!resFlag[type][graph.getVerId()-verMinId]) {
 				continue;
 			}
 			this.vBlocks[resBid][graph.getVerId()-this.locMinVerIds[resBid]]
 					.getForRespond(graph);
-
-			MsgRecord<M>[] msgs = graph.getMsg(this.preIteStyle);
-			this.locMatrix[resBid][dstBucIdx] += msgs.length;
+			
+			context.reset();
+			context.initialize(graph, _iteNum, null, 0.0f, true, this.preIteStyle);
+			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
+			this.resDepend[resBid][dstBucIdx] = true;
 			statis[3] += msgs.length; // msg_pro
 			for (MsgRecord<M> msg : msgs) {
 				int index = msg.getDstVerId() - dstVerMinId;
@@ -537,7 +535,7 @@ public class GraphDataServerMem<V, W, M, I>
 	@Override
 	public GraphRecord<V, W, M, I> getNextGraphRecord(int _bid) 
 			throws Exception {
-		graph_rw.setVerId(this.verBucMgr.getVerHashBucBeta(_bid).getVerId());
+		graph_rw.setVerId(this.verBlkMgr.getVerBlkBeta(_bid).getVerId());
 		this.vBlocks[_bid][tripleIdx].getForUpdate(graph_rw);
 		this.tripleIdx++;
 		return graph_rw;
@@ -546,13 +544,13 @@ public class GraphDataServerMem<V, W, M, I>
 	@Override
 	public void saveGraphRecord(int _bid, int _iteNum, 
 			boolean _acFlag, boolean _upFlag) throws Exception {
-		int index = graph_rw.getVerId() - this.verMinId; //global index
+		int index = graph_rw.getVerId() - this.verBlkMgr.getVerMinId(); //global index
 		int type = (_iteNum+1)%2;
-		acFlag[index] = _acFlag;
-		upFlag[type][index] = _upFlag;
+		actFlag[index] = _acFlag;
+		resFlag[type][index] = _upFlag;
 		if (_upFlag) {
-			this.verBucMgr.setBucUpdated(type, _bid, graph_rw.getVerId(), _upFlag);
-			this.verBucMgr.incUpdVerNumBuc(_bid);
+			this.verBlkMgr.setBlkRespond(type, _bid, _upFlag);
+			this.verBlkMgr.incRespondVerNum(_bid);
 		}
 		
 		this.vBlocks[_bid][graph_rw.getVerId()-
@@ -561,9 +559,9 @@ public class GraphDataServerMem<V, W, M, I>
 	
 	@Override
 	public void clearBefIteMemOrDisk(int _iteNum) {
-		for (int bid = 0; bid < this.verBucMgr.getHashBucNum(); bid++) {
+		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
 			if (this.vBlockExchFlag[bid]) {
-				int bucVerNum = this.verBucMgr.getVerHashBucBeta(bid).getVerNum();
+				int bucVerNum = this.verBlkMgr.getVerBlkBeta(bid).getVerNum();
 				for (int idx = 0; idx < bucVerNum; idx++) {
 					this.vBlocks[bid][idx].exchange();
 				}
@@ -583,8 +581,8 @@ public class GraphDataServerMem<V, W, M, I>
         RecordWriter output = outputformat.getRecordWriter(job, taskId);
         int saveNum = 0;
         
-        for (int bid = 0; bid < this.verBucMgr.getHashBucNum(); bid++) {
-        	int bucVerNum = this.verBucMgr.getVerHashBucBeta(bid).getVerNum();
+        for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
+        	int bucVerNum = this.verBlkMgr.getVerBlkBeta(bid).getVerNum();
         	for (int idx = 0; idx < bucVerNum; idx++) {
         		this.vBlocks[bid][idx].getForUpdate(graph_rw);
         		output.write(new Text(Integer.toString(graph_rw.getVerId())), 

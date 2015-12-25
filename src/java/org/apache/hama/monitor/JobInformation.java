@@ -11,7 +11,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hama.bsp.BSPJob;
 
-public class GlobalStatistics implements Writable {
+public class JobInformation implements Writable {
 	//private static final Log LOG = LogFactory.getLog(GlobalStatistics.class);
 	private BSPJob job;
 	private int taskNum = 0;
@@ -25,11 +25,11 @@ public class GlobalStatistics implements Writable {
 	
 	private int cachePerTask;
 	
-	public GlobalStatistics() {
+	public JobInformation() {
 		
 	}
 	
-	public GlobalStatistics (BSPJob _job, int _taskNum) {
+	public JobInformation (BSPJob _job, int _taskNum) {
 		this.job = _job;
 		this.taskNum = _taskNum;
 		this.taskIds = new int[_taskNum];
@@ -137,21 +137,21 @@ public class GlobalStatistics implements Writable {
 		return skGraph;
 	}
 	
-	public synchronized void updateInfo(int parId, LocalStatistics local) {
-		this.taskIds[parId] = local.getTaskId();
-		this.rangeMins[parId] = local.getVerMinId();
-		this.ports[parId] = local.getPort();
-		this.hostNames[parId] = local.getHostName();
+	public synchronized void updateInfo(int taskId, TaskInformation tInfo) {
+		this.taskIds[taskId] = tInfo.getTaskId();
+		this.rangeMins[taskId] = tInfo.getVerMinId();
+		this.ports[taskId] = tInfo.getPort();
+		this.hostNames[taskId] = tInfo.getHostName();
 		
 		if (this.skGraph != null) {
-			this.skGraph.buildEdgeMatrix(parId, local.getLocalMatrix());
-			this.skGraph.buildVerNumBucs(parId, local.getVerNumBucs());
-			this.edgeNum += local.getEdgeNum();
+			this.skGraph.buildRespondDependency(taskId, tInfo.getRespondDependency());
+			this.skGraph.buildVerNumBlks(taskId, tInfo.getVerNumBlks());
+			this.edgeNum += tInfo.getEdgeNum();
 		}
 	}
 	
-	public synchronized void updateActVerNumBucs(int curIteNum, int parId, int[] nums) {
-		this.skGraph.updateActVerNumBucs(curIteNum, parId, nums);
+	public synchronized void updateActVerNumBucs(int curIteNum, int taskId, int[] nums) {
+		this.skGraph.updateRespondVerNumBlks(curIteNum, taskId, nums);
 	}
 	
 	public ArrayList<Integer>[] getRealCommRoute(int curIteNum, int _dstTid) {

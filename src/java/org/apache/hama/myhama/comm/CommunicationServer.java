@@ -26,7 +26,7 @@ import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.bsp.BSPJobID;
 import org.apache.hama.bsp.TaskAttemptID;
 import org.apache.hama.ipc.CommunicationServerProtocol;
-import org.apache.hama.monitor.GlobalStatistics;
+import org.apache.hama.monitor.JobInformation;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.graph.GraphDataServer;
 import org.apache.hama.myhama.graph.MsgDataServer;
@@ -505,7 +505,7 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	@Override
-	public void buildRouteTable(GlobalStatistics global) {
+	public void buildRouteTable(JobInformation global) {
 		this.commRT.initialilze(global);
 		
 		synchronized(mutex) {
@@ -515,7 +515,7 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	@Override
-	public void setPreparation(GlobalStatistics _gStatis) {
+	public void setPreparation(JobInformation _gStatis) {
 		this.commRT.resetGlobalStatis(_gStatis);
 		
 		synchronized(mutex) {
@@ -571,7 +571,7 @@ public class CommunicationServer<V, W, M, I>
 	}
 
 	
-	public final GlobalStatistics getGlobalStatis() {
+	public final JobInformation getGlobalStatis() {
 		return this.commRT.getGlobalStatis();
 	}
 }

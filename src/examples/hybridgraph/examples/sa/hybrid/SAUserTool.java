@@ -7,11 +7,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
-import org.apache.hama.Constants;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
@@ -34,9 +33,11 @@ import org.apache.hama.myhama.comm.CommRouteTable;
  * @param <M> message value
  * @param <I> graph information
  */
-public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
+public class SAUserTool 
+		extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 	
-	public class SAGraphRecord extends GraphRecord<Value, Integer, MsgBundle, EdgeSet> {
+	public static class SAGraphRecord 
+			extends GraphRecord<Value, Integer, MsgBundle, EdgeSet> {
 		
 		public SAGraphRecord() {
 			this.verValue = new Value();
@@ -62,10 +63,12 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 	            if(edges[end] != ':') {
 	                continue;
 	            }
-	            tmpEdgeId.add(Integer.valueOf(new String(edges, begin, end - begin)));
+	            tmpEdgeId.add(Integer.valueOf(
+	            		new String(edges, begin, end-begin)));
 	            begin = ++end;
 	        }
-	        tmpEdgeId.add(Integer.valueOf(new String(edges, begin, end - begin)));
+	        tmpEdgeId.add(Integer.valueOf(
+	        		new String(edges, begin, end-begin)));
 	        
 	        Integer[] tmpTransEdgeId = new Integer[tmpEdgeId.size()];
 	        tmpEdgeId.toArray(tmpTransEdgeId);
@@ -74,38 +77,54 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 	    }
 		
 		@Override
-		public void serVerId(MappedByteBuffer vOut) throws EOFException, IOException {
+		public void serVerId(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putInt(this.verId);
 		}
 
-		public void deserVerId(MappedByteBuffer vIn) throws EOFException, IOException {
+		@Override
+		public void deserVerId(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verId = vIn.getInt();
 		}
 
-		public void serVerValue(MappedByteBuffer vOut) throws EOFException, IOException {
+		@Override
+		public void serVerValue(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			this.verValue.write(vOut);
 		}
 
-		public void deserVerValue(MappedByteBuffer vIn) throws EOFException, IOException {
+		@Override
+		public void deserVerValue(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verValue.read(vIn);
 		}
 
-		public void serGrapnInfo(MappedByteBuffer eOut) throws EOFException, IOException {
+		@Override
+		public void serGrapnInfo(ByteBuffer eOut) 
+				throws EOFException, IOException {
 			this.graphInfo.write(eOut);
 		}
-		public void deserGraphInfo(MappedByteBuffer eIn) throws EOFException, IOException {
+		
+		@Override
+		public void deserGraphInfo(ByteBuffer eIn) 
+				throws EOFException, IOException {
 			this.graphInfo = new EdgeSet();
 			this.graphInfo.readFields(eIn);
 		}
 
-		public void serEdges(MappedByteBuffer eOut) throws EOFException, IOException {
+		@Override
+		public void serEdges(ByteBuffer eOut) 
+				throws EOFException, IOException {
 			eOut.putInt(this.edgeNum);
 	    	for (int index = 0; index < this.edgeNum; index++) {
 	    		eOut.putInt(this.edgeIds[index]);
 	    	}
 		}
 
-		public void deserEdges(MappedByteBuffer eIn) throws EOFException, IOException {
+		@Override
+		public void deserEdges(ByteBuffer eIn) 
+				throws EOFException, IOException {
 			this.edgeNum = eIn.getInt();
 	    	this.edgeIds = new Integer[this.edgeNum];
 	    	for (int index = 0; index < this.edgeNum; index++) {
@@ -133,7 +152,7 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 		
 		@Override
 		public ArrayList<GraphRecord<Value, Integer, MsgBundle, EdgeSet>> 
-    			decompose(CommRouteTable commRT, LocalStatistics local) {
+    			decompose(CommRouteTable commRT, TaskInformation taskInfo) {
 			int dstTid, dstBid, tNum = commRT.getTaskNum();
 			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
 			ArrayList<Integer>[][] container = new ArrayList[tNum][];
@@ -155,9 +174,11 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 			for (dstTid = 0; dstTid < tNum; dstTid++) {
 				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
 					if (container[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = new Integer[container[dstTid][dstBid].size()];
+						Integer[] tmpEdgeIds = 
+							new Integer[container[dstTid][dstBid].size()];
 						container[dstTid][dstBid].toArray(tmpEdgeIds);
-						local.updateLocMatrix(dstTid, dstBid, verId, tmpEdgeIds.length);
+						taskInfo.updateRespondDependency(
+								dstTid, dstBid, verId, tmpEdgeIds.length);
 						SAGraphRecord graph = new SAGraphRecord();
 						graph.setVerId(verId);
 						graph.setDstParId(dstTid);
@@ -172,21 +193,6 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 
 			return result;
 		}
-
-		@Override
-		public MsgRecord<MsgBundle>[] getMsg(int iteStyle) {
-			Integer[] eids = iteStyle==Constants.STYLE.Push? 
-					this.graphInfo.getEdgeIds():this.edgeIds;
-			SAMsgRecord[] result = new SAMsgRecord[eids.length];
-			for (int i = 0; i < eids.length; i++) {
-				result[i] = new SAMsgRecord();
-				MsgBundle msgBundle = new MsgBundle();
-				msgBundle.add(this.verValue.getAdverId());
-				result[i].initialize(this.verId, eids[i], msgBundle);
-			}
-			
-			return result;
-		}
 		
 		@Override
 		public int getNumOfFragments(int iteStyle, 
@@ -195,7 +201,7 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 		}
 	}
 	
-	public class SAMsgRecord extends MsgRecord<MsgBundle> {
+	public static class SAMsgRecord extends MsgRecord<MsgBundle> {
 		
 		@Override
 		public void combiner(MsgRecord<MsgBundle> msg) {
@@ -204,17 +210,18 @@ public class SAUserTool extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
 		
 		@Override
 		public int getMsgByte() {
-			return this.msgValue==null? 8:(4+this.msgValue.getByteSize()); //int+sizeof(value)
+			return this.msgValue==null? 
+					8:(4+this.msgValue.getByteSize()); //int+sizeof(value)
 		}
 		
 		@Override
-	    public void serialize(MappedByteBuffer out) throws IOException {
+	    public void serialize(ByteBuffer out) throws IOException {
 	    	out.putInt(this.dstId);
 	    	this.msgValue.write(out);
 	    }
 	    
 		@Override
-	    public void deserialize(MappedByteBuffer in) throws IOException {
+	    public void deserialize(ByteBuffer in) throws IOException {
 	    	this.dstId = in.getInt();
 	    	this.msgValue = new MsgBundle();
 	    	this.msgValue.read(in);

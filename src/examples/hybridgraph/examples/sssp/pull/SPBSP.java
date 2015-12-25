@@ -3,13 +3,17 @@
  */
 package hybridgraph.examples.sssp.pull;
 
+import java.util.Random;
+
 import hybridgraph.examples.sssp.pull.SPUserTool.SPGraphRecord;
 import hybridgraph.examples.sssp.pull.SPUserTool.SPMsgRecord;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
+import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.util.GraphContextInterface;
 import org.apache.hama.myhama.util.TaskContext;
 import org.apache.hama.myhama.util.SuperStepContext;
 
@@ -27,14 +31,12 @@ import org.apache.commons.logging.LogFactory;
  * @author 
  * @version 0.1
  */
-public class SPBSP extends BSP {
+public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	public static final Log LOG = LogFactory.getLog(SPBSP.class);
 	public static final String SOURCE = "source.vertex.id";
 	private static int SourceVerId;
 	private static int SourceBucId;
-	
-	private SPGraphRecord graph;
-	private SPMsgRecord msg;
+	private static Random rd = new Random();
 	
 	@Override
 	public void taskSetup(TaskContext context) {
@@ -63,27 +65,42 @@ public class SPBSP extends BSP {
 	}
 	
 	@Override
-	public void compute(GraphContext context) throws Exception {
-		graph = (SPGraphRecord)context.getGraphRecord();
-		msg = (SPMsgRecord)context.getMsgRecord();
+	public void update(
+			GraphContextInterface<Double, Double, Double, Integer> context) 
+				throws Exception {
+		SPGraphRecord graph = (SPGraphRecord)context.getGraphRecord();
+		SPMsgRecord msg = (SPMsgRecord)context.getReceivedMsgRecord();
 		
 		if (context.getIteCounter() == 1) {
-			// First SuperStep, set the source vertex value 0 and send new messages.
+			//first superStep, set the source vertex value 0 and send new messages.
 			if (graph.getVerId() == SourceVerId) {
-				update(context, 0);
+				graph.setVerValue(0.0);
+				context.setRespond();
 			}
 		} else {
-			// Other SuperStep, receive messages, processing and then send new messages.
+			//otherwise, receive messages, processing and then send new messages.
 			double recMsgValue = msg.getMsgValue();
 			if (recMsgValue < graph.getVerValue()) {
-				update(context, recMsgValue);
+				graph.setVerValue(recMsgValue);
+				context.setRespond();
 			}
 		}
 		context.voteToHalt();
 	}
 	
-	private void update(GraphContext context, double verValue) {
-		graph.setVerValue(verValue);
-		context.setUpdate();
+	@Override
+	public MsgRecord<Double>[] getMessages(
+			GraphContextInterface<Double, Double, Double, Integer> context) 
+				throws Exception {
+		SPGraphRecord graph = (SPGraphRecord)context.getGraphRecord();
+		SPMsgRecord[] result = new SPMsgRecord[graph.getEdgeNum()];
+		int idx = 0;
+		for (int eid: graph.getEdgeIds()) {
+			result[idx] = new SPMsgRecord();
+			result[idx].initialize(graph.getVerId(), eid, 
+					graph.getVerValue()+rd.nextDouble());
+			idx++;
+		}
+		return result;
 	}
 }

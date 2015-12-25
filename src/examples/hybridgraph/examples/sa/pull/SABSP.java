@@ -14,7 +14,8 @@ import java.util.Map.Entry;
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.util.GraphContextInterface;
 import org.apache.hama.myhama.util.SuperStepContext;
 import org.apache.hama.myhama.util.TaskContext;
 
@@ -28,26 +29,26 @@ import org.apache.commons.logging.LogFactory;
  * 
  * Implement a simple but efficient simulating advertisement method. 
  * The idea can refer to Zuhair Khayyat et al. 
- * "Mizan: A System for Dynamic Load Balancing in Large-scale Graph Processing", EuroSys 2013.
+ * "Mizan: A System for Dynamic Load Balancing in Large-scale Graph Processing", 
+ * EuroSys 2013.
  * Here, we implement this application based on LPA:
  * (1) an unique Integer is used to indicate an advertisement;
  * (2) each vertex only maintain one advertisement;
- * (3) each vertex is initialized with its vertex id (aid), denoting the advertisement it has;
+ * (3) each vertex is initialized with its vertex id (aid), 
+ * denoting the advertisement it has;
  * (4) at each iteration, each vertex adopts a label that: 
  *     1) a maximum number of its neighbors have,
- *     2) the aId is not equal with its current aId, or the number is more than current number;
+ *     2) the aId is not equal with its current aId, 
+ *        or the number is more than current number;
  * 
  * @author 
  * @version 0.1
  */
-public class SABSP extends BSP {
+public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	public static final Log LOG = LogFactory.getLog(SABSP.class);
 	public static final String SOURCE = "source.vertex.id";
 	private static int SourceVerId;
 	private static int SourceBucId;
-	
-	private SAGraphRecord graph;
-	private SAMsgRecord msg;
 	
 	@Override
 	public void taskSetup(TaskContext context) {
@@ -76,39 +77,56 @@ public class SABSP extends BSP {
 	}
 	
 	@Override
-	public void compute(GraphContext context) throws Exception {
-		graph = (SAGraphRecord)context.getGraphRecord();
-		msg = (SAMsgRecord)context.getMsgRecord();
+	public void update(
+			GraphContextInterface<Value, Integer, MsgBundle, Integer> context) 
+				throws Exception {
+		SAGraphRecord graph = (SAGraphRecord)context.getGraphRecord();
+		SAMsgRecord msg = (SAMsgRecord)context.getReceivedMsgRecord();
 		
+		//first superStep, send source vertex's advertisement to its out-neighbors.
 		if (context.getIteCounter() == 1) {
-			// First SuperStep, send source vertex's advertisement to its out-neighbors.
 			if (graph.getVerId() == SourceVerId) {
-				update(context, graph.getVerValue());
+				context.setRespond();
 			}
 		} else if (msg != null) {
-			// Other SuperStep, update value and send new advertisement or not.
-			Value canV = findNewValue();
-			if ((graph.getVerValue().getAdverId() != canV.getAdverId()) ||
-					(graph.getVerValue().getAdverIdNum() < canV.getAdverIdNum())) {
-				update(context, canV);
+			//otherwise, update value and send new advertisement or not.
+			Value canV = findNewValue(msg);
+			if ((graph.getVerValue().getAdverId()!=canV.getAdverId()) ||
+					(graph.getVerValue().getAdverIdNum()<canV.getAdverIdNum())) {
+				graph.setVerValue(canV);
+				context.setRespond();
 			}
 		}
 		
 		context.voteToHalt();
 	}
 	
-	private void update(GraphContext context, Value verValue) {
-		graph.setVerValue(verValue);
-		context.setUpdate();
+	@Override
+	public MsgRecord<MsgBundle>[] getMessages(
+			GraphContextInterface<Value, Integer, MsgBundle, Integer> context) 
+				throws Exception {
+		SAGraphRecord graph = (SAGraphRecord)context.getGraphRecord();
+		SAMsgRecord[] result = new SAMsgRecord[graph.getEdgeNum()];
+		int idx = 0;
+		for (int eid: graph.getEdgeIds()) {
+			result[idx] = new SAMsgRecord();
+			MsgBundle msgBundle = new MsgBundle();
+			msgBundle.add(graph.getVerValue().getAdverId());
+			result[idx].initialize(graph.getVerId(), eid, msgBundle);
+			idx++;
+		}
+		
+		return result;
 	}
 	
 	/**
 	 * Find new candidate Value.
 	 * @return
 	 */
-	private Value findNewValue() {
+	private Value findNewValue(SAMsgRecord msg) {
 		HashMap<Integer, Integer> recAIds = 
-			new HashMap<Integer, Integer>(msg.getMsgValue().getAll().size()); //aId:count
+			new HashMap<Integer, Integer>(
+					msg.getMsgValue().getAll().size()); //aId:count
 		for (int aId: msg.getMsgValue().getAll()) {
 			if (recAIds.containsKey(aId)) {
 				int count = recAIds.get(aId);

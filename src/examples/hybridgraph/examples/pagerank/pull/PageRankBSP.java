@@ -3,17 +3,17 @@
  */
 package hybridgraph.examples.pagerank.pull;
 
-import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRGraphRecord;
-import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRMsgRecord;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hama.Constants.Opinion;
 //import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.util.GraphContextInterface;
 import org.apache.hama.myhama.util.TaskContext;
 
+import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRGraphRecord;
+import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRMsgRecord;
 
 /**
  * PageRankBSP.java implements {@link BSP}.
@@ -25,13 +25,10 @@ import org.apache.hama.myhama.util.TaskContext;
  * @author 
  * @version 0.1
  */
-public class PageRankBSP extends BSP {
+public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	public static final Log LOG = LogFactory.getLog(PageRankBSP.class);
 	private static double FACTOR = 0.85f;
 	private static double RandomRate;
-	
-	private PRGraphRecord graphRecord;
-	private PRMsgRecord msgRecord;
 	private double value = 0.0d;
 	
 	@Override
@@ -47,28 +44,43 @@ public class PageRankBSP extends BSP {
 	}
 	
 	@Override
-	public void compute(GraphContext context) throws Exception {
-		graphRecord = (PRGraphRecord)context.getGraphRecord();
-		msgRecord = (PRMsgRecord)context.getMsgRecord();
+	public void update(
+			GraphContextInterface<Double, Integer, Double, Integer> context) 
+				throws Exception {
+		PRGraphRecord graph = (PRGraphRecord)context.getGraphRecord();
+		PRMsgRecord msg = (PRMsgRecord)context.getReceivedMsgRecord();
 		value = 0.0d;
 		
 		if (context.getIteCounter() == 1) {
 			//value = RandomRate;
 			value = 10.0;
-		} else if (msgRecord != null){
-			value = RandomRate + msgRecord.getMsgValue() * FACTOR;
+		} else if (msg != null){
+			value = RandomRate + msg.getMsgValue()*FACTOR;
 		} else {
 			//value = RandomRate;
 			value = 10.0;
 		}
 		
-		if (graphRecord.getGraphInfo() > 0) {
-			graphRecord.setVerValue(value/graphRecord.getGraphInfo());
-			if (graphRecord.getVerId() == 0) {
-			}
+		if (graph.getGraphInfo() > 0) {
+			graph.setVerValue(value/graph.getGraphInfo());
 		} else {
-			graphRecord.setVerValue(value);
+			graph.setVerValue(value);
 		}
-		context.setUpdate();
+		context.setRespond();
+	}
+	
+	@Override
+	public MsgRecord<Double>[] getMessages(
+			GraphContextInterface<Double, Integer, Double, Integer> context) 
+				throws Exception {
+		PRGraphRecord graph = (PRGraphRecord)context.getGraphRecord();
+		PRMsgRecord[] result = new PRMsgRecord[graph.getEdgeNum()];
+		int idx = 0;
+		for (int eid: graph.getEdgeIds()) {
+			result[idx] = new PRMsgRecord();
+			result[idx].initialize(graph.getVerId(), eid, graph.getVerValue());
+			idx++;
+		}
+		return result;
 	}
 }

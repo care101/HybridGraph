@@ -15,7 +15,7 @@ import org.apache.hama.myhama.util.TaskContext;
  * @author 
  * @version 0.1
  */
-public abstract class BSP implements BSPInterface {
+public abstract class BSP<V, W, M, I> implements BSPInterface<V, W, M, I> {
 	
 	@Override
 	public void taskSetup(TaskContext context) {
@@ -28,7 +28,7 @@ public abstract class BSP implements BSPInterface {
 	}
 	
 	/**
-	 * Judge this bucket weather need to be processed.
+	 * Does this bucket need to be processed?
 	 * This function will be invoked for every Bucket in every SuperStep.
 	 * The default function will return {@link Opinion.NONE} for every Bucket.
 	 * That means the bucket will not be processed 

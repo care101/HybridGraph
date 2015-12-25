@@ -3,16 +3,16 @@
  */
 package hybridgraph.examples.cc.pull;
 
-import hybridgraph.examples.cc.pull.CCUserTool.CCGraphRecord;
-import hybridgraph.examples.cc.pull.CCUserTool.CCMsgRecord;
-
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.util.GraphContextInterface;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
+import hybridgraph.examples.cc.pull.CCUserTool.CCGraphRecord;
+import hybridgraph.examples.cc.pull.CCUserTool.CCMsgRecord;
 
 /**
  * CCBSP.java implements {@link BSP}.
@@ -37,11 +37,8 @@ import org.apache.commons.logging.LogFactory;
  * @version 0.1
  */
 
-public class CCBSP extends BSP {
+public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	public static final Log LOG = LogFactory.getLog(CCBSP.class);
-	
-	private CCGraphRecord graph;
-	private CCMsgRecord msg;
 	
 	@Override
 	public Opinion processThisBucket(int _bucId, int _iteNum) {
@@ -49,25 +46,39 @@ public class CCBSP extends BSP {
 	}
 	
 	@Override
-	public void compute(GraphContext context) throws Exception {
-		graph = (CCGraphRecord)context.getGraphRecord();
-		msg = (CCMsgRecord)context.getMsgRecord();
+	public void update(
+			GraphContextInterface<Integer, Integer, Integer, Integer> context) 
+				throws Exception {
+		CCGraphRecord graph = (CCGraphRecord)context.getGraphRecord();
+		CCMsgRecord msg = (CCMsgRecord)context.getReceivedMsgRecord();
 		
+		//first superstep, just send its value to all outgoing neighbors.
 		if (context.getIteCounter() == 1) {
 			graph.setVerValue(graph.getVerId());
-			update(context); //first superstep, just send its value to all outer neighbors.
+			context.setRespond();
 		} else {
 			int recMsgValue = msg.getMsgValue();
 			if (recMsgValue < graph.getVerValue()) {
 				graph.setVerValue(recMsgValue);
-				update(context);
+				context.setRespond();
 			}
 		}
 		context.voteToHalt();
 	}
 	
-	@SuppressWarnings("unchecked")
-	private void update(GraphContext context) {
-		context.setUpdate();
+	@Override
+	public MsgRecord<Integer>[] getMessages(
+			GraphContextInterface<Integer, Integer, Integer, Integer> context) 
+				throws Exception {
+		CCGraphRecord graph = (CCGraphRecord)context.getGraphRecord();
+		CCMsgRecord[] result = new CCMsgRecord[graph.getEdgeNum()];
+		int idx = 0;
+		for (int eid: graph.getEdgeIds()) {
+			result[idx] = new CCMsgRecord();
+			result[idx].initialize(graph.getVerId(), eid, graph.getVerValue());
+			idx++;
+		}
+		
+		return result;
 	}
 }

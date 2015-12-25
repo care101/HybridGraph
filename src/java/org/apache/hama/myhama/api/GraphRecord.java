@@ -2,10 +2,10 @@ package org.apache.hama.myhama.api;
 
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.CommRouteTable;
 
 /**
@@ -78,7 +78,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public abstract void serVerValue(MappedByteBuffer vOut) 
+    public abstract void serVerValue(ByteBuffer vOut) 
 			throws EOFException, IOException;
 
     /**
@@ -90,7 +90,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public abstract void deserVerValue(MappedByteBuffer vIn) 
+    public abstract void deserVerValue(ByteBuffer vIn) 
 			throws EOFException, IOException;
     
 	/**
@@ -171,7 +171,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public void serVerId(MappedByteBuffer vOut) 
+    public void serVerId(ByteBuffer vOut) 
     		throws EOFException, IOException { };
     
     /**
@@ -182,7 +182,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public void deserVerId(MappedByteBuffer vIn) 
+    public void deserVerId(ByteBuffer vIn) 
     		throws EOFException, IOException { };
     
     /**
@@ -193,7 +193,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public void serGrapnInfo(MappedByteBuffer eOut) 
+    public void serGrapnInfo(ByteBuffer eOut) 
 			throws EOFException, IOException { };
 
     /**
@@ -204,7 +204,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public void deserGraphInfo(MappedByteBuffer eIn) 
+    public void deserGraphInfo(ByteBuffer eIn) 
 			throws EOFException, IOException { };
     
     /**
@@ -216,7 +216,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public void serEdges(MappedByteBuffer eOut) 
+    public void serEdges(ByteBuffer eOut) 
 			throws EOFException, IOException { };
 
     /**
@@ -228,7 +228,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws EOFException
      * @throws IOException
      */
-    public void deserEdges(MappedByteBuffer eIn) 
+    public void deserEdges(ByteBuffer eIn) 
 			throws EOFException, IOException { };
 		
 			
@@ -252,7 +252,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * Now, the decomposing policy is to divide the outgoing edges 
      * depends on {@link CommRouteTable}.
      * 
-     * By the way, {@link LocalStatistics} will be invoked to 
+     * By the way, {@link TaskInformation} will be invoked to 
      * update the local matrix among virtual buckets.
      * 
      * Note: the outgoing edge data of this {@link GraphRecord}
@@ -262,13 +262,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @return
      */
     public abstract ArrayList<GraphRecord<V, W, M, I>> 
-    			decompose(CommRouteTable<V, W, M, I> commRT, LocalStatistics local);
-    
-    /**
-     * Get {@link MsgRecord}s from the ghost {@link GraphRecord}.
-     * @return
-     */
-	public abstract MsgRecord<M>[] getMsg(int _iteStyle);
+    			decompose(CommRouteTable<V, W, M, I> commRT, TaskInformation local);
 
 	
 	//==============================================================================

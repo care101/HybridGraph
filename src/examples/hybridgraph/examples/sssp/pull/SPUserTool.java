@@ -7,13 +7,12 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Random;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
@@ -34,9 +33,9 @@ import org.apache.hama.myhama.comm.CommRouteTable;
  */
 public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 	public static final Log LOG = LogFactory.getLog(SPUserTool.class);
-	private Random rd = new Random();
 	
-	public class SPGraphRecord extends GraphRecord<Double, Double, Double, Integer> {
+	public static class SPGraphRecord 
+			extends GraphRecord<Double, Double, Double, Integer> {
 		
 		/**
 		 * Assume that the weight of each edge is a random Integer, or 1 (as Pregel).
@@ -60,10 +59,12 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 	            if(edges[end] != ':') {
 	                continue;
 	            }
-	            tmpEdgeId.add(Integer.valueOf(new String(edges, begin, end - begin)));
+	            tmpEdgeId.add(Integer.valueOf(
+	            		new String(edges, begin, end-begin)));
 	            begin = ++end;
 	        }
-	        tmpEdgeId.add(Integer.valueOf(new String(edges, begin, end - begin)));
+	        tmpEdgeId.add(Integer.valueOf(
+	        		new String(edges, begin, end-begin)));
 	        
 	        Integer[] tmpTransEdgeId = new Integer[tmpEdgeId.size()];
 	        tmpEdgeId.toArray(tmpTransEdgeId);
@@ -71,33 +72,41 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 	    }
 		
 		@Override
-		public void serVerId(MappedByteBuffer vOut) throws EOFException, IOException {
+		public void serVerId(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putInt(this.verId);
 		}
 
-		public void deserVerId(MappedByteBuffer vIn) throws EOFException, IOException {
+		@Override
+		public void deserVerId(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verId = vIn.getInt();
 		}
 
-		public void serVerValue(MappedByteBuffer vOut) throws EOFException, IOException {
+		@Override
+		public void serVerValue(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putDouble(this.verValue);
 		}
 
-		public void deserVerValue(MappedByteBuffer vIn) throws EOFException, IOException {
+		@Override
+		public void deserVerValue(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verValue = vIn.getDouble();
 		}
 
-		public void serGrapnInfo(MappedByteBuffer eOut) throws EOFException, IOException {}
-		public void deserGraphInfo(MappedByteBuffer eIn)throws EOFException, IOException {}
-
-		public void serEdges(MappedByteBuffer eOut) throws EOFException, IOException {
+		@Override
+		public void serEdges(ByteBuffer eOut) 
+				throws EOFException, IOException {
 			eOut.putInt(this.edgeNum);
 	    	for (int index = 0; index < this.edgeNum; index++) {
 	    		eOut.putInt(this.edgeIds[index]);
 	    	}
 		}
 
-		public void deserEdges(MappedByteBuffer eIn) throws EOFException, IOException {
+		@Override
+		public void deserEdges(ByteBuffer eIn) 
+				throws EOFException, IOException {
 			this.edgeNum = eIn.getInt();
 	    	this.edgeIds = new Integer[this.edgeNum];
 	    	for (int index = 0; index < this.edgeNum; index++) {
@@ -125,7 +134,8 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 		
 		@Override
 		public ArrayList<GraphRecord<Double, Double, Double, Integer>> 
-    			decompose(CommRouteTable commRT, LocalStatistics local) {
+    			decompose(CommRouteTable<Double, Double, Double, Integer> commRT, 
+    					TaskInformation taskInfo) {
 			int dstTid = 0, dstBid = 0, tNum = commRT.getTaskNum();
 			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
 			ArrayList<Integer>[][] conIds = new ArrayList[tNum][];
@@ -147,9 +157,11 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 			for (dstTid = 0; dstTid < tNum; dstTid++) {
 				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
 					if (conIds[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = new Integer[conIds[dstTid][dstBid].size()];
+						Integer[] tmpEdgeIds = 
+							new Integer[conIds[dstTid][dstBid].size()];
 						conIds[dstTid][dstBid].toArray(tmpEdgeIds);
-						local.updateLocMatrix(dstTid, dstBid, verId, tmpEdgeIds.length);
+						taskInfo.updateRespondDependency(
+								dstTid, dstBid, verId, tmpEdgeIds.length);
 						SPGraphRecord graph = new SPGraphRecord();
 						graph.setVerId(verId);
 						graph.setDstParId(dstTid);
@@ -164,20 +176,9 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 
 			return result;
 		}
-
-		@Override
-		public MsgRecord<Double>[] getMsg(int iteStyle) {
-			SPMsgRecord[] result = new SPMsgRecord[edgeNum];
-			for (int i = 0; i < edgeNum; i++) {
-				result[i] = new SPMsgRecord();
-				result[i].initialize(verId, edgeIds[i], verValue + rd.nextDouble());
-				//result[i].initialize(verId, edgeIds[i], verValue + 0.1);
-			}
-			return result;
-		}
 	}
 	
-	public class SPMsgRecord extends MsgRecord<Double> {
+	public static class SPMsgRecord extends MsgRecord<Double> {
 		
 		@Override
 		public void combiner(MsgRecord<Double> msg) {

@@ -5,13 +5,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 
-public class LocalStatistics implements Writable {
-	private static final Log LOG = LogFactory.getLog(LocalStatistics.class);
+public class TaskInformation implements Writable {
 	private int taskId;
 	private int verMinId, verMaxId;
 	private int port;
@@ -22,22 +19,22 @@ public class LocalStatistics implements Writable {
 	
 	private int verNum = 0;
 	private long edgeNum = 0L;
-	private int bucLen = 0;
-	private int bucNum = 0;
+	private int blkLen = 0;
+	private int blkNum = 0;
 	private long loadByte = 0L;
 	
 	private GlobalSketchGraph skGraph = null;
-	private long[][] locMatrix;
-	private int[] verNumBucs;
-	private int[] actVerNumBucs;
-	private int bucNumJob;
+	/** dependency among VBlocks with responding vertices */
+	private boolean[][] resDepend;
+	private int[] verNumBlks; //total source vertices of each VBlock
+	private int[] resVerNumBlks; //responding source vertices of each VBlock
 	
-	public LocalStatistics () {
+	public TaskInformation () {
 		
 	}
 	
-	public LocalStatistics (int _taskId, int _minVerId, int _port, String _hostName, 
-			int _byteOfOneMsg, boolean _isAccumulated) {
+	public TaskInformation (int _taskId, int _minVerId, int _port, 
+			String _hostName, int _byteOfOneMsg, boolean _isAccumulated) {
 		taskId = _taskId;
 		verMinId = _minVerId;
 		port = _port;
@@ -47,16 +44,15 @@ public class LocalStatistics implements Writable {
 		this.isAccumulated = _isAccumulated;
 	}
 	
-	public void init(GlobalStatistics global) {
+	public void init(JobInformation global) {
 		this.verMaxId = global.getRangeMaxId(taskId);
 		this.verNum = verMaxId - verMinId + 1;
 		this.skGraph = global.getGlobalSketchGraph();
-		this.bucNum = skGraph.getBucNumTask(taskId);
-		this.bucLen = skGraph.getBucLenTask(taskId);
-		this.locMatrix = new long[bucNum][skGraph.getBucNumJob()];
-		this.verNumBucs = new int[bucNum];
-		this.actVerNumBucs = new int[bucNum];
-		this.bucNumJob = skGraph.getBucNumJob();
+		this.blkNum = skGraph.getBucNumTask(taskId);
+		this.blkLen = skGraph.getBucLenTask(taskId);
+		this.resDepend = new boolean[blkNum][skGraph.getBucNumJob()];
+		this.verNumBlks = new int[blkNum];
+		this.resVerNumBlks = new int[blkNum];
 	}
 	
 	public int getTaskId() {
@@ -79,16 +75,12 @@ public class LocalStatistics implements Writable {
 		return hostName;
 	}
 	
-	public int getBucLen() {
-		return this.bucLen;
+	public int getBlkLen() {
+		return this.blkLen;
 	}
 	
-	public int getBucNum() {
-		return this.bucNum;
-	}
-	
-	public int getBucNumJob() {
-		return this.bucNumJob;
+	public int getBlkNum() {
+		return this.blkNum;
 	}
 	
 	public void setVerNum(int _verNum) {
@@ -99,20 +91,20 @@ public class LocalStatistics implements Writable {
 		return this.verNum;
 	}
 	
-	public void setVerNumBucs(int[] _array) {
-		this.verNumBucs = _array;
+	public void setVerNumBlks(int[] _array) {
+		this.verNumBlks = _array;
 	}
 	
-	public int[] getVerNumBucs() {
-		return this.verNumBucs;
+	public int[] getVerNumBlks() {
+		return this.verNumBlks;
 	}
 	
-	public void setActVerNumBucs(int[] _array) {
-		this.actVerNumBucs = _array;
+	public void setRespondVerNumBlks(int[] _array) {
+		this.resVerNumBlks = _array;
 	}
 	
-	public int[] getActVerNumBucs() {
-		return this.actVerNumBucs;
+	public int[] getRespondVerNumBlks() {
+		return this.resVerNumBlks;
 	}
 	
 	/**
@@ -145,37 +137,41 @@ public class LocalStatistics implements Writable {
 	}
 	
 	/**
-	 * Update the local matrix among virtual buckets.
+	 * Update the dependency relationship among VBlocks.
 	 * This function should be invoked by decompose() of {@link GraphRecord}.
 	 * @param taskId
 	 * @param vId
 	 * @param exch
 	 */
-	public void updateLocMatrix(int _dstTid, int _dstBid, int vid, long len) {
+	public void updateRespondDependency(int _dstTid, int _dstBid, 
+			int vid, long len) {
 		int row = skGraph.getTaskBucIndex(this.taskId, vid);
 		int col = skGraph.getGlobalBucIndex(_dstTid, _dstBid);
-		try {
-			this.locMatrix[row][col] += len;
-		} catch (Exception e) {
-			LOG.error("row=" + row + " col=" + col, e);
-		}
+		this.resDepend[row][col] = true;
 	}
 	
-	public void updateLocalMatrix(long[][] m) {
-		for (int i = 0; i < this.bucNum; i++) {
+	/**
+	 * Update the dependency relationship among VBlocks.
+	 * This function should be invoked by {@link GraphDataServer}.
+	 * @param taskId
+	 * @param vId
+	 * @param exch
+	 */
+	public void updateRespondDependency(boolean[][] m) {
+		for (int i = 0; i < this.blkNum; i++) {
 			for (int j = 0; j < this.skGraph.getBucNumJob(); j++) {
-				this.locMatrix[i][j] = m[i][j];
+				this.resDepend[i][j] = m[i][j];
 			}
 		}
 	}
 	
-	public long[][] getLocalMatrix() {
-		return this.locMatrix;
+	public boolean[][] getRespondDependency() {
+		return this.resDepend;
 	}
 	
-	public void clearLocalMatrix() {
-		for (int bid = 0; bid < this.bucNum; bid++) {
-			Arrays.fill(this.locMatrix[bid], 0);
+	public void clear() {
+		for (int bid = 0; bid < this.blkNum; bid++) {
+			Arrays.fill(this.resDepend[bid], false);
 		}
 	}
 	
@@ -193,14 +189,9 @@ public class LocalStatistics implements Writable {
 		sb.append("[taskId]="); sb.append(this.taskId);
 		sb.append(" #vertex="); sb.append(this.verNum);
 		sb.append(" #edge="); sb.append(this.edgeNum);
-		sb.append(" #bucLen="); sb.append(this.bucLen);
-		sb.append(" #bucNum="); sb.append(this.bucNum);
+		sb.append(" #bucLen="); sb.append(this.blkLen);
+		sb.append(" #bucNum="); sb.append(this.blkNum);
 		sb.append(" loadByte="); sb.append(this.loadByte);
-		
-		sb.append("\nLocal Edge Matrix Info.\n");
-		for (int i = 0; i < this.bucNum; i++) {
-			sb.append(Arrays.toString(this.locMatrix[i])); sb.append("\n");
-		}
 		
 		return sb.toString();
 	}
@@ -221,36 +212,36 @@ public class LocalStatistics implements Writable {
 		
 		int rowNum = in.readInt();
 		if (rowNum != 0) {
-			this.locMatrix = new long[rowNum][];
+			this.resDepend = new boolean[rowNum][];
 			for (int i = 0; i < rowNum; i++) {
 				int colNum = in.readInt();
-				this.locMatrix[i] = new long[colNum];
+				this.resDepend[i] = new boolean[colNum];
 				for (int j = 0; j < colNum; j++) {
-					this.locMatrix[i][j] = in.readLong();
+					this.resDepend[i][j] = in.readBoolean();
 				}
 			}
 		} else {
-			this.locMatrix = null;
+			this.resDepend = null;
 		}
 		
 		int num = in.readInt();
 		if (num != 0) {
-			this.verNumBucs = new int[num];
+			this.verNumBlks = new int[num];
 			for (int i = 0; i < num; i++) {
-				this.verNumBucs[i] = in.readInt();
+				this.verNumBlks[i] = in.readInt();
 			}
 		} else {
-			this.verNumBucs = null;
+			this.verNumBlks = null;
 		}
 		
 		num = in.readInt();
 		if (num != 0) {
-			this.actVerNumBucs = new int[num];
+			this.resVerNumBlks = new int[num];
 			for (int i = 0; i < num; i++) {
-				this.actVerNumBucs[i] = in.readInt();
+				this.resVerNumBlks[i] = in.readInt();
 			}
 		} else {
-			this.actVerNumBucs = null;
+			this.resVerNumBlks = null;
 		}
 		
 	}
@@ -269,31 +260,31 @@ public class LocalStatistics implements Writable {
 		out.writeLong(this.edgeNum);
 		out.writeLong(this.loadByte);
 		
-		if (this.locMatrix != null) {
-			out.writeInt(this.locMatrix.length);
-			for (int i = 0; i < this.locMatrix.length; i++) {
-				out.writeInt(this.locMatrix[i].length);
-				for (int j = 0; j < this.locMatrix[i].length; j++) {
-					out.writeLong(this.locMatrix[i][j]);
+		if (this.resDepend != null) {
+			out.writeInt(this.resDepend.length);
+			for (int i = 0; i < this.resDepend.length; i++) {
+				out.writeInt(this.resDepend[i].length);
+				for (int j = 0; j < this.resDepend[i].length; j++) {
+					out.writeBoolean(this.resDepend[i][j]);
 				}
 			}
 		} else {
 			out.writeInt(0);
 		}
 		
-		if (this.verNumBucs != null) {
-			out.writeInt(this.bucNum);
-			for (int i = 0; i < this.bucNum; i++) {
-				out.writeInt(this.verNumBucs[i]);
+		if (this.verNumBlks != null) {
+			out.writeInt(this.blkNum);
+			for (int i = 0; i < this.blkNum; i++) {
+				out.writeInt(this.verNumBlks[i]);
 			}
 		} else {
 			out.writeInt(0);
 		}
 		
-		if (this.actVerNumBucs != null) {
-			out.writeInt(this.bucNum);
-			for (int i = 0; i < this.bucNum; i++) {
-				out.writeInt(this.actVerNumBucs[i]);
+		if (this.resVerNumBlks != null) {
+			out.writeInt(this.blkNum);
+			for (int i = 0; i < this.blkNum; i++) {
+				out.writeInt(this.resVerNumBlks[i]);
 			}
 		} else {
 			out.writeInt(0);

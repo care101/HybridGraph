@@ -42,9 +42,9 @@ import org.apache.hama.Constants.CommandType;
 import org.apache.hama.bsp.BSPJobClient.RawSplit;
 import org.apache.hama.bsp.TaskStatus.State;
 import org.apache.hama.ipc.CommunicationServerProtocol;
-import org.apache.hama.monitor.GlobalStatistics;
+import org.apache.hama.monitor.JobInformation;
 import org.apache.hama.monitor.JobMonitor;
-import org.apache.hama.monitor.LocalStatistics;
+import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.SuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepReport;
 import org.apache.hama.myhama.util.JobLog;
@@ -89,7 +89,7 @@ class JobInProgress {
 		new HashMap<Integer, CommunicationServerProtocol>();
 	private AtomicInteger reportCounter;
 
-	private GlobalStatistics global;
+	private JobInformation global;
 	private JobMonitor jobMonitor;
 	private double[] iteTime, iteQNeu, iteQAmazon;
 	private String[] iteCommand, taskToWorkerName;
@@ -173,7 +173,7 @@ class JobInProgress {
 	}
 
 	private void initialize() {
-		global = new GlobalStatistics(this.job, this.taskNum);
+		global = new JobInformation(this.job, this.taskNum);
 		iteTime = new double[maxIteNum + 1];
 		iteCommand = new String[maxIteNum + 1]; 
 		iteQNeu = new double[maxIteNum + 1];
@@ -413,7 +413,7 @@ class JobInProgress {
 	}
 	
 	/** Build route-table by loading the first record of each task */
-	public void buildRouteTable(LocalStatistics s) {
+	public void buildRouteTable(TaskInformation s) {
 		/*LOG.info("[ROUTETABLE] tid=" + s.getTaskId() + "\t verMinId=" + s.getVerMinId());*/
 		this.byteOfOneMessage = s.getByteOfOneMessage();
 		this.isAccumulated = s.isAccumulated();
@@ -444,7 +444,7 @@ class JobInProgress {
 	}
 	
 	/** Register after loading graph data and building VE-Block */
-	public void registerTask(LocalStatistics statis) {
+	public void registerTask(TaskInformation statis) {
 		//LOG.info("[REGISTER] tid=" + statis.getTaskId());
 		this.global.updateInfo(statis.getTaskId(), statis);
 		this.jobMonitor.incLoadByte(statis.getLoadByte());

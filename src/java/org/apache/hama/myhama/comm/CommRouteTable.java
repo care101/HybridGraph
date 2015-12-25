@@ -10,11 +10,11 @@ import org.apache.hadoop.ipc.RPC;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.ipc.CommunicationServerProtocol;
 import org.apache.hama.monitor.GlobalSketchGraph;
-import org.apache.hama.monitor.GlobalStatistics;
+import org.apache.hama.monitor.JobInformation;
 
 public class CommRouteTable<V, W, M, I> {
 	private static final Log LOG = LogFactory.getLog(CommRouteTable.class);
-	private GlobalStatistics global;
+	private JobInformation global;
 	private GlobalSketchGraph skGraph;
 	private BSPJob job;
 	private int parId;
@@ -36,7 +36,7 @@ public class CommRouteTable<V, W, M, I> {
 		mins = new int[taskNum+1]; maxs = new int[taskNum];
 	}
 	
-	public void initialilze(GlobalStatistics _global) {
+	public void initialilze(JobInformation _global) {
 		this.global = _global;
 		this.skGraph = _global.getGlobalSketchGraph();
 		this.bucNum = this.skGraph.getBucNumTask(this.parId);
@@ -61,7 +61,7 @@ public class CommRouteTable<V, W, M, I> {
 		maxLen = findMaxLength();
 	}
 	
-	public void resetGlobalStatis(GlobalStatistics _global) {
+	public void resetGlobalStatis(JobInformation _global) {
 		global = _global;
 	}
 	
@@ -73,7 +73,7 @@ public class CommRouteTable<V, W, M, I> {
 		return this.bucNum;
 	}
 	
-	public GlobalStatistics getGlobalStatis() {
+	public JobInformation getGlobalStatis() {
 		return this.global;
 	}
 	
