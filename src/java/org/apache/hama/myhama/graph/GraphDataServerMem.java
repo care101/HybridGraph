@@ -2,10 +2,7 @@ package org.apache.hama.myhama.graph;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.RandomAccessFile;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -20,7 +17,6 @@ import org.apache.hama.bsp.TaskAttemptID;
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.io.OutputFormat;
 import org.apache.hama.myhama.io.RecordWriter;
@@ -52,7 +48,7 @@ public class GraphDataServerMem<V, W, M, I>
 	 * Its capacity should be big enough to hold the maximum vertex value.
 	 * The capacity is 500 (bytes) by default.
 	 */
-	private MappedByteBuffer byteBuf;
+	private ByteBuffer byteBufForOneVerValue = ByteBuffer.allocate(500);
 	
 	/**
 	 * A triple in VBlock.
@@ -96,10 +92,10 @@ public class GraphDataServerMem<V, W, M, I>
 			record.setVerValue(curVerValue);
 			record.setGraphInfo(graphInfo);
 			
-			byteBuf.position(0);
-			record.serVerValue(byteBuf); //serialize
-			byteBuf.position(0);
-			record.deserVerValue(byteBuf); //deserialize
+			byteBufForOneVerValue.position(0);
+			record.serVerValue(byteBufForOneVerValue); //serialize
+			byteBufForOneVerValue.position(0);
+			record.deserVerValue(byteBufForOneVerValue); //deserialize
 		}
 		
 		/**
@@ -136,42 +132,6 @@ public class GraphDataServerMem<V, W, M, I>
 		}
 	}
 	
-	/**
-	 * A fragment in EBlock.
-	 */
-	private class EdgeFragment<V, W, M, I> {
-		private int verId;
-		private int edgeNum;
-		private Integer[] edgeIds;
-		private W[] edgeWeights;
-		
-		/**
-		 * Initialize variables based on the given {@link GraphRecord}.
-		 * TODO Using byte array or not?
-		 * 
-		 * @param record
-		 */
-		public EdgeFragment(GraphRecord<V, W, M, I> record) {
-			verId = record.getVerId();
-			edgeNum = record.getEdgeNum();
-			edgeIds = record.getEdgeIds();
-			edgeWeights = record.getEdgeWeights();
-		}
-		
-		/**
-		 * Get edges required in {@link GraphRecord}.getMsg(), 
-		 * in order to respond pull requests from target vertices. 
-		 * Edges in {@link GraphRecord} is read-only.
-		 * 
-		 * @param record
-		 */
-		public void getForRespond(GraphRecord<V, W, M, I> record) {
-			record.setVerId(verId);
-			record.setEdgeNum(edgeNum);
-			record.setEdges(edgeIds, edgeWeights);
-		}
-	}
-	
 	/** VBlocks: [local_block_id][triple_idx] */
 	private VertexTriple<V,W,M,I>[][] vBlocks;
 	/** EBlocks: [local_block_id][global_block_id] = array of fragments */
@@ -198,23 +158,9 @@ public class GraphDataServerMem<V, W, M, I>
 	public GraphDataServerMem(int _parId, BSPJob _job, String _rootDir) 
 			throws Exception {
 		super(_parId, _job);
-		createDir(_rootDir);
 		
 		LOG.info("set useGraphInfo=" + this.useGraphInfo 
 				+ " when loading graph data, memory version");
-	}
-	
-	private void createDir(String _rootDir) throws Exception {
-		File rootDir = new File(_rootDir);
-		if (!rootDir.exists()) {
-			rootDir.mkdirs();
-		}
-		
-		File tmpBufFile = new File(_rootDir, "tmpBufFile");
-		RandomAccessFile raf = new RandomAccessFile(tmpBufFile, "rw");
-		FileChannel fc = raf.getChannel();
-		this.byteBuf = 
-			fc.map(FileChannel.MapMode.READ_WRITE, 0, 500);
 	}
 	
 	@Override
@@ -253,19 +199,20 @@ public class GraphDataServerMem<V, W, M, I>
 			new VertexTriple<V, W, M, I>(graph);
 	}
 	
-	private void putIntoEdgeBuf(ArrayList<GraphRecord<V, W, M, I>> graphs) {
+	private void putIntoEdgeBuf(ArrayList<EdgeFragmentEntry<V,W,M,I>> frags) {
 		int vid = -1, locBid = -1, dstTid = -1, dstBid = -1, gBucIdx = -1;
-		for (GraphRecord<V, W, M, I> graph: graphs) {
+		for (EdgeFragmentEntry<V,W,M,I> frag: frags) {
+			GraphRecord<V,W,M,I> graph = this.userTool.getGraphRecord();
+			graph.initialize(frag);
 			this.eBlockByte += (VERTEX_ID_BYTE + graph.getEdgeByte());
 			
-			vid = graph.getVerId();
-			locBid = graph.getSrcBucId();
-			dstTid = graph.getDstParId();
-			dstBid = graph.getDstBucId();
+			vid = frag.getVerId();
+			locBid = frag.getSrcBid();
+			dstTid = frag.getDstTid();
+			dstBid = frag.getDstBid();
 			gBucIdx = 
 				this.commRT.getGlobalSketchGraph().getGlobalBucIndex(dstTid, dstBid);
-			this.eBlocks[locBid][gBucIdx].add(
-					new EdgeFragment<V, W, M, I>(graph));
+			this.eBlocks[locBid][gBucIdx].add(frag);
 			
 			verBlkMgr.updateBlkFragmentLenAndNum(locBid, dstTid, dstBid, 
 					vid, VERTEX_ID_BYTE+graph.getEdgeByte());
@@ -292,14 +239,14 @@ public class GraphDataServerMem<V, W, M, I>
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
 			bid = commRT.getDstBucId(taskId, vid);
-			graph.setSrcBucId(bid);
+			graph.setSrcBlkId(bid);
 			
 			putIntoVerBuf(graph, bid, idxs[bid]);
 			idxs[bid]++;
 			if (this.bspStyle != Constants.STYLE.Push) {
-				ArrayList<GraphRecord<V, W, M, I>> graphs = 
+				ArrayList<EdgeFragmentEntry<V,W,M,I>> frags = 
 					graph.decompose(commRT, taskInfo);
-				putIntoEdgeBuf(graphs);
+				putIntoEdgeBuf(frags);
 			}
 		}
 		
@@ -474,7 +421,9 @@ public class GraphDataServerMem<V, W, M, I>
 		int dstBucIdx = 
 			this.commRT.getGlobalSketchGraph().getGlobalBucIndex(_tid, _bid);
 		int verMinId = this.verBlkMgr.getVerMinId();
-		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
+		GraphContext<V, W, M, I> context = 
+			new GraphContext<V, W, M, I>(this.taskId, this.job, 
+					_iteNum, this.preIteStyle);
 		GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 		
 		for (EdgeFragment<V, W, M, I> frag : this.eBlocks[resBid][dstBucIdx]) {
@@ -489,7 +438,7 @@ public class GraphDataServerMem<V, W, M, I>
 					.getForRespond(graph);
 			
 			context.reset();
-			context.initialize(graph, _iteNum, null, 0.0f, true, this.preIteStyle);
+			context.initialize(graph, null, -1.0f, true);
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 			this.resDepend[resBid][dstBucIdx] = true;
 			statis[3] += msgs.length; // msg_pro

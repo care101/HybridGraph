@@ -3,9 +3,6 @@ package hybridgraph.examples.sa.hybrid;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-
-import org.apache.hama.myhama.comm.CommRouteTable;
 
 /**
  * Edge set of one vertex.
@@ -41,22 +38,6 @@ public class EdgeSet {
 	
 	public int getByteSize() {
 		return (4 + 4*num);
-	}
-	
-	public int getNumOfFragments(CommRouteTable commRT, boolean[][] hitFlag) {
-		int dstTid = 0, dstBid = 0, count = 0;
-    	for (int i = 0; i < hitFlag.length; i++) {
-    		Arrays.fill(hitFlag[i], false);
-    	}
-    	for (int index = 0; index < this.num; index++) {
-			dstTid = commRT.getDstParId(this.edgeIds[index]);
-			dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
-			if (!hitFlag[dstTid][dstBid]) {
-				hitFlag[dstTid][dstBid] = true;
-				count++;
-			} //if
-		} //loop all edges
-    	return count;
 	}
 	
 	/**

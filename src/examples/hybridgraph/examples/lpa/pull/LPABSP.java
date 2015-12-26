@@ -10,13 +10,14 @@ import java.util.Map.Entry;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
+import org.apache.hama.myhama.api.GraphRecordInterface;
 import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.api.MsgRecordInterface;
 import org.apache.hama.myhama.util.GraphContextInterface;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import hybridgraph.examples.lpa.pull.LPAUserTool.LPAGraphRecord;
 import hybridgraph.examples.lpa.pull.LPAUserTool.LPAMsgRecord;
 
 /**
@@ -47,8 +48,9 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	public void update(
 			GraphContextInterface<Integer, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		LPAGraphRecord graph = (LPAGraphRecord)context.getGraphRecord();
-		LPAMsgRecord msg = (LPAMsgRecord)context.getReceivedMsgRecord();
+		GraphRecordInterface<Integer, Integer, MsgBundle, Integer> graph = 
+			context.getGraphRecord();
+		MsgRecordInterface<MsgBundle> msg = context.getReceivedMsgRecord();
 		
 		/** first superstep, just send its value to all outer neighbors */
 		if (context.getIteCounter() == 1) {
@@ -64,7 +66,8 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	public MsgRecord<MsgBundle>[] getMessages(
 			GraphContextInterface<Integer, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		LPAGraphRecord graph = (LPAGraphRecord)context.getGraphRecord();
+		GraphRecordInterface<Integer, Integer, MsgBundle, Integer> graph = 
+			context.getGraphRecord();
 		LPAMsgRecord[] result = new LPAMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
 		for (int eid: graph.getEdgeIds()) {
@@ -78,7 +81,7 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 		return result;
 	}
 	
-	private int findLabel(LPAMsgRecord msg) {
+	private int findLabel(MsgRecordInterface<MsgBundle> msg) {
 		HashMap<Integer, Integer> recLabels = 
 			new HashMap<Integer, Integer>(
 					msg.getMsgValue().getAll().size()); //labelId:count

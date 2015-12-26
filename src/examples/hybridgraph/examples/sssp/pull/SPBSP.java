@@ -5,17 +5,14 @@ package hybridgraph.examples.sssp.pull;
 
 import java.util.Random;
 
-import hybridgraph.examples.sssp.pull.SPUserTool.SPGraphRecord;
 import hybridgraph.examples.sssp.pull.SPUserTool.SPMsgRecord;
 
 import org.apache.hama.Constants.Opinion;
-import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
+import org.apache.hama.myhama.api.GraphRecordInterface;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.api.MsgRecordInterface;
 import org.apache.hama.myhama.util.GraphContextInterface;
-import org.apache.hama.myhama.util.TaskContext;
-import org.apache.hama.myhama.util.SuperStepContext;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -39,17 +36,17 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	private static Random rd = new Random();
 	
 	@Override
-	public void taskSetup(TaskContext context) {
-		BSPJob job = context.getBSPJob();
-		SourceVerId = job.getInt(SOURCE, 2);
+	public void taskSetup(
+			GraphContextInterface<Double, Double, Double, Integer> context) {
+		SourceVerId = context.getBSPJobInfo().getInt(SOURCE, 2);
 		LOG.info(SOURCE + "=" + SourceVerId);
 	}
 	
 	@Override
-	public void superstepSetup(SuperStepContext context) {
-		BSPJob job = context.getBSPJob();
-		SourceBucId = (SourceVerId - job.getLocMinVerId()) 
-			/ job.getLocHashBucLen();
+	public void superstepSetup(
+			GraphContextInterface<Double, Double, Double, Integer> context) {
+		SourceBucId = (SourceVerId-context.getBSPJobInfo().getLocMinVerId()) 
+			/ context.getBSPJobInfo().getLocHashBucLen();
 	}
 	
 	@Override
@@ -68,8 +65,9 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	public void update(
 			GraphContextInterface<Double, Double, Double, Integer> context) 
 				throws Exception {
-		SPGraphRecord graph = (SPGraphRecord)context.getGraphRecord();
-		SPMsgRecord msg = (SPMsgRecord)context.getReceivedMsgRecord();
+		GraphRecordInterface<Double, Double, Double, Integer> graph = 
+			context.getGraphRecord();
+		MsgRecordInterface<Double> msg = context.getReceivedMsgRecord();
 		
 		if (context.getIteCounter() == 1) {
 			//first superStep, set the source vertex value 0 and send new messages.
@@ -92,7 +90,8 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	public MsgRecord<Double>[] getMessages(
 			GraphContextInterface<Double, Double, Double, Integer> context) 
 				throws Exception {
-		SPGraphRecord graph = (SPGraphRecord)context.getGraphRecord();
+		GraphRecordInterface<Double, Double, Double, Integer> graph = 
+			context.getGraphRecord();
 		SPMsgRecord[] result = new SPMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
 		for (int eid: graph.getEdgeIds()) {

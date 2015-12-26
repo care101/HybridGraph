@@ -21,7 +21,8 @@ public class VerBlockBeta {
 	
 	private long[][] eFragStart;
 	private long[][] eFragLen;
-	private int[][] fragNum; //number of fragments
+	private int[][] fragNum; //number of fragments in (dstTid, dstBid) file
+	private int totalFragNum;
 	/** true: vertices need to respond pull requests, false: no */
 	private boolean[] respond; //type, exchange between superstep t and t+1.
 	
@@ -35,7 +36,8 @@ public class VerBlockBeta {
 		vNum = _verNum;
 		respond = new boolean[2]; 
 		Arrays.fill(this.respond, false);
-		this.granularity = 0;
+		granularity = 0;
+		totalFragNum = 0;
 		
 		if (this.bspStyle != Constants.STYLE.Push) {
 			this.eFragStart = new long[_taskNum][];
@@ -55,6 +57,7 @@ public class VerBlockBeta {
 		usage += 2; //two boolean variables
 		usage += (8*2) * this.granularity; //eFragStart and eFragLen
 		usage += 4 * this.granularity; //eFragNum
+		usage += 4; //totalFragNum
 		
 		return usage;
 	}
@@ -63,6 +66,7 @@ public class VerBlockBeta {
 			long _eFragLen) {
 		this.eFragLen[_dstTid][_dstBid] += _eFragLen;
 		this.fragNum[_dstTid][_dstBid]++;
+		this.totalFragNum++;
 	}
 	
 	/**
@@ -123,6 +127,15 @@ public class VerBlockBeta {
 		return 
 		this.bspStyle==Constants.STYLE.Push? 
 				0:this.fragNum[_dstTid][_dstBid];
+	}
+	
+	/**
+	 * Get the total number of fragments whose source vertices 
+	 * belong to this VBlock.
+	 * @return
+	 */
+	public int getFragmentNum() {
+		return this.totalFragNum;
 	}
 	
 	public void setRespond(int type, boolean flag) {

@@ -5,7 +5,9 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-public abstract class MsgRecord<M> {
+public abstract class MsgRecord<M> 
+		implements MsgRecordInterface<M> {
+	
 	protected int srcId = -1;
 	/** only used in the target vertex end */
 	protected boolean isValid = false;
@@ -19,7 +21,7 @@ public abstract class MsgRecord<M> {
 	}
 	
 	/**
-	 * Initialize a new message by {@link BSPInterface.getMessages()}.
+	 * Initialize a new message in {@link BSPInterface.getMessages()}.
 	 * @param srcId
 	 * @param dstId
 	 * @param msgValue
@@ -112,18 +114,6 @@ public abstract class MsgRecord<M> {
 		return 0;
 	}
 	
-	/** 
-	 * Get the number of real message values in this {@link MsgRecord}.
-	 * Only used in style.Pull.
-	 * Normally, for algorithms with Combiner, such as Shortest Path, 
-	 * return 1 as default if Combiner is enable. 
-	 * That means one {@link MsgRecord} only stores one single message value.
-	 * However, for algorithms without Combiner, such as Simulate Advertisements, 
-	 * user should override this function, return #message_values, 
-	 * since multiple message values may shared the same target vertex id and 
-	 * be combined into this {@link MsgRecord}.
-	 * @return
-	 */
 	public int getNumOfMsgValues() {
 		return 1;
 	}

@@ -4,18 +4,21 @@
  */
 package org.apache.hama.myhama.util;
 
-import org.apache.hama.myhama.api.GraphRecord;
-import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.bsp.BSPJob;
+import org.apache.hama.myhama.api.GraphRecordInterface;
+import org.apache.hama.myhama.api.MsgRecordInterface;
 
 /**
  * GraphContext.
  * This class contains information about a {@link GraphRecord}, including:
- * (1) {@link GraphRecord};
- * (2) superstepCounter;
- * (3) message;
- * (4) jobAgg;
- * (5) vAgg;
- * (6) iteStyle;
+ * (1) {@link BSPJob};
+ * (2) {@link GraphRecord};
+ * (3) superstepCounter;
+ * (4) message;
+ * (5) jobAgg;
+ * (6) vAgg;
+ * (7) iteStyle;
+ * (8) taskId;
  * 
  * @param <V> vertex value
  * @param <W> edge weight
@@ -24,9 +27,11 @@ import org.apache.hama.myhama.api.MsgRecord;
  */
 public class GraphContext<V, W, M, I> 
 		implements GraphContextInterface<V, W, M, I> {
-	private GraphRecord<V, W, M, I> graph;
+	private int taskId;
+	private BSPJob job;
+	private GraphRecordInterface<V, W, M, I> graph;
 	private int iteNum;
-	private MsgRecord<M> msg;
+	private MsgRecordInterface<M> msg;
 	private float jobAgg;
 	private float vAgg;
 	
@@ -35,39 +40,32 @@ public class GraphContext<V, W, M, I>
 	
 	private int iteStyle;
 	
-	public GraphContext() {
-		
-	}
-	
-	public void initialize(GraphRecord<V, W, M, I> _graph, int _iteNum, 
-			MsgRecord<M> _msg, 
-			float _jobAgg, boolean _actFlag, int _iteStyle) {
-		graph = _graph; 
-		msg = _msg; 
-		iteNum = _iteNum; 
-		jobAgg = _jobAgg;
-		actFlag = _actFlag;
-		iteStyle = _iteStyle;
-	}
-	
-	public GraphRecord<V, W, M, I> getGraphRecord() {
+	public GraphRecordInterface<V, W, M, I> getGraphRecord() {
 		return graph;
 	}
 	
-	public MsgRecord<M> getReceivedMsgRecord() {
+	public final MsgRecordInterface<M> getReceivedMsgRecord() {
 		return msg;
 	}
 	
-	public float getJobAgg() {
+	public final float getJobAgg() {
 		return jobAgg;
 	}
 	
-	public int getIteCounter() {
+	public final int getIteCounter() {
 		return iteNum;
 	}
 	
-	public int getIteStyle() {
+	public final int getIteStyle() {
 		return iteStyle;
+	}
+	
+	public final BSPJob getBSPJobInfo() {
+		return job;
+	}
+	
+	public final int getTaskId() {
+		return taskId;
 	}
 	
 	public void setRespond() {
@@ -82,6 +80,32 @@ public class GraphContext<V, W, M, I>
 		this.vAgg = agg;
 	}
 	
+	
+	//===================================================
+	// Functions used by the core engine of HybridGraph
+	//===================================================
+	
+	public GraphContext(int _taskId, BSPJob _job, int _iteNum, int _iteStyle) {
+		this.taskId = _taskId;
+		this.job = _job;
+		this.iteNum = _iteNum;
+		this.iteStyle = _iteStyle;
+	}
+	
+	/**
+	 * Initialize {@link GraphContext}.
+	 * @param _graph
+	 * @param _msg
+	 * @param _jobAgg
+	 * @param _actFlag
+	 */
+	public void initialize(GraphRecordInterface<V, W, M, I> _graph, 
+			MsgRecordInterface<M> _msg, float _jobAgg, boolean _actFlag) {
+		graph = _graph; 
+		msg = _msg; 
+		jobAgg = _jobAgg;
+		actFlag = _actFlag;
+	}
 	
 	/**
 	 * Get the aggregator value from one vertex.

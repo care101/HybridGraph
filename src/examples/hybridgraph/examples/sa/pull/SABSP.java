@@ -3,7 +3,6 @@
  */
 package hybridgraph.examples.sa.pull;
 
-import hybridgraph.examples.sa.pull.SAUserTool.SAGraphRecord;
 import hybridgraph.examples.sa.pull.SAUserTool.SAMsgRecord;
 
 import java.util.ArrayList;
@@ -12,12 +11,11 @@ import java.util.Random;
 import java.util.Map.Entry;
 
 import org.apache.hama.Constants.Opinion;
-import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
+import org.apache.hama.myhama.api.GraphRecordInterface;
 import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.api.MsgRecordInterface;
 import org.apache.hama.myhama.util.GraphContextInterface;
-import org.apache.hama.myhama.util.SuperStepContext;
-import org.apache.hama.myhama.util.TaskContext;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -51,17 +49,17 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	private static int SourceBucId;
 	
 	@Override
-	public void taskSetup(TaskContext context) {
-		BSPJob job = context.getBSPJob();
-		SourceVerId = job.getInt(SOURCE, 2);
+	public void taskSetup(
+			GraphContextInterface<Value, Integer, MsgBundle, Integer> context) {
+		SourceVerId = context.getBSPJobInfo().getInt(SOURCE, 2);
 		LOG.info(SOURCE + "=" + SourceVerId);
 	}
 	
 	@Override
-	public void superstepSetup(SuperStepContext context) {
-		BSPJob job = context.getBSPJob();
-		SourceBucId = (SourceVerId - job.getLocMinVerId()) 
-			/ job.getLocHashBucLen();
+	public void superstepSetup(
+			GraphContextInterface<Value, Integer, MsgBundle, Integer> context) {
+		SourceBucId = (SourceVerId-context.getBSPJobInfo().getLocMinVerId()) 
+			/ context.getBSPJobInfo().getLocHashBucLen();
 	}
 	
 	@Override
@@ -80,8 +78,9 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	public void update(
 			GraphContextInterface<Value, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		SAGraphRecord graph = (SAGraphRecord)context.getGraphRecord();
-		SAMsgRecord msg = (SAMsgRecord)context.getReceivedMsgRecord();
+		GraphRecordInterface<Value, Integer, MsgBundle, Integer> graph = 
+			context.getGraphRecord();
+		MsgRecordInterface<MsgBundle> msg = context.getReceivedMsgRecord();
 		
 		//first superStep, send source vertex's advertisement to its out-neighbors.
 		if (context.getIteCounter() == 1) {
@@ -105,7 +104,8 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	public MsgRecord<MsgBundle>[] getMessages(
 			GraphContextInterface<Value, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		SAGraphRecord graph = (SAGraphRecord)context.getGraphRecord();
+		GraphRecordInterface<Value, Integer, MsgBundle, Integer> graph = 
+			context.getGraphRecord();
 		SAMsgRecord[] result = new SAMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
 		for (int eid: graph.getEdgeIds()) {
@@ -123,7 +123,7 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	 * Find new candidate Value.
 	 * @return
 	 */
-	private Value findNewValue(SAMsgRecord msg) {
+	private Value findNewValue(MsgRecordInterface<MsgBundle> msg) {
 		HashMap<Integer, Integer> recAIds = 
 			new HashMap<Integer, Integer>(
 					msg.getMsgValue().getAll().size()); //aId:count

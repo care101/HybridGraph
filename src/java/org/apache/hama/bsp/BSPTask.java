@@ -33,8 +33,6 @@ import org.apache.hama.myhama.graph.GraphDataServerMem;
 import org.apache.hama.myhama.graph.MsgDataServer;
 import org.apache.hama.myhama.util.Counters;
 import org.apache.hama.myhama.util.GraphContext;
-import org.apache.hama.myhama.util.SuperStepContext;
-import org.apache.hama.myhama.util.TaskContext;
 import org.apache.hama.myhama.util.TaskReportTimer;
 import org.apache.hama.myhama.util.Counters.COUNTER;
 import org.apache.hama.myhama.util.TaskReportContainer;
@@ -392,7 +390,9 @@ public class BSPTask<V, W, M, I> extends Task {
 	private long runBucket(int bucketId) throws Exception {
 		long bucStaTime, bucEndTime;
 		bucStaTime = System.currentTimeMillis();
-		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
+		GraphContext<V, W, M, I> context = 
+			new GraphContext<V, W, M, I>(this.parId, this.job, 
+					this.iteNum, this.curIteStyle);
 		GraphRecord<V, W, M, I> graph = null;
 		this.graphDataServer.openGraphDataStream(parId, bucketId, iteNum);
 		
@@ -401,8 +401,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			context.reset();
 			if (isActive(bucketId, graph.getVerId())) {
 				MsgRecord<M> msg = this.msgDataServer.getMsg(bucketId, graph.getVerId());
-				context.initialize(graph, iteNum, msg, 
-						this.jobAgg, true, this.curIteStyle);
+				context.initialize(graph, msg, this.jobAgg, true);
 				this.bsp.update(context); //execute the local computation
 				this.taskAgg += context.getVertexAgg();
 				
@@ -454,12 +453,13 @@ public class BSPTask<V, W, M, I> extends Task {
 		long iteStaTime, iteEndTime, msgTime = 0, compTime = 0; 
 		long totalMsgTime=0, totalCompTime=0;
 		StringBuffer hbInfo = new StringBuffer();
-		SuperStepContext superstepContext = new SuperStepContext(job);
+		GraphContext<V, W, M, I> context = 
+			new GraphContext<V, W, M, I>(this.parId, this.job, 
+					this.iteNum, this.curIteStyle);
 		int bucNum = this.lStatis.getBlkNum();
 		
 		this.trt.force();
-		superstepContext.setBSPJob(job);
-		this.bsp.superstepSetup(superstepContext);
+		this.bsp.superstepSetup(context);
 		
 		hbInfo.setLength(0);
 		hbInfo.append("begin the calculation of superstep-" + iteNum);
@@ -521,7 +521,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		hbInfo.append("compute time:" + (totalCompTime)/1000.0 + " seconds");
 		this.counters.addCounter(COUNTER.Time_Pull, totalMsgTime);
 		this.counters.addCounter(COUNTER.Time_Ite, (iteEndTime-iteStaTime));
-		this.bsp.superstepCleanup(superstepContext);
+		this.bsp.superstepCleanup(context);
 		LOG.info(hbInfo.toString());
 		LOG.info("complete the calculation of superstep-" + iteNum);
 	}
@@ -534,18 +534,16 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * @throws Exception
 	 */
 	private void runIterationOnlyForPush() throws Exception {
-		SuperStepContext superstepContext = new SuperStepContext(job);
 		int bucNum = this.lStatis.getBlkNum();
-		
-		superstepContext.setBSPJob(job);
-		this.bsp.superstepSetup(superstepContext);
 		
 		int nextIteNum = iteNum + 1; //simulate the pull process of next superstep.
 		this.graphDataServer.clearAftIte(iteNum);
 		this.graphDataServer.clearOnlyForPush(nextIteNum);
 		
-		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
 		GraphRecord<V, W, M, I> graph = null;
+		GraphContext<V, W, M, I> context = 
+			new GraphContext<V, W, M, I>(this.parId, this.job, 
+					this.iteNum, this.curIteStyle);
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
 			if (this.graphDataServer.isDoOnlyForPush(bucketId, nextIteNum)) {
 				/** if not updated, will not read. If read it, 
@@ -558,8 +556,7 @@ public class BSPTask<V, W, M, I> extends Task {
 					if (this.graphDataServer.isUpdatedOnlyForPush(
 							bucketId, graph.getVerId(), nextIteNum)) {
 						context.reset();
-						context.initialize(graph, iteNum, null, 
-								this.jobAgg, true, this.curIteStyle);
+						context.initialize(graph, null, this.jobAgg, true);
 						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 						this.commServer.pushMsgData(msgs, iteNum);
 					}
@@ -576,16 +573,15 @@ public class BSPTask<V, W, M, I> extends Task {
 	 */
 	@Override
 	public void run(BSPJob job, Task task, BSPPeerProtocol umbilical, String host) {
-		TaskContext taskContext = null;
+		GraphContext<V, W, M, I> context = 
+			new GraphContext<V, W, M, I>(this.parId, this.job, -1, -1);
 		Exception exception = null;
 		try {
 			initialize(job, host);
 			buildRouteTable(umbilical); //get the locMinVerId of each task
 			loadData();
 			
-			taskContext = new TaskContext(this.parId, job, 
-					this.commServer.getCommRouteTable());
-			this.bsp.taskSetup(taskContext);
+			this.bsp.taskSetup(context);
 			this.iteNum = 1; //#iteration starts from 1, not 0.
 			
 			/** run the job iteration by iteration */
@@ -606,7 +602,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			exception = e;
 			LOG.error("task is failed!", e);
 		} finally {
-			this.bsp.taskCleanup(taskContext);
+			this.bsp.taskCleanup(context);
 			//umbilical.clear(this.jobId, this.taskId);
 			try {
 				clear();

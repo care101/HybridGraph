@@ -25,7 +25,6 @@ import org.apache.hama.bsp.TaskAttemptID;
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.io.OutputFormat;
 import org.apache.hama.myhama.io.RecordWriter;
@@ -357,14 +356,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			for (int i = 0; i < this.writeLen; i++) {
 				this.gBuf[i].serVerId(mbb);
 				this.gBuf[i].serEdges(mbb);
-				vid = this.gBuf[i].getVerId();
-				verBlkMgr.updateBlkFragmentLenAndNum(this.gBuf[i].getSrcBucId(), 
-						this.tid, this.bid, 
-						vid, VERTEX_ID_BYTE+this.gBuf[i].getEdgeByte());
-				edgeBlkMgr.updateBucNum(this.tid, this.bid, 1, this.gBuf[i].getEdgeNum());
-				for (int eid: this.gBuf[i].getEdgeIds()) {
-					edgeBlkMgr.updateBucEdgeIdBound(this.tid, this.bid, eid);
-				}
 			}
 			
 			fc.close(); raf.close();
@@ -445,15 +436,27 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		}
 	}
 	
-	private void putIntoEdgeBuf(ArrayList<GraphRecord<V, W, M, I>> graphs) 
+	private void putIntoEdgeBuf(ArrayList<EdgeFragmentEntry<V,W,M,I>> frags) 
 			throws Exception {
-		int tid = 0, bid = 0;
-		for (GraphRecord<V, W, M, I> graph: graphs) {
-			tid = graph.getDstParId();
-			bid = graph.getDstBucId();
+		int vid = 0, tid = 0, bid = 0;
+		for (EdgeFragmentEntry<V,W,M,I> frag: frags) {
+			vid = frag.getVerId();
+			tid = frag.getDstTid();
+			bid = frag.getDstBid();
+			GraphRecord<V,W,M,I> graph = this.userTool.getGraphRecord();
+			graph.initialize(frag);
+			
 			edgeBuf[tid][bid][edgeBufLen[tid][bid]] = graph;
 			edgeBufLen[tid][bid]++;
 			edgeBufByte[tid][bid] += (VERTEX_ID_BYTE + graph.getEdgeByte()); 
+			
+			
+			verBlkMgr.updateBlkFragmentLenAndNum(frag.getSrcBid(), 
+					tid, bid, vid, VERTEX_ID_BYTE+graph.getEdgeByte());
+			edgeBlkMgr.updateBucNum(tid, bid, 1, graph.getEdgeNum());
+			for (int eid: graph.getEdgeIds()) {
+				edgeBlkMgr.updateBucEdgeIdBound(tid, bid, eid);
+			}
 			
 			if (edgeBufLen[tid][bid] >= Buf_Size) {
 				if (this.spillEdgeThRe!=null 
@@ -591,7 +594,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			vid = graph.getVerId();
 			curBid = commRT.getDstBucId(taskId, vid);
 			bid = bid<0? curBid:bid;
-			graph.setSrcBucId(curBid);
+			graph.setSrcBlkId(curBid);
 			
 			if (bid != curBid) {
 				flushVerBuf(bid);
@@ -600,9 +603,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			putIntoVerBuf(graph, curBid);
 			
 			if (this.bspStyle != Constants.STYLE.Push) {
-				ArrayList<GraphRecord<V, W, M, I>> graphs = 
+				ArrayList<EdgeFragmentEntry<V,W,M,I>> frags = 
 					graph.decompose(commRT, taskInfo);
-				putIntoEdgeBuf(graphs);
+				putIntoEdgeBuf(frags);
 			}
 		}
 		clearVerBuf(curBid);
@@ -833,7 +836,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		int skip = 0, curLocVerPos = 0;
 		int dstBucIndex = this.commRT.getGlobalSketchGraph().getGlobalBucIndex(_tid, _bid);
 		int verMinId = this.verBlkMgr.getVerMinId();
-		GraphContext<V, W, M, I> context = new GraphContext<V, W, M, I>();
+		GraphContext<V, W, M, I> context = 
+			new GraphContext<V, W, M, I>(this.taskId, this.job, 
+					_iteNum, this.preIteStyle);
 		GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 		
 		/** recover the scenario */
@@ -880,7 +885,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			graph.deserVerValue(mbb_v); //deserialize value
 			statis[0] += graph.getVerByte(); //io for value.
 			context.reset();
-			context.initialize(graph, _iteNum, null, 0.0f, true, this.preIteStyle);
+			context.initialize(graph, null, 0.0f, true);
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 			
 			this.resDepend[resBid][dstBucIndex] = true;
@@ -985,8 +990,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		if (useGraphInfo) {
 			this.vbFile.closeInfoReadHandler();
 		}
-		
 		this.vbFile.closeVerWriteHandler();
+		
+		int type = (_iteNum+1) % 2;
+		if (this.estimatePullByte && 
+				this.verBlkMgr.getVerBlkBeta(_bid).isRespond(type)) {
+			this.numOfReadVal[type] += 
+				this.verBlkMgr.getVerBlkBeta(_bid).getFragmentNum();
+		}
 	}
 	
 	@Override
@@ -1013,11 +1024,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		if (_upFlag) {
 			this.verBlkMgr.setBlkRespond(type, _bid, _upFlag);
 			this.verBlkMgr.incRespondVerNum(_bid);
-			if (this.estimatePullByte) {
-				this.numOfReadVal[type] += 
-					this.graph_rw.getNumOfFragments(this.curIteStyle,
-						this.commRT, this.hitFlag);
-			}
 		}
 		
 		graph_rw.serVerValue(this.vbFile.getVerWriteHandler());

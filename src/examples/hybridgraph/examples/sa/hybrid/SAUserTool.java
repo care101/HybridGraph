@@ -10,11 +10,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
-import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
-import org.apache.hama.myhama.comm.CommRouteTable;
 
 
 /**
@@ -148,56 +146,6 @@ public class SAUserTool
 		@Override
 		public int getEdgeByte() {
 			return (4 + 4*this.edgeNum);
-		}
-		
-		@Override
-		public ArrayList<GraphRecord<Value, Integer, MsgBundle, EdgeSet>> 
-    			decompose(CommRouteTable commRT, TaskInformation taskInfo) {
-			int dstTid, dstBid, tNum = commRT.getTaskNum();
-			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
-			ArrayList<Integer>[][] container = new ArrayList[tNum][];
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				container[dstTid] = new ArrayList[bNum[dstTid]];
-			}
-			
-			for (int index = 0; index < this.edgeNum; index++) {
-				dstTid = commRT.getDstParId(this.edgeIds[index]);
-				dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
-				if (container[dstTid][dstBid] == null) {
-					container[dstTid][dstBid] = new ArrayList<Integer>();
-				}
-				container[dstTid][dstBid].add(this.edgeIds[index]);
-			}
-
-			ArrayList<GraphRecord<Value, Integer, MsgBundle, EdgeSet>> result = 
-				new ArrayList<GraphRecord<Value, Integer, MsgBundle, EdgeSet>>();
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
-					if (container[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = 
-							new Integer[container[dstTid][dstBid].size()];
-						container[dstTid][dstBid].toArray(tmpEdgeIds);
-						taskInfo.updateRespondDependency(
-								dstTid, dstBid, verId, tmpEdgeIds.length);
-						SAGraphRecord graph = new SAGraphRecord();
-						graph.setVerId(verId);
-						graph.setDstParId(dstTid);
-						graph.setDstBucId(dstBid);
-						graph.setSrcBucId(this.srcBucId);
-						graph.setEdges(tmpEdgeIds, null);
-						result.add(graph);
-					}
-				}
-			}
-			this.setEdges(null, null);
-
-			return result;
-		}
-		
-		@Override
-		public int getNumOfFragments(int iteStyle, 
-				CommRouteTable commRT, boolean[][] hitFlag) {
-			return this.graphInfo.getNumOfFragments(commRT, hitFlag);
 		}
 	}
 	

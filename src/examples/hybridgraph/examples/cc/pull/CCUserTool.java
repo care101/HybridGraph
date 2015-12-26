@@ -10,11 +10,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
-import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
-import org.apache.hama.myhama.comm.CommRouteTable;
 
 /**
  * CCUserTool.java
@@ -27,7 +25,6 @@ import org.apache.hama.myhama.comm.CommRouteTable;
  * @param <W> edge weight
  * @param <M> message value
  * @param <I> graph information
- * @param <S> send value
  */
 public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 	
@@ -63,27 +60,32 @@ public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 	    }
 		
 		@Override
-		public void serVerId(ByteBuffer vOut) throws EOFException, IOException {
+		public void serVerId(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putInt(this.verId);
 		}
 		
 		@Override
-		public void deserVerId(ByteBuffer vIn) throws EOFException, IOException {
+		public void deserVerId(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verId = vIn.getInt();
 		}
 
 		@Override
-		public void serVerValue(ByteBuffer vOut) throws EOFException, IOException {
+		public void serVerValue(ByteBuffer vOut) 
+				throws EOFException, IOException {
 			vOut.putInt(this.verValue);
 		}
 
 		@Override
-		public void deserVerValue(ByteBuffer vIn) throws EOFException, IOException {
+		public void deserVerValue(ByteBuffer vIn) 
+				throws EOFException, IOException {
 			this.verValue = vIn.getInt();
 		}
 
 		@Override
-		public void serEdges(ByteBuffer eOut) throws EOFException, IOException {
+		public void serEdges(ByteBuffer eOut) 
+				throws EOFException, IOException {
 			eOut.putInt(this.edgeNum);
 	    	for (int index = 0; index < this.edgeNum; index++) {
 	    		eOut.putInt(this.edgeIds[index]);
@@ -91,7 +93,8 @@ public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 		}
 
 		@Override
-		public void deserEdges(ByteBuffer eIn) throws EOFException, IOException {
+		public void deserEdges(ByteBuffer eIn) 
+				throws EOFException, IOException {
 			this.edgeNum = eIn.getInt();
 	    	this.edgeIds = new Integer[this.edgeNum];
 	    	for (int index = 0; index < this.edgeNum; index++) {
@@ -115,48 +118,6 @@ public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 		@Override
 		public int getEdgeByte() {
 			return (4 + 4*this.edgeNum);
-		}
-		
-		@Override
-		public ArrayList<GraphRecord<Integer, Integer, Integer, Integer>> 
-    			decompose(CommRouteTable commRT, TaskInformation taskInfo) {
-			int dstTid, dstBid, tNum = commRT.getTaskNum();
-			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
-			ArrayList<Integer>[][] container = new ArrayList[tNum][];
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				container[dstTid] = new ArrayList[bNum[dstTid]];
-			}
-			
-			for (int index = 0; index < this.edgeNum; index++) {
-				dstTid = commRT.getDstParId(this.edgeIds[index]);
-				dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
-				if (container[dstTid][dstBid] == null) {
-					container[dstTid][dstBid] = new ArrayList<Integer>();
-				}
-				container[dstTid][dstBid].add(this.edgeIds[index]);
-			}
-
-			ArrayList<GraphRecord<Integer, Integer, Integer, Integer>> result = 
-				new ArrayList<GraphRecord<Integer, Integer, Integer, Integer>>();
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
-					if (container[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = new Integer[container[dstTid][dstBid].size()];
-						container[dstTid][dstBid].toArray(tmpEdgeIds);
-						taskInfo.updateRespondDependency(dstTid, dstBid, verId, tmpEdgeIds.length);
-						CCGraphRecord graph = new CCGraphRecord();
-						graph.setVerId(verId);
-						graph.setDstParId(dstTid);
-						graph.setDstBucId(dstBid);
-						graph.setSrcBucId(this.srcBucId);
-						graph.setEdges(tmpEdgeIds, null);
-						result.add(graph);
-					}
-				}
-			}
-			this.setEdges(null, null);
-
-			return result;
 		}
 	}
 	
@@ -187,7 +148,8 @@ public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 	}
 	
 	@Override
-	public GraphRecord<Integer, Integer, Integer, Integer> getGraphRecord() {
+	public GraphRecord<Integer, Integer, Integer, Integer> 
+			getGraphRecord() {
 		return new CCGraphRecord();
 	}
 

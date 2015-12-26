@@ -12,11 +12,9 @@ import java.util.ArrayList;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
-import org.apache.hama.myhama.comm.CommRouteTable;
 
 /**
  * CCUserTool.java
@@ -130,51 +128,6 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 		@Override
 		public int getEdgeByte() {
 			return (4 + 4*this.edgeNum);
-		}
-		
-		@Override
-		public ArrayList<GraphRecord<Double, Double, Double, Integer>> 
-    			decompose(CommRouteTable<Double, Double, Double, Integer> commRT, 
-    					TaskInformation taskInfo) {
-			int dstTid = 0, dstBid = 0, tNum = commRT.getTaskNum();
-			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
-			ArrayList<Integer>[][] conIds = new ArrayList[tNum][];
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				conIds[dstTid] = new ArrayList[bNum[dstTid]];
-			}
-			
-			for (int index = 0; index < this.edgeNum; index++) {
-				dstTid = commRT.getDstParId(this.edgeIds[index]);
-				dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
-				if (conIds[dstTid][dstBid] == null) {
-					conIds[dstTid][dstBid] = new ArrayList<Integer>();
-				}
-				conIds[dstTid][dstBid].add(this.edgeIds[index]);
-			}
-
-			ArrayList<GraphRecord<Double, Double, Double, Integer>> result = 
-				new ArrayList<GraphRecord<Double, Double, Double, Integer>>();
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
-					if (conIds[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = 
-							new Integer[conIds[dstTid][dstBid].size()];
-						conIds[dstTid][dstBid].toArray(tmpEdgeIds);
-						taskInfo.updateRespondDependency(
-								dstTid, dstBid, verId, tmpEdgeIds.length);
-						SPGraphRecord graph = new SPGraphRecord();
-						graph.setVerId(verId);
-						graph.setDstParId(dstTid);
-						graph.setDstBucId(dstBid);
-						graph.setSrcBucId(this.srcBucId);
-						graph.setEdges(tmpEdgeIds, null);
-						result.add(graph);
-					}
-				}
-			}
-			this.setEdges(null, null);
-
-			return result;
 		}
 	}
 	

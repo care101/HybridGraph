@@ -5,12 +5,12 @@
 package org.apache.hama.myhama.api;
 
 import org.apache.hama.Constants.Opinion;
-import org.apache.hama.bsp.BSPInterface;
-import org.apache.hama.myhama.util.SuperStepContext;
-import org.apache.hama.myhama.util.TaskContext;
+import org.apache.hama.myhama.util.GraphContextInterface;
 
 /**
- * This class provides an abstract implementation of the BSP interface.
+ * This class provides an abstract implementation of the BSP interface. 
+ * Users can define their own computing logics by implementing 
+ * or extending functions in {@link BSP}.
  * 
  * @author 
  * @version 0.1
@@ -18,12 +18,13 @@ import org.apache.hama.myhama.util.TaskContext;
 public abstract class BSP<V, W, M, I> implements BSPInterface<V, W, M, I> {
 	
 	@Override
-	public void taskSetup(TaskContext context) {
+	public void taskSetup(GraphContextInterface<V, W, M, I> context) {
 		// TODO The default function will do nothing.
 	}
 	
+	
 	@Override
-	public void superstepSetup(SuperStepContext context) {
+	public void superstepSetup(GraphContextInterface<V, W, M, I> context) {
 		// TODO The default function will do nothing.
 	}
 	
@@ -44,12 +45,12 @@ public abstract class BSP<V, W, M, I> implements BSPInterface<V, W, M, I> {
 	}
 	
 	@Override
-	public void superstepCleanup(SuperStepContext context) {
+	public void superstepCleanup(GraphContextInterface<V, W, M, I> context) {
 		// TODO The default function will do nothing.
 	}
 	
 	@Override
-	public void taskCleanup(TaskContext context) {
+	public void taskCleanup(GraphContextInterface<V, W, M, I> context) {
 		// TODO The default function will do nothing.
 	}
 }

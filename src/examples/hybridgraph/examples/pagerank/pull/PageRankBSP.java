@@ -8,11 +8,11 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hama.Constants.Opinion;
 //import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
+import org.apache.hama.myhama.api.GraphRecordInterface;
 import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.api.MsgRecordInterface;
 import org.apache.hama.myhama.util.GraphContextInterface;
-import org.apache.hama.myhama.util.TaskContext;
 
-import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRGraphRecord;
 import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRMsgRecord;
 
 /**
@@ -32,8 +32,9 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	private double value = 0.0d;
 	
 	@Override
-	public void taskSetup(TaskContext context) {
-		//BSPJob job = context.getBSPJob();
+	public void taskSetup(
+			GraphContextInterface<Double, Integer, Double, Integer> context) {
+		//BSPJob job = context.getBSPJobInfo();
 		//RandomRate = (1 - FACTOR) / (float)job.getGloVerNum();
 		RandomRate = 0.15;
 	}
@@ -47,8 +48,9 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	public void update(
 			GraphContextInterface<Double, Integer, Double, Integer> context) 
 				throws Exception {
-		PRGraphRecord graph = (PRGraphRecord)context.getGraphRecord();
-		PRMsgRecord msg = (PRMsgRecord)context.getReceivedMsgRecord();
+		GraphRecordInterface<Double, Integer, Double, Integer> graph = 
+			context.getGraphRecord();
+		MsgRecordInterface<Double> msg = context.getReceivedMsgRecord();
 		value = 0.0d;
 		
 		if (context.getIteCounter() == 1) {
@@ -73,7 +75,8 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	public MsgRecord<Double>[] getMessages(
 			GraphContextInterface<Double, Integer, Double, Integer> context) 
 				throws Exception {
-		PRGraphRecord graph = (PRGraphRecord)context.getGraphRecord();
+		GraphRecordInterface<Double, Integer, Double, Integer> graph = 
+			context.getGraphRecord();
 		PRMsgRecord[] result = new PRMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
 		for (int eid: graph.getEdgeIds()) {

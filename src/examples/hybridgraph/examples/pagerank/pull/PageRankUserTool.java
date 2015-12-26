@@ -12,8 +12,6 @@ import java.util.ArrayList;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hama.monitor.TaskInformation;
-import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
@@ -72,18 +70,6 @@ public class PageRankUserTool
 			setEdges(tmpTransEdgeId, null);
 	        this.graphInfo = this.edgeNum;
 	    }
-		
-		@Override
-		public void serVerId(ByteBuffer vOut) 
-				throws EOFException, IOException {
-			vOut.putInt(this.verId);
-		}
-
-		@Override
-		public void deserVerId(ByteBuffer vIn) 
-				throws EOFException, IOException {
-			this.verId = vIn.getInt();
-		}
 
 		@Override
 		public void serVerValue(ByteBuffer vOut) 
@@ -126,50 +112,6 @@ public class PageRankUserTool
 	    	for (int index = 0; index < this.edgeNum; index++) {
 	    		this.edgeIds[index] = eIn.getInt();
 	    	}
-		}
-		
-		@Override
-		public ArrayList<GraphRecord<Double, Integer, Double, Integer>> 
-    			decompose(CommRouteTable commRT, TaskInformation taskInfo) {
-			int dstTid, dstBid, tNum = commRT.getTaskNum();
-			int[] bNum = commRT.getGlobalSketchGraph().getBucNumTask();
-			ArrayList<Integer>[][] container = new ArrayList[tNum][];
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				container[dstTid] = new ArrayList[bNum[dstTid]];
-			}
-			
-			for (int index = 0; index < this.edgeNum; index++) {
-				dstTid = commRT.getDstParId(this.edgeIds[index]);
-				dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
-				if (container[dstTid][dstBid] == null) {
-					container[dstTid][dstBid] = new ArrayList<Integer>();
-				}
-				container[dstTid][dstBid].add(this.edgeIds[index]);
-			}
-
-			ArrayList<GraphRecord<Double, Integer, Double, Integer>> result = 
-				new ArrayList<GraphRecord<Double, Integer, Double, Integer>>();
-			for (dstTid = 0; dstTid < tNum; dstTid++) {
-				for (dstBid = 0; dstBid < bNum[dstTid]; dstBid++) {
-					if (container[dstTid][dstBid] != null) {
-						Integer[] tmpEdgeIds = 
-							new Integer[container[dstTid][dstBid].size()];
-						container[dstTid][dstBid].toArray(tmpEdgeIds);
-						taskInfo.updateRespondDependency(
-								dstTid, dstBid, verId, tmpEdgeIds.length);
-						PRGraphRecord graph = new PRGraphRecord();
-						graph.setVerId(verId);
-						graph.setDstParId(dstTid);
-						graph.setDstBucId(dstBid);
-						graph.setSrcBucId(this.srcBucId);
-						graph.setEdges(tmpEdgeIds, null);
-						result.add(graph);
-					}
-				}
-			}
-			this.setEdges(null, null);
-
-			return result;
 		}
 		
 		@Override
@@ -228,7 +170,8 @@ public class PageRankUserTool
 	}
 	
 	@Override
-	public GraphRecord<Double, Integer, Double, Integer> getGraphRecord() {
+	public GraphRecord<Double, Integer, Double, Integer> 
+			getGraphRecord() {
 		return new PRGraphRecord();
 	}
 

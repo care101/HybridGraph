@@ -7,6 +7,7 @@ import java.util.ArrayList;
 
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.CommRouteTable;
+import org.apache.hama.myhama.graph.EdgeFragmentEntry;
 
 /**
  * GraphRecord implemented by users, 
@@ -24,7 +25,10 @@ import org.apache.hama.myhama.comm.CommRouteTable;
  * @param <M> message value
  * @param <I> graph information
  */
-public abstract class GraphRecord<V, W, M, I> {
+public abstract class GraphRecord<V, W, M, I> 
+		implements GraphRecordInterface<V, W, M, I> {
+	
+	public GraphRecord() { };
 	
 	//===================================================================
 	// Variables and operations in Triple (i.e., elements of a VBlock)
@@ -37,7 +41,7 @@ public abstract class GraphRecord<V, W, M, I> {
 		verId = _verId;
 	}
 	
-	public int getVerId() {
+	public final int getVerId() {
 		return verId;
 	}
 	
@@ -45,11 +49,11 @@ public abstract class GraphRecord<V, W, M, I> {
 		verValue = _verValue;
 	}
 	
-	public V getVerValue() {
+	public final V getVerValue() {
 		return verValue;
 	}
 	
-    public I getGraphInfo() {
+    public final I getGraphInfo() {
     	return graphInfo;
     }
     
@@ -118,7 +122,7 @@ public abstract class GraphRecord<V, W, M, I> {
 		this.edgeNum = _num;
 	}
 	    
-	public int getEdgeNum() {
+	public final int getEdgeNum() {
 		return edgeNum;
 	}
 	    
@@ -128,11 +132,11 @@ public abstract class GraphRecord<V, W, M, I> {
 		edgeNum = _edgeIds==null? 0:_edgeIds.length;
 	}
 	    
-	public Integer[] getEdgeIds() {
+	public final Integer[] getEdgeIds() {
 		return this.edgeIds;
 	}
 	    
-	public W[] getEdgeWeights() {
+	public final W[] getEdgeWeights() {
 		return edgeWeights;
 	}
 	
@@ -147,21 +151,6 @@ public abstract class GraphRecord<V, W, M, I> {
     //=============================================
     // User-defined functions if disk is used.
     //=============================================
-    /**
-     * Calculate the number of fragments used by style.PULL 
-     * based on the metadata information in commRT and hitFlag.
-     * This function is only invoked to estimate the I/O cost of PULL
-     * when running style.PUSH.
-     * 
-     * @param iteStyle
-     * @param commRT
-     * @param hitFlag
-     * @return
-     */
-    public int getNumOfFragments(int iteStyle,
-    		CommRouteTable<V, W, M, I> commRT, boolean[][] hitFlag) {
-    	return 0;
-    }
     
     /**
      * Serialize vertex id onto the local disk.
@@ -172,7 +161,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws IOException
      */
     public void serVerId(ByteBuffer vOut) 
-    		throws EOFException, IOException { };
+    		throws EOFException, IOException { vOut.putInt(this.verId); };
     
     /**
      * Deserialize vertex id from the local disk.
@@ -183,7 +172,7 @@ public abstract class GraphRecord<V, W, M, I> {
      * @throws IOException
      */
     public void deserVerId(ByteBuffer vIn) 
-    		throws EOFException, IOException { };
+    		throws EOFException, IOException { this.verId = vIn.getInt(); };
     
     /**
      * Searialize graph record statistics info. onto the local disk.
@@ -246,53 +235,104 @@ public abstract class GraphRecord<V, W, M, I> {
      * @param eData String
      */
     public abstract void initGraphData(String vData, String eData);
-    
-    /**
-     * Decompose a given {@link GraphRecord} into several {@link GraphRecord}s.
-     * Now, the decomposing policy is to divide the outgoing edges 
-     * depends on {@link CommRouteTable}.
-     * 
-     * By the way, {@link TaskInformation} will be invoked to 
-     * update the local matrix among virtual buckets.
-     * 
-     * Note: the outgoing edge data of this {@link GraphRecord}
-     * will be changed after decomposing.
-     * @param commRT
-     * @param local
-     * @return
-     */
-    public abstract ArrayList<GraphRecord<V, W, M, I>> 
-    			decompose(CommRouteTable<V, W, M, I> commRT, TaskInformation local);
 
 	
 	//==============================================================================
 	// Other operations used to divide an adjacency list into several fragments.
 	//==============================================================================
-	protected int dstParId; //parId which the destination vertex id belong to
-	protected int dstBucId; //bucId which the destination vertex id belong to
-	protected int srcBucId; //bucId which the source vertex id belong to
-	
-    public void setDstParId(int _dstParId) {
-    	dstParId = _dstParId;
+	protected int srcBid; //blkId which the source vertex id belong to
+    
+	public void initialize(EdgeFragmentEntry<V,W,M,I> frag) {
+		this.verId = frag.getVerId();
+		setEdges(frag.getEdgeIds(), frag.getEdgeWeights());
+	}
+    
+    /**
+     * Set the id of local VBlock where the source vertex belongs.
+     * @param _srcBucId
+     */
+    public void setSrcBlkId(int _srcBid) {
+    	srcBid = _srcBid;
     }
     
-    public int getDstParId() {
-    	return dstParId;
-    }
-    
-    public void setDstBucId(int _dstBucId) {
-    	dstBucId = _dstBucId;
-    }
-    
-    public int getDstBucId() {
-    	return dstBucId;
-    }
-    
-    public void setSrcBucId(int _srcBucId) {
-    	srcBucId = _srcBucId;
-    }
-    
-    public int getSrcBucId() {
-    	return srcBucId;
+    /**
+     * Decompose a given {@link GraphRecord} 
+     * into several {@link GraphRecord}s/fragments.
+     * Now, the decomposing policy is to divide the outgoing edges 
+     * depends on {@link CommRouteTable}.
+     * 
+     * By the way, {@link TaskInformation} will be invoked to 
+     * update the dependency among VBlocks.
+     * 
+     * Note: the outgoing edge data of this {@link GraphRecord}
+     * will be changed after decomposing.
+     * @param commRT
+     * @param taskInfo
+     * @return
+     */
+    @SuppressWarnings("unchecked")
+	public ArrayList<EdgeFragmentEntry<V,W,M,I>> 
+    			decompose(CommRouteTable<V, W, M, I> commRT, 
+    					TaskInformation taskInfo) {
+		int dstTid, dstBid, taskNum = commRT.getTaskNum();
+		int[] blkNumOfTask = commRT.getGlobalSketchGraph().getBucNumTask();
+		boolean hasWeight = this.edgeWeights==null? false:true;
+		ArrayList<Integer>[][] idOfFragments = new ArrayList[taskNum][];
+		ArrayList<W>[][] weightOfFragments = null;
+		for (dstTid = 0; dstTid < taskNum; dstTid++) {
+			idOfFragments[dstTid] = new ArrayList[blkNumOfTask[dstTid]];
+		}
+		if (hasWeight) {
+			weightOfFragments = new ArrayList[taskNum][];
+			for (dstTid = 0; dstTid < taskNum; dstTid++) {
+				weightOfFragments[dstTid] = new ArrayList[blkNumOfTask[dstTid]];
+			}
+		}
+		
+		//decomposing
+		for (int index = 0; index < this.edgeNum; index++) {
+			dstTid = commRT.getDstParId(this.edgeIds[index]);
+			dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
+			if (idOfFragments[dstTid][dstBid] == null) {
+				idOfFragments[dstTid][dstBid] = new ArrayList<Integer>(); 
+				if (hasWeight) {
+					weightOfFragments[dstTid][dstBid] = new ArrayList<W>();
+				}
+			}
+			idOfFragments[dstTid][dstBid].add(this.edgeIds[index]);
+			if (hasWeight) {
+				weightOfFragments[dstTid][dstBid].add(this.edgeWeights[index]);
+			}
+		}
+		
+		//constructing fragments
+		ArrayList<EdgeFragmentEntry<V,W,M,I>> result = 
+			new ArrayList<EdgeFragmentEntry<V,W,M,I>>();
+		for (dstTid = 0; dstTid < taskNum; dstTid++) {
+			for (dstBid = 0; dstBid < blkNumOfTask[dstTid]; dstBid++) {
+				if (idOfFragments[dstTid][dstBid] != null) {
+					EdgeFragmentEntry<V,W,M,I> frag = 
+						new EdgeFragmentEntry<V,W,M,I>(
+								this.verId, this.srcBid, dstTid, dstBid);
+					
+					Integer[] tmpEdgeIds = 
+						new Integer[idOfFragments[dstTid][dstBid].size()];
+					idOfFragments[dstTid][dstBid].toArray(tmpEdgeIds);
+					W[] tmpEdgeWeights = null;
+					if (hasWeight) {
+						tmpEdgeWeights = 
+							(W[]) new Object[idOfFragments[dstTid][dstBid].size()];
+					}
+					
+					taskInfo.updateRespondDependency(
+							dstTid, dstBid, this.verId, tmpEdgeIds.length);
+					frag.initialize(tmpEdgeIds, tmpEdgeWeights);
+					result.add(frag);
+				}
+			}
+		}
+		this.setEdges(null, null);
+
+		return result;
     }
 }

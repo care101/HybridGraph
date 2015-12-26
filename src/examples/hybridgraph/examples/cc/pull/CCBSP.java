@@ -5,13 +5,14 @@ package hybridgraph.examples.cc.pull;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
+import org.apache.hama.myhama.api.GraphRecordInterface;
 import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.api.MsgRecordInterface;
 import org.apache.hama.myhama.util.GraphContextInterface;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import hybridgraph.examples.cc.pull.CCUserTool.CCGraphRecord;
 import hybridgraph.examples.cc.pull.CCUserTool.CCMsgRecord;
 
 /**
@@ -49,8 +50,9 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	public void update(
 			GraphContextInterface<Integer, Integer, Integer, Integer> context) 
 				throws Exception {
-		CCGraphRecord graph = (CCGraphRecord)context.getGraphRecord();
-		CCMsgRecord msg = (CCMsgRecord)context.getReceivedMsgRecord();
+		GraphRecordInterface<Integer, Integer, Integer, Integer> graph = 
+			context.getGraphRecord();
+		MsgRecordInterface<Integer> msg = context.getReceivedMsgRecord();
 		
 		//first superstep, just send its value to all outgoing neighbors.
 		if (context.getIteCounter() == 1) {
@@ -70,7 +72,8 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	public MsgRecord<Integer>[] getMessages(
 			GraphContextInterface<Integer, Integer, Integer, Integer> context) 
 				throws Exception {
-		CCGraphRecord graph = (CCGraphRecord)context.getGraphRecord();
+		GraphRecordInterface<Integer, Integer, Integer, Integer> graph = 
+			context.getGraphRecord();
 		CCMsgRecord[] result = new CCMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
 		for (int eid: graph.getEdgeIds()) {

@@ -1,13 +1,11 @@
 /**
  * copyright 2011-2016
  */
-package org.apache.hama.bsp;
+package org.apache.hama.myhama.api;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.util.GraphContextInterface;
-import org.apache.hama.myhama.util.SuperStepContext;
-import org.apache.hama.myhama.util.TaskContext;
 
 /**
  * Interface BSP defines the basic operations needed to 
@@ -27,14 +25,14 @@ public interface BSPInterface<V, W, M, I> {
 	 * This function will be invoked by framework only once during the whole task.
 	 * @param context
 	 */
-	public void taskSetup(TaskContext context);
+	public void taskSetup(GraphContextInterface<V, W, M, I> context);
 	
 	/**
 	 * Setup befor executing the user-defined algorithm.
 	 * This function will be invoked by framework only once during one superstep.
 	 * @param job
 	 */
-	public void superstepSetup(SuperStepContext context);
+	public void superstepSetup(GraphContextInterface<V, W, M, I> context);
 	
 	/**
 	 * Does this bucket need to be processed?
@@ -72,12 +70,12 @@ public interface BSPInterface<V, W, M, I> {
 	 * This function will be invoked by framework only once during one superstep.
 	 * @param context
 	 */
-	public void superstepCleanup(SuperStepContext context);
+	public void superstepCleanup(GraphContextInterface<V, W, M, I> context);
 	
 	/**
 	 * Cleanup after executing the user-defined algorithm.
 	 * This function will be invoked by framework only once during the whole job.
 	 * @param context
 	 */
-	public void taskCleanup(TaskContext context);
+	public void taskCleanup(GraphContextInterface<V, W, M, I> context);
 }
