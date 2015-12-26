@@ -8,13 +8,11 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
+import org.apache.hama.myhama.io.EdgeParser;
 
 /**
  * PageRankUserTool.java
@@ -31,43 +29,23 @@ import org.apache.hama.myhama.api.UserTool;
  */
 public class PageRankUserTool 
 		extends UserTool<Double, Integer, Double, Integer> {
-	public static final Log LOG = LogFactory.getLog(PageRankUserTool.class);
+	private static EdgeParser edgeParser = new EdgeParser();
 	
 	public static class PRGraphRecord 
 			extends GraphRecord<Double, Integer, Double, Integer> {
 		
 		@Override
-	    public void initGraphData(String vData, String eData) {
-			int length = 0, begin = 0, end = 0;
+	    public void parseGraphData(String vData, String eData) {
 			this.verId = Integer.valueOf(vData);
 			this.verValue = 10.0;
-	        
-	        ArrayList<Integer> tmpEdgeId = new ArrayList<Integer>();
-	        
+	        	        
 	        if (eData.equals("")) {
 	 			setEdges(new Integer[]{this.verId}, null);
 	 	        this.graphInfo = 1;
 	        	return;
 			}
-	        
-	    	char edges[] = eData.toCharArray();
-	        length = edges.length; begin = 0; end = 0;
-	        
-	        for(end = 0; end < length; end++) {
-	            if(edges[end] != ':') {
-	                continue;
-	            }
-	            tmpEdgeId.add(Integer.valueOf(
-	            		new String(edges, begin, end-begin)));
-	            begin = ++end;
-	        }
-	        tmpEdgeId.add(Integer.valueOf(
-	        		new String(edges, begin, end-begin)));
-	        
-	        Integer[] tmpTransEdgeId = new Integer[tmpEdgeId.size()];
-	        tmpEdgeId.toArray(tmpTransEdgeId);
 			
-			setEdges(tmpTransEdgeId, null);
+			setEdges(edgeParser.parseEdgeIdArray(eData, ':'), null);
 	        this.graphInfo = this.edgeNum;
 	    }
 

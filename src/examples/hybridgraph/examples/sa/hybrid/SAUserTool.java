@@ -8,11 +8,11 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
+import org.apache.hama.myhama.io.EdgeParser;
 
 
 /**
@@ -33,6 +33,7 @@ import org.apache.hama.myhama.api.UserTool;
  */
 public class SAUserTool 
 		extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
+	private static EdgeParser edgeParser = new EdgeParser();
 	
 	public static class SAGraphRecord 
 			extends GraphRecord<Value, Integer, MsgBundle, EdgeSet> {
@@ -42,8 +43,7 @@ public class SAUserTool
 		}
 		
 		@Override
-	    public void initGraphData(String vData, String eData) {
-			int length = 0, begin = 0, end = 0;
+	    public void parseGraphData(String vData, String eData) {
 			this.verId = Integer.valueOf(vData);
 			this.verValue = new Value(this.verId, 1);
 			
@@ -53,38 +53,10 @@ public class SAUserTool
 	        	return;
 			}
 	        
-			ArrayList<Integer> tmpEdgeId = new ArrayList<Integer>();
-	    	char edges[] = eData.toCharArray();
-	        length = edges.length; begin = 0; end = 0;
-	        
-	        for(end = 0; end < length; end++) {
-	            if(edges[end] != ':') {
-	                continue;
-	            }
-	            tmpEdgeId.add(Integer.valueOf(
-	            		new String(edges, begin, end-begin)));
-	            begin = ++end;
-	        }
-	        tmpEdgeId.add(Integer.valueOf(
-	        		new String(edges, begin, end-begin)));
-	        
-	        Integer[] tmpTransEdgeId = new Integer[tmpEdgeId.size()];
-	        tmpEdgeId.toArray(tmpTransEdgeId);
-	        setEdges(tmpTransEdgeId, null);
-	        this.graphInfo = new EdgeSet(tmpTransEdgeId);
+	        Integer[] parsedEdgeIds = edgeParser.parseEdgeIdArray(eData, ':');
+	        setEdges(parsedEdgeIds, null);
+	        this.graphInfo = new EdgeSet(parsedEdgeIds);
 	    }
-		
-		@Override
-		public void serVerId(ByteBuffer vOut) 
-				throws EOFException, IOException {
-			vOut.putInt(this.verId);
-		}
-
-		@Override
-		public void deserVerId(ByteBuffer vIn) 
-				throws EOFException, IOException {
-			this.verId = vIn.getInt();
-		}
 
 		@Override
 		public void serVerValue(ByteBuffer vOut) 

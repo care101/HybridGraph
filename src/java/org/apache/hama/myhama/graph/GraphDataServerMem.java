@@ -234,7 +234,7 @@ public class GraphDataServerMem<V, W, M, I>
 		int bid = -1, vid = 0;
 		while (input.nextKeyValue()) {
 			GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
-			graph.initGraphData(input.getCurrentKey().toString(), 
+			graph.parseGraphData(input.getCurrentKey().toString(), 
 					input.getCurrentValue().toString());
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();

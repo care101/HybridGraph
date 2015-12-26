@@ -225,16 +225,17 @@ public abstract class GraphRecord<V, W, M, I>
    // The following functions must be implemented by users.
    //==========================================================
    /**
-     * Initialize the graph data according to the String vData and eData.
-     * This function will only be invoked during the localize the graph record 
-     * in the {@link GraphDataServer.localizeGraphData()}.
-     * The String vData is read from HDFS as the <code>key</code> 
+     * Parse the graph data and then initialize variables 
+     * in {@link GraphRecord}.
+     * This function is only be invoked in 
+     * {@link GraphDataServer}.loadGraph().
+     * vData is read from HDFS as the <code>key</code> 
      * and eData is read from HDFS as the <code>value</code>.
      * 
      * @param vData String
      * @param eData String
      */
-    public abstract void initGraphData(String vData, String eData);
+    public abstract void parseGraphData(String vData, String eData);
 
 	
 	//==============================================================================

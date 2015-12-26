@@ -203,7 +203,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 		int id = 0;
 		GraphRecord<V, W, M, I> record = userTool.getGraphRecord();
 		if(input.nextKeyValue()) {
-			record.initGraphData(input.getCurrentKey().toString(), 
+			record.parseGraphData(input.getCurrentKey().toString(), 
 					input.getCurrentValue().toString());
 			id = record.getVerId();
 		} else {

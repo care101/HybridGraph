@@ -56,7 +56,7 @@ public interface BSPInterface<V, W, M, I> {
 	 * A user-defined function used to generate messages 
 	 * sent from the source vertex to its neighbors. 
 	 * Note: the edge collection may be varied with the value 
-	 * fo context.getIteStyle().
+	 * of context.getIteStyle().
 	 * 
 	 * @param context
 	 * @return
