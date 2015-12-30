@@ -66,10 +66,8 @@ Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top leve
 ###2.4 Running a Single Source Shortest Path (SSSP) job on master  
 First, create an example graph under input/file.txt on HDFS with the follwing:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
-`1	2:3:4`  
-`2	1:4`  
-`3	2:1`  
-`4	2`  
+An example is given in [input_graph](https://github.com/HybridGraph/HybridGraph/blob/master/input_graph.txt).  
+
 Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
 `termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
