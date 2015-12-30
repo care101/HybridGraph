@@ -893,7 +893,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		int verMinId = this.verBlkMgr.getVerMinId();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.taskId, this.job, 
-					_iteNum, this.preIteStyle);
+					_iteNum, this.preIteStyle, this.commRT);
 		GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 		
 		/** recover the scenario */

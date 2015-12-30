@@ -3,12 +3,12 @@
  */
 package org.apache.hama.myhama.api;
 
-import org.apache.hama.Constants.Opinion;
+import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.util.Context;
 
 /**
- * Interface BSP defines the basic operations needed to 
+ * BSPInterface defines the basic operations needed to 
  * implement the BSP algorithm.
  * 
  * @author 
@@ -21,43 +21,44 @@ import org.apache.hama.myhama.util.Context;
  */
 public interface BSPInterface<V, W, M, I> {
 	/**
-	 * Setup befor executing the user-defined algorithm.
-	 * This function will be invoked by framework only once during the whole task.
+	 * Setup befor running this task.
+	 * Do nothing as default.
 	 * @param context
 	 */
 	public void taskSetup(Context<V, W, M, I> context);
 	
 	/**
-	 * Setup befor executing the user-defined algorithm.
-	 * This function will be invoked by framework only once during one superstep.
-	 * @param job
+	 * Setup befor starting a new superstep.
+	 * Do nothing as default.
+	 * @param context
 	 */
 	public void superstepSetup(Context<V, W, M, I> context);
 	
 	/**
-	 * Does this bucket need to be processed?
-	 * This function will be invoked for every Bucket in every SuperStep.
-	 * @param bucketId
-	 * @param currentSuperStepCounter
+	 * Setup before processing vertices in one VBlock.
+	 * @param context
 	 * @return
 	 */
-	public Opinion processThisBucket(int bucketId, int currentSuperStepCounter);
+	public void vBlockSetup(Context<V, W, M, I> context);
 	
 	/**
-	 * A user-defined function used to update the value of 
-	 * an active vertex.
-	 * 
+	 * A vertex-centric function for updating a vertex value.
+	 * It must be implemented by users.
 	 * @throws Exception
 	 */
 	public void update(Context<V, W, M, I> context) 
 			throws Exception;
 	
 	/**
-	 * A user-defined function used to generate messages 
-	 * sent from the source vertex to its neighbors. 
-	 * Note: the edge collection may be varied with the value 
-	 * of context.getIteStyle().
-	 * 
+	 * A vertex-centric function for generating messages 
+	 * sent from one vertex to its neighbors if this vertex 
+	 * is set as "respond" via context.setRespond() in update(). 
+	 * This function is invoked to either respond pulling requests 
+	 * if the vertex is set as "respond" at the previous superstep 
+	 * when running style.Pull, or immediately generate messages 
+	 * after the vertex is just updated in update() at the current superstep 
+	 * when running style.Push. 
+	 * This fuction must be implemented by users.
 	 * @param context
 	 * @return
 	 * @throws Exception
@@ -66,15 +67,22 @@ public interface BSPInterface<V, W, M, I> {
 			throws Exception;
 	
 	/**
-	 * Cleanup after executing the user-defined algorithm.
-	 * This function will be invoked by framework only once during one superstep.
+	 * Cleanup after processing vertices in one VBlock.
+	 * Do nothing as default.
+	 * @param context
+	 */
+	public void vBlockCleanup(Context<V, W, M, I> context);
+	
+	/**
+	 * Cleanup after accomplishing one superstep.
+	 * Do nothing as default.
 	 * @param context
 	 */
 	public void superstepCleanup(Context<V, W, M, I> context);
 	
 	/**
-	 * Cleanup after executing the user-defined algorithm.
-	 * This function will be invoked by framework only once during the whole job.
+	 * Cleanup after accomplishing this task.
+	 * Do nothing as default.
 	 * @param context
 	 */
 	public void taskCleanup(Context<V, W, M, I> context);

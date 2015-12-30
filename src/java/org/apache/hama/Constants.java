@@ -96,17 +96,6 @@ public interface Constants {
 	  public static final int Hybrid = 3;
   }
   
-  public static class Counters {
-	  public static final String TOTAL_GRAPH_RECORD = "total.graph.record.number";
-	  public static final String LOCAL_GRAPH_RECORD = "local.graph.record.number";
-	  
-	  public static final String TOTAL_MIN_VERTEX_ID = "total.min.vertex.id";
-	  public static final String LOCAL_MIN_VERTEX_ID = "local.min.vertex.id";
-	  
-	  public static final String LOCAL_BUCKET_NUMBER = "local.hash.bucket.number";
-	  public static final String LOCAL_BUCKET_LENGTH = "local.hash.bucket.length";
-  }
-  
   public static class HardwareInfo {
 	  public static final String RD_Read_Speed = "rand.read.speed";
 	  public static final String RD_Write_Speed = "rand.write.speed"; 
@@ -120,8 +109,18 @@ public interface Constants {
 	  public static final float Def_Network_Speed = 112;
   }
   
-  public static enum Opinion {
-	  YES, NO, MSG_DEPEND
+  /**
+   * Define update rules for vertices in one VBlock.
+   * @author root
+   *
+   */
+  public static enum VBlockUpdateRule {
+	  /** always update vertices in the given VBlock */
+	  UPDATE,
+	  /** skip vertices in the given VBlock */
+	  SKIP,
+	  /** vertices are updated if and only if they have received messages */
+	  MSG_DEPEND
   }
   
   public static enum BufferStatus {

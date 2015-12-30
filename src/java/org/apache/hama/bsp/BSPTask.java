@@ -18,7 +18,7 @@ import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.util.ReflectionUtils;
 
 import org.apache.hama.Constants;
-import org.apache.hama.Constants.Opinion;
+import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.ipc.MasterProtocol;
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.api.BSP;
@@ -219,9 +219,6 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.fulLoad = this.taskInfo.getBlkNum();
 		this.trt.setAgent(umbilical);
 		this.trt.start();
-		job.setLocHashBucLen(this.taskInfo.getBlkLen());
-		job.setLocHashBucNum(this.taskInfo.getBlkNum());
-		job.setLocMinVerId(this.taskInfo.getVerMinId());
 	}
 	
 	/**
@@ -345,34 +342,34 @@ public class BSPTask<V, W, M, I> extends Task {
 	}
 	
 	/**
-	 * Need to process this real bucket or not.
-	 * @param opinion
+	 * Whether to process this VBlock or not.
+	 * @param VBlockUpdateRule
 	 * @param msgNum
 	 * @return
 	 */
-	private boolean isProBucket(Opinion opinion, long msgNum) 
+	private boolean isUpdateVBlock(VBlockUpdateRule rule, long msgNum) 
 			throws Exception {
-		boolean proBucket = false;
+		boolean update = false;
 		
-		switch (opinion) {
-		case YES:
-			proBucket = true;
+		switch (rule) {
+		case UPDATE:
+			update = true;
 			break;
-		case NO:
-			proBucket = false;
+		case SKIP:
+			update = false;
 			break;
 		case MSG_DEPEND:
 			if (iteNum == 1) {
-				proBucket = true;
+				update = true;
 			} else {
-				proBucket = msgNum>0L? true:false;
+				update = msgNum>0L? true:false;
 			}
 			break;
 		default:
-			throw new Exception("Invalid Opinion " + opinion);
+			throw new Exception("Invalid update rule " + rule);
 		}
 		
-		return proBucket;
+		return update;
 	}
 	
 	/**
@@ -390,7 +387,9 @@ public class BSPTask<V, W, M, I> extends Task {
 		bucStaTime = System.currentTimeMillis();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.parId, this.job, 
-					this.iteNum, this.curIteStyle);
+					this.iteNum, this.curIteStyle, 
+					this.commServer.getCommRouteTable());
+		context.setVBlockId(bucketId);
 		GraphRecord<V, W, M, I> graph = null;
 		this.graphDataServer.openGraphDataStream(parId, bucketId, iteNum);
 		
@@ -453,7 +452,8 @@ public class BSPTask<V, W, M, I> extends Task {
 		StringBuffer hbInfo = new StringBuffer();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.parId, this.job, 
-					this.iteNum, this.curIteStyle);
+					this.iteNum, this.curIteStyle, 
+					this.commServer.getCommRouteTable());
 		int bucNum = this.taskInfo.getBlkNum();
 		
 		this.trt.force();
@@ -487,8 +487,10 @@ public class BSPTask<V, W, M, I> extends Task {
 			long msgNum = this.msgDataServer.getMsgNum();
 			totalMsgTime += msgTime;
 			hbInfo.append("\tpullMsgTime=" + msgTime + "ms");
-			Opinion opinion = this.bsp.processThisBucket(bucketId, iteNum);
-			if (isProBucket(opinion, msgNum)) {
+			
+			context.setVBlockId(bucketId);
+			this.bsp.vBlockSetup(context);;
+			if (isUpdateVBlock(context.getVBlockUpdateRule(), msgNum)) {
 				hbInfo.append("\tType=Normal");
 				compTime = runBucket(bucketId);
 				totalCompTime += compTime;
@@ -499,6 +501,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			}
 			this.hasPro++;
 			this.msgDataServer.clearAftBucket();
+			this.bsp.vBlockCleanup(context);
 		}
 		
 		this.taskInfo.setRespondVerNumBlks(this.graphDataServer.getRespondVerNumOfBlks());
@@ -541,7 +544,8 @@ public class BSPTask<V, W, M, I> extends Task {
 		GraphRecord<V, W, M, I> graph = null;
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.parId, this.job, 
-					this.iteNum, this.curIteStyle);
+					this.iteNum, this.curIteStyle, 
+					this.commServer.getCommRouteTable());
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
 			if (this.graphDataServer.isDoOnlyForPush(bucketId, nextIteNum)) {
 				/** if not updated, will not read. If read it, 
@@ -571,14 +575,15 @@ public class BSPTask<V, W, M, I> extends Task {
 	 */
 	@Override
 	public void run(BSPJob job, Task task, BSPPeerProtocol umbilical, String host) {
-		GraphContext<V, W, M, I> context = 
-			new GraphContext<V, W, M, I>(this.parId, job, -1, -1);
 		Exception exception = null;
 		try {
 			initialize(job, host);
 			buildRouteTable(umbilical); //get the locMinVerId of each task
 			loadData();
 			
+			GraphContext<V, W, M, I> context = 
+				new GraphContext<V, W, M, I>(this.parId, job, -1, -1, 
+						this.commServer.getCommRouteTable());
 			this.bsp.taskSetup(context);
 			this.iteNum = 1; //#iteration starts from 1, not 0.
 			
@@ -600,6 +605,9 @@ public class BSPTask<V, W, M, I> extends Task {
 			exception = e;
 			LOG.error("task is failed!", e);
 		} finally {
+			GraphContext<V, W, M, I> context = 
+				new GraphContext<V, W, M, I>(this.parId, job, -1, -1, 
+						this.commServer.getCommRouteTable());
 			this.bsp.taskCleanup(context);
 			//umbilical.clear(this.jobId, this.taskId);
 			try {

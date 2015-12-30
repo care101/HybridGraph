@@ -3,7 +3,7 @@
  */
 package hybridgraph.examples.pagerank;
 
-import org.apache.hama.Constants.Opinion;
+import org.apache.hama.Constants.VBlockUpdateRule;
 //import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
@@ -36,8 +36,9 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	}
 	
 	@Override
-	public Opinion processThisBucket(int bucketId, int curSuperStepNum) {
-		return Opinion.YES;
+	public void vBlockSetup(
+			Context<Double, Integer, Double, Integer> context) {
+		context.setVBlockUpdateRule(VBlockUpdateRule.UPDATE);
 	}
 	
 	@Override
@@ -49,7 +50,7 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 		MsgRecord<Double> msg = context.getReceivedMsgRecord();
 		value = 0.0d;
 		
-		if (context.getIteCounter() == 1) {
+		if (context.getSuperstepCounter() == 1) {
 			//value = RandomRate;
 			value = 10.0;
 		} else if (msg != null){

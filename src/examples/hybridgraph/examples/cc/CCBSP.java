@@ -3,7 +3,6 @@
  */
 package hybridgraph.examples.cc;
 
-import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
@@ -38,11 +37,6 @@ import hybridgraph.examples.cc.CCUserTool.CCMsgRecord;
 public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	
 	@Override
-	public Opinion processThisBucket(int _bucId, int _iteNum) {
-		return Opinion.MSG_DEPEND;
-	}
-	
-	@Override
 	public void update(
 			Context<Integer, Integer, Integer, Integer> context) 
 				throws Exception {
@@ -51,7 +45,7 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 		MsgRecord<Integer> msg = context.getReceivedMsgRecord();
 		
 		//first superstep, just send its value to all outgoing neighbors.
-		if (context.getIteCounter() == 1) {
+		if (context.getSuperstepCounter() == 1) {
 			graph.setVerValue(graph.getVerId());
 			context.setRespond();
 		} else {

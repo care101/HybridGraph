@@ -8,7 +8,7 @@ import java.util.HashMap;
 import java.util.Random;
 import java.util.Map.Entry;
 
-import org.apache.hama.Constants.Opinion;
+import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
@@ -35,8 +35,9 @@ import hybridgraph.examples.lpa.LPAUserTool.LPAMsgRecord;
 public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	
 	@Override
-	public Opinion processThisBucket(int _bucId, int _iteNum) {
-		return Opinion.YES;
+	public void vBlockSetup(
+			Context<Integer, Integer, MsgBundle, Integer> context) {
+		context.setVBlockUpdateRule(VBlockUpdateRule.UPDATE);
 	}
 	
 	@Override
@@ -48,7 +49,7 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
 		
 		/** first superstep, just send its value to all outer neighbors */
-		if (context.getIteCounter() == 1) {
+		if (context.getSuperstepCounter() == 1) {
 			graph.setVerValue(graph.getVerId());
 		} else if (msg != null) {
 			graph.setVerValue(findLabel(msg));

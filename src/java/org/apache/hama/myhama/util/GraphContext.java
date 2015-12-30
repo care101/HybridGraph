@@ -4,9 +4,11 @@
  */
 package org.apache.hama.myhama.util;
 
+import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.comm.CommRouteTable;
 
 /**
  * GraphContext. 
@@ -20,8 +22,21 @@ import org.apache.hama.myhama.api.MsgRecord;
  */
 public class GraphContext<V, W, M, I> extends Context<V, W, M, I> {
 	
-	public GraphContext(int _taskId, BSPJob _job, int _iteNum, int _iteStyle) {
-		super(_taskId, _job, _iteNum, _iteStyle);
+	public GraphContext(int _taskId, BSPJob _job, int _iteNum, int _iteStyle, 
+			final CommRouteTable<V, W, M, I> _commRT) {
+		super(_taskId, _job, _iteNum, _iteStyle, _commRT);
+	}
+	
+	public void setVBlockId(int id) {
+		this.vBlkId = id;
+	}
+	
+	/**
+	 * Get the update rule of one VBlock.
+	 * @return
+	 */
+	public VBlockUpdateRule getVBlockUpdateRule() {
+		return this.vBlkUpdRule;
 	}
 	
 	/**
@@ -50,6 +65,7 @@ public class GraphContext<V, W, M, I> extends Context<V, W, M, I> {
 	public void reset() {
 		this.actFlag = true;
 		this.resFlag = false;
+		this.vAgg = 0.0f;
 	}
 	
 	/**

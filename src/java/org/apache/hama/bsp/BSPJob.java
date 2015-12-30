@@ -31,7 +31,6 @@ import org.apache.hama.myhama.api.UserTool;
 import org.apache.hama.myhama.io.InputFormat;
 import org.apache.hama.myhama.io.OutputFormat;
 import org.apache.hama.Constants;
-import org.apache.hama.Constants.Counters;
 
 
 /**
@@ -509,30 +508,5 @@ public void setBspClass(Class<? extends BSP> cls)
   public int getNumBucketsPerTask() {
 	  return conf.getInt(Constants.Hash_Bucket_Num, 
 			  Constants.DEFAULT.Hash_Bucket_Num);
-  }
-  
-  // Some counter
-  public void setLocMinVerId(int vertexId) {
-	  conf.setInt(Counters.LOCAL_MIN_VERTEX_ID, vertexId);
-  }
-  
-  public int getLocMinVerId() {
-	  return conf.getInt(Counters.LOCAL_MIN_VERTEX_ID, 0);
-  }
-  
-  public void setLocHashBucNum(int number) {
-	  conf.setInt(Counters.LOCAL_BUCKET_NUMBER, number);
-  }
-  
-  public int getLocHashBucNum() {
-	  return conf.getInt(Counters.LOCAL_BUCKET_NUMBER, 0);
-  }
-  
-  public void setLocHashBucLen(int value) {
-	  conf.setInt(Counters.LOCAL_BUCKET_LENGTH, value);
-  }
-  
-  public int getLocHashBucLen() {
-	  return conf.getInt(Counters.LOCAL_BUCKET_LENGTH, 0);
   }
 }

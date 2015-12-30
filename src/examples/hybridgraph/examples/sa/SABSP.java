@@ -8,7 +8,7 @@ import java.util.HashMap;
 import java.util.Random;
 import java.util.Map.Entry;
 
-import org.apache.hama.Constants.Opinion;
+import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
@@ -46,24 +46,18 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	public void taskSetup(
 			Context<Value, Integer, MsgBundle, Integer> context) {
 		SourceVerId = context.getBSPJobInfo().getInt(SOURCE, 2);
+		SourceBlkId = context.getVBlockId(SourceVerId);
 	}
 	
 	@Override
-	public void superstepSetup(
+	public void vBlockSetup(
 			Context<Value, Integer, MsgBundle, Integer> context) {
-		SourceBlkId = (SourceVerId-context.getBSPJobInfo().getLocMinVerId()) 
-			/ context.getBSPJobInfo().getLocHashBucLen();
-	}
-	
-	@Override
-	public Opinion processThisBucket(int _bucId, int _iteNum) {
-		if (_iteNum > 1) {
-			return Opinion.MSG_DEPEND;
-		}
-		if (_bucId == SourceBlkId) {
-			return Opinion.YES;
+		if (context.getSuperstepCounter() > 1) {
+			context.setVBlockUpdateRule(VBlockUpdateRule.MSG_DEPEND);
+		} else if (context.getVBlockId() == SourceBlkId) {
+			context.setVBlockUpdateRule(VBlockUpdateRule.UPDATE);
 		} else {
-			return Opinion.NO;
+			context.setVBlockUpdateRule(VBlockUpdateRule.SKIP);
 		}
 	}
 	
@@ -76,7 +70,7 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
 		
 		//first superstep, send source vertex's advertisement to its out-neighbors.
-		if (context.getIteCounter() == 1) {
+		if (context.getSuperstepCounter() == 1) {
 			if (graph.getVerId() == SourceVerId) {
 				context.setRespond();
 			}
