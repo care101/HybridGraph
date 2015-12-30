@@ -35,46 +35,7 @@ Second, edit configuration files in `HybridGraph_HOME/conf` as follows:
 * __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
 * __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
-  `<property>`  
-    `<name>bsp.master.address</name>`  
-    `<value>master:40000</value>`  
-    `<description>The hostname of the master server and the port master should bind to.</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>fs.default.name</name>`  
-    `<value>hdfs://master:9000/</value>`  
-    `<description>The NameNode information of HDFS.</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>bsp.child.java.opts</name>`  
-    `<value>-Xmx512m -Xms256m</value>`  
-    `<description>Java opts for the child process run on workers(slaves).</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>bsp.task.max</name>`  
-    `<value>1</value>`  
-    `<description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>bsp.local.dir</name>`  
-    `<value>/tmp/termite_tmp_data</value>`  
-    `<description>Temporary directory on the local filesystem.</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>rand.read.speed</name>`  
-    `<value>1077</value>`  
-    `<description>The speed of rand reads is 1077KB/s.</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>rand.write.speed</name>`  
-    `<value>1071</value>`  
-    `<description>The speed of rand writes is 1071KB/s.</description>`  
-  `</property>`  
-  `<property>`  
-    `<name>network.speed</name>`  
-    `<value>112</value>`  
-    `<description>The network speed is 112MB/s.</description>`  
-  `</property>`  
+The details are shown in [termite-site.xml](https://github.com/HybridGraph/HybridGraph/blob/master/conf/termite-site.xml)  
 * __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
@@ -138,7 +99,10 @@ About arguments:
 
 HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`.
 
-##3. Testing Report
+##3. Programming Guide
+HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples.
+
+##4. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
 and the modified pull-based sytem [GraphLab PowerGraph](https://github.com/HybridGraph/GraphLab-PowerGraph.git).
 
@@ -160,7 +124,7 @@ In all the testing, each node runs one task,
 to avoid the resource contention.
 
 
-###3.1 Blocking time `push vs. b-pull` using PageRank  
+###4.1 Blocking time `push vs. b-pull` using PageRank  
 Here, blocking time is the time when nodes are exchanging messages.
 It is calculated by summing up the message exchanging time in iterations.
 We run PageRank in this test and provide sufficient memory.
@@ -172,7 +136,7 @@ datasets. Note that b-pull starts exchanging messages from the 2nd superstep.
 <img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />  
 
 
-###3.2 Network traffic `push vs. b-pull` using PageRank  
+###4.2 Network traffic `push vs. b-pull` using PageRank  
 The network traffic includes all input and
 output on bytes, and is extracted by [Ganglia](http://ganglia.sourceforge.net/),
 a cluster monitoring tool, where the monitoring interval is for every 2 seconds. 
@@ -186,7 +150,7 @@ as that of push, as it cannot optimize communication costs.
 <img src="figures/app_3_b_nettraf_orkut.jpg" alt="network traffic of orkut" title="network traffic of orkut" width="300" />  
 
 
-###3.3 Testing runtime over wiki by varying the memroy resource  
+###4.3 Testing runtime over wiki by varying the memroy resource  
 The runtime of push obviously increases when the message buffer
 decreases, since accessing messages on disk is extremely expensive.
 Taking PageRank as an example, the
@@ -217,7 +181,7 @@ LPA and SA
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
 
-###3.4 Scalability  
+###4.4 Scalability  
 Scalability of computations for `push` and `hybrid` (LPA)  
 <img src="figures/app_6_a_sca_run_lpa_push.jpg" alt="scalability of push LPA" title="scalability of push LPA" width="300" />
 <img src="figures/app_6_b_sca_run_lpa_pull.jpg" alt="scalability of hybrid LPA" title="scalability of hybrid LPA" width="300" />  
