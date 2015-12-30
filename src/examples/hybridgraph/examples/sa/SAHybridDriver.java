@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.sa.pull;
+package hybridgraph.examples.sa;
 
 import org.apache.hadoop.fs.Path;
 
@@ -18,21 +18,24 @@ import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
  * @author 
  * @version 0.2
  */
-public class SAPullDriver {
+public class SAHybridDriver {
 	
 	public static void main(String[] args) throws Exception {
 		// check the input parameters
-		if (args.length != 8) {
+		if (args.length != 11) {
 			StringBuffer sb = 
-				new StringBuffer("the sa job must be given arguments(8):");
-			sb.append("\n  [1] input directory on HDFS"); 
-			sb.append("\n  [2] output directory on HDFS"); 
-			sb.append("\n  [3] #task(int)");
-			sb.append("\n  [4] #iteration(int)"); 
-			sb.append("\n  [5] #vertex(int)");
-			sb.append("\n  [6] #buckets(int)");
-			sb.append("\n  [7] msg_pack for style.Pull(int, 10^4 default)");
-			sb.append("\n  [8] source vertex id(int)");
+				new StringBuffer("the sa job must be given arguments(11):");
+			sb.append("\n  [1]  input directory on HDFS"); 
+			sb.append("\n  [2]  output directory on HDFS"); 
+			sb.append("\n  [3]  #task(int)");
+			sb.append("\n  [4]  #iteration(int)"); 
+			sb.append("\n  [5]  #vertex(int)");
+			sb.append("\n  [6]  #buckets(int)");
+			sb.append("\n  [7]  msg_pack for style.Pull(int, 10^4 default)");
+			sb.append("\n  [8]  send_buffer for style.Push(int, 10^4 default)");
+			sb.append("\n  [9]  receive_buffer for style.Push(int, 10^4 default)");
+			sb.append("\n  [10] startIteStyle(int: 1-Push, 2-Pull)");
+			sb.append("\n  [11] source vertex id(int)");
 			
 			System.out.println(sb.toString());
 			System.exit(-1);
@@ -40,10 +43,11 @@ public class SAPullDriver {
 
 		//set the job configuration
 		HamaConfiguration conf = new HamaConfiguration();
-		BSPJob bsp = new BSPJob(conf, SAPullDriver.class);
-		bsp.setJobName("SA");
-		bsp.setBspClass(SABSP.class);
+		BSPJob bsp = new BSPJob(conf, SAHybridDriver.class);
+		bsp.setJobName("simulated advertisement");
 		bsp.setPriority(Constants.PRIORITY.NORMAL);
+
+		bsp.setBspClass(SABSP.class);
 		bsp.setUserToolClass(SAUserTool.class);
 		bsp.setInputFormatClass(KeyValueInputFormat.class);
 		bsp.setOutputFormatClass(TextBSPFileOutputFormat.class);
@@ -55,11 +59,16 @@ public class SAPullDriver {
 		bsp.setNumTotalVertices(Integer.valueOf(args[4]));
 		bsp.setNumBucketsPerTask(Integer.valueOf(args[5]));
 		
-		bsp.setBspStyle(Constants.STYLE.Pull);
+        bsp.setBspStyle(Constants.STYLE.Hybrid);
 		  bsp.setMsgPackSize(Integer.valueOf(args[6]));
+		  bsp.setMsgSendBufSize(Integer.valueOf(args[7]));
+		  bsp.setMsgRecBufSize(Integer.valueOf(args[8]));
+		  bsp.setStartIteStyle(Integer.valueOf(args[9]));
 		
+		bsp.setGraphDataOnDisk(true);
+		  
 		// set the source vertex id
-		bsp.setInt(SABSP.SOURCE, Integer.valueOf(args[7]));
+		bsp.setInt(SABSP.SOURCE, Integer.valueOf(args[10]));
 		
 		//submit the job
 		bsp.waitForCompletion(true);

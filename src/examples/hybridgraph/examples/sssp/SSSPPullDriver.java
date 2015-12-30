@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.sssp.pull;
+package hybridgraph.examples.sssp;
 
 import org.apache.hadoop.fs.Path;
 
@@ -42,9 +42,10 @@ public class SSSPPullDriver {
 		// set the job configuration
 		HamaConfiguration conf = new HamaConfiguration();
 		BSPJob bsp = new BSPJob(conf, SSSPPullDriver.class);
-		bsp.setJobName("SSSP-Range");
-		bsp.setBspClass(SPBSP.class);
+		bsp.setJobName("single source shortest path");
 		bsp.setPriority(Constants.PRIORITY.NORMAL);
+
+		bsp.setBspClass(SPBSP.class);
 		bsp.setUserToolClass(SPUserTool.class);
 		bsp.setInputFormatClass(KeyValueInputFormat.class);
 		bsp.setOutputFormatClass(TextBSPFileOutputFormat.class);
@@ -61,6 +62,8 @@ public class SSSPPullDriver {
 		
 		// set the source vertex id
 		bsp.setInt(SPBSP.SOURCE, Integer.valueOf(args[7]));
+		
+		bsp.setGraphDataOnDisk(true);
 		
 		// submit the job
 		bsp.waitForCompletion(true);

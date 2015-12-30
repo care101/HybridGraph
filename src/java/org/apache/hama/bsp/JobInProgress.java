@@ -89,10 +89,9 @@ class JobInProgress {
 		new HashMap<Integer, CommunicationServerProtocol>();
 	private AtomicInteger reportCounter;
 
-	private JobInformation global;
+	private JobInformation jobInfo;
 	private JobMonitor jobMonitor;
-	private double[] iteTime, iteQNeu, iteQAmazon;
-	private String[] iteCommand, taskToWorkerName;
+	private String[] taskToWorkerName;
 
 	/** how long of scheduling, loading graph, saving result */
 	private double scheTaskTime, loadDataTime, saveDataTime;
@@ -173,11 +172,7 @@ class JobInProgress {
 	}
 
 	private void initialize() {
-		global = new JobInformation(this.job, this.taskNum);
-		iteTime = new double[maxIteNum + 1];
-		iteCommand = new String[maxIteNum + 1]; 
-		iteQNeu = new double[maxIteNum + 1];
-		iteQAmazon = new double[maxIteNum + 1];
+		jobInfo = new JobInformation(this.job, this.taskNum);
 		taskToWorkerName = new String[this.taskNum];
 	}
 
@@ -413,18 +408,18 @@ class JobInProgress {
 	}
 	
 	/** Build route-table by loading the first record of each task */
-	public void buildRouteTable(TaskInformation s) {
+	public void buildRouteTable(TaskInformation tif) {
 		/*LOG.info("[ROUTETABLE] tid=" + s.getTaskId() + "\t verMinId=" + s.getVerMinId());*/
-		this.byteOfOneMessage = s.getByteOfOneMessage();
-		this.isAccumulated = s.isAccumulated();
-		this.global.updateInfo(s.getTaskId(), s);
-		InetSocketAddress address = new InetSocketAddress(s.getHostName(), s.getPort());
+		this.byteOfOneMessage = tif.getByteOfOneMessage();
+		this.isAccumulated = tif.isAccumulated();
+		this.jobInfo.buildInfo(tif.getTaskId(), tif);
+		InetSocketAddress address = new InetSocketAddress(tif.getHostName(), tif.getPort());
 		try {
 			CommunicationServerProtocol comm = 
 				(CommunicationServerProtocol) RPC.waitForProxy(
 						CommunicationServerProtocol.class,
 							CommunicationServerProtocol.versionID, address, conf);
-			comms.put(s.getTaskId(), comm);
+			comms.put(tif.getTaskId(), comm);
 		} catch (Exception e) {
 			LOG.error("[buildRouteTable:save comm]", e);
 		}
@@ -432,10 +427,10 @@ class JobInProgress {
 		int finished = this.reportCounter.incrementAndGet();
 		if (finished == taskNum) {
 			this.reportCounter.set(0);
-			this.global.initialize(this.job.getNumTotalVertices());
+			this.jobInfo.initAftBuildingInfo(this.job.getNumTotalVertices());
 			for (CommunicationServerProtocol comm : comms.values()) {
 				try {
-					comm.buildRouteTable(global);
+					comm.buildRouteTable(jobInfo);
 				} catch (Exception e) {
 					LOG.error("[buildRouteTable:buildRouteTable]", e);
 				}
@@ -444,19 +439,19 @@ class JobInProgress {
 	}
 	
 	/** Register after loading graph data and building VE-Block */
-	public void registerTask(TaskInformation statis) {
+	public void registerTask(TaskInformation tif) {
 		//LOG.info("[REGISTER] tid=" + statis.getTaskId());
-		this.global.updateInfo(statis.getTaskId(), statis);
-		this.jobMonitor.incLoadByte(statis.getLoadByte());
-		this.jobMonitor.setVerNumTask(statis.getTaskId(), statis.getVerNum());
-		this.jobMonitor.setEdgeNumTask(statis.getTaskId(), statis.getEdgeNum());
+		this.jobInfo.registerInfo(tif.getTaskId(), tif);
+		this.jobMonitor.addLoadByte(tif.getLoadByte());
+		this.jobMonitor.setVerNumOfTasks(tif.getTaskId(), tif.getVerNum());
+		this.jobMonitor.setEdgeNumOfTasks(tif.getTaskId(), tif.getEdgeNum());
 		int finished = this.reportCounter.incrementAndGet();
 		if (finished == this.taskNum) {
 			this.reportCounter.set(0);
 
 			for (CommunicationServerProtocol comm : this.comms.values()) {
 				try {
-					comm.setPreparation(this.global);
+					comm.setPreparation(this.jobInfo);
 				} catch (Exception e) {
 					LOG.error("[registerTask:setPreparation]", e);
 				}
@@ -496,7 +491,7 @@ class JobInProgress {
 	
 	/** Clean over after one iteraiton */
 	public void finishSuperStep(int parId, SuperStepReport ssr) {
-		this.global.updateActVerNumBucs(curIteNum, parId, ssr.getActVerNumBucs());
+		this.jobInfo.updateRespondVerNumOfBlks(parId, ssr.getActVerNumBucs());
 		this.jobMonitor.updateMonitor(curIteNum, parId, ssr.getTaskAgg(), ssr.getCounters());
 		//LOG.info("[SUPERSTEP] taskID=" + parId);
 		int finished = this.reportCounter.incrementAndGet();
@@ -507,17 +502,16 @@ class JobInProgress {
 			for (Entry<Integer, CommunicationServerProtocol> entry: this.comms.entrySet()) {
 				try {
 					ssc.setRealRoute(
-							this.global.getRealCommRoute(curIteNum, entry.getKey()));
+							this.jobInfo.getActualCommunicationRouteTable(entry.getKey()));
 					entry.getValue().setNextSuperStepCommand(ssc);
 				} catch (Exception e) {
 					LOG.error("[finishSuperStep:setNextSuperStepCommand]", e);
 				}
 			}
-
-			long curTime = System.currentTimeMillis();
-			iteTime[curIteNum] = (curTime - this.startTimeIte) / 1000.0;
-			this.startTimeIte = curTime;
-			iteCommand[curIteNum] = ssc.toString();
+			
+			double time = (System.currentTimeMillis() - this.startTimeIte) / 1000.0;
+			this.jobInfo.recordIterationInformation(time, ssc.getMetricQ(), ssc.toString());
+			this.startTimeIte = System.currentTimeMillis();
 			if (ssc.getCommandType() == CommandType.STOP) {
 				this.status.setRunState(JobStatus.SAVE);
 			}
@@ -529,37 +523,37 @@ class JobInProgress {
 	private SuperStepCommand getNextSuperStepCommand() {
 		if (this.curIteStyle == Constants.STYLE.Pull) {
 			long diskMsgCount = 
-				this.jobMonitor.getProMsgNumJob(curIteNum) - (this.taskNum*this.recMsgBuf);
+				this.jobMonitor.getProducedMsgNum(curIteNum)-(this.taskNum*this.recMsgBuf);
 			diskMsgCount = diskMsgCount<0? 0:diskMsgCount;
 			this.jobMonitor.addByteOfPush(curIteNum, diskMsgCount*this.byteOfOneMessage*2);
 		}
 		
 		SuperStepCommand ssc = new SuperStepCommand();
-		ssc.setJobAgg(this.jobMonitor.getAggJob(curIteNum));
+		ssc.setJobAgg(this.jobMonitor.getAgg(curIteNum));
 		//LOG.info("debug. curIteNum=" + this.curIteNum);
 		double Q = 0.0;
 		if (this.curIteNum > 2) {
 			
-			long diskMsgCount = 
-				this.jobMonitor.getProMsgNumJob(curIteNum) - (this.taskNum*this.recMsgBuf);
-			diskMsgCount = diskMsgCount<0? 0:diskMsgCount;
-			double diskMsgWriteCost = (diskMsgCount*this.byteOfOneMessage) / this.randWriteSpeed;
+			long diskMsgNum = 
+				this.jobMonitor.getProducedMsgNum(curIteNum)-(this.taskNum*this.recMsgBuf);
+			diskMsgNum = diskMsgNum<0? 0:diskMsgNum;
+			double diskMsgWriteCost = (diskMsgNum*this.byteOfOneMessage) / this.randWriteSpeed;
 			
-			double diskReadCostDiff = (this.jobMonitor.getByteOfPush(curIteNum)-diskMsgCount*this.byteOfOneMessage
+			double diskReadCostDiff = (this.jobMonitor.getByteOfPush(curIteNum)-diskMsgNum*this.byteOfOneMessage
 					- this.jobMonitor.getByteOfPull(curIteNum)) / this.randReadSpeed;
 			
-			double savedMsgNetCount = (double)this.jobMonitor.getSavedMsgNumNet(curIteNum);
+			double reducedNetMsgNum = (double)this.jobMonitor.getReducedNetMsgNum(curIteNum);
 			if (this.curIteStyle == Constants.STYLE.Push) {
-				savedMsgNetCount = this.jobMonitor.getProMsgNumJob(curIteNum) * this.lastCombineRatio;
+				reducedNetMsgNum = this.jobMonitor.getProducedMsgNum(curIteNum) * this.lastCombineRatio;
 			} else {
-				this.lastCombineRatio = savedMsgNetCount / this.jobMonitor.getProMsgNumJob(curIteNum);
+				this.lastCombineRatio = reducedNetMsgNum / this.jobMonitor.getProducedMsgNum(curIteNum);
 			}
-			double savedMsgNetCost = 
-				this.isAccumulated? (savedMsgNetCount*this.byteOfOneMessage)/this.netSpeed 
-						: (savedMsgNetCount*4)/this.netSpeed;
+			double reducedNetCost = 
+				this.isAccumulated? (reducedNetMsgNum*this.byteOfOneMessage)/this.netSpeed 
+						: (reducedNetMsgNum*4)/this.netSpeed;
 			
-			Q = diskMsgWriteCost + diskReadCostDiff + savedMsgNetCost; //push-pull
-			this.iteQNeu[curIteNum] = Q;
+			Q = diskMsgWriteCost + diskReadCostDiff + reducedNetCost; //push-pull
+			ssc.setMetricQ(Q);
 			
 			/** Set the change automically
 			 *  Assume that:
@@ -572,8 +566,8 @@ class JobInProgress {
 			 *    2) else
 			 *          switch from pull to push.
 			 * */
-			if (this.jobMonitor.getActVerNumJob(curIteNum) < 
-					this.jobMonitor.getActVerNumJob(curIteNum-1)) { //decreasing
+			if (this.jobMonitor.getActVerNum(curIteNum) < 
+					this.jobMonitor.getActVerNum(curIteNum-1)) { //decreasing
 				if (this.preIteStyle==this.curIteStyle) {
 					this.preIteStyle = this.curIteStyle;
 					if (this.job.getBspStyle()==Constants.STYLE.Hybrid) {
@@ -619,13 +613,14 @@ class JobInProgress {
 		
 		//for the next superstep
 		ssc.setIteStyle(this.curIteStyle);
-		if (this.curIteStyle==Constants.STYLE.Push) {
+		if (this.job.getBspStyle()==Constants.STYLE.Hybrid 
+				&& this.curIteStyle==Constants.STYLE.Push) {
 			ssc.setEstimatePullByte(true);
 		} else {
 			ssc.setEstimatePullByte(false);
 		}
 		
-		if (this.jobMonitor.getActVerNumJob(curIteNum)==0
+		if (this.jobMonitor.getActVerNum(curIteNum)==0
 				|| (curIteNum==maxIteNum)) {
 			ssc.setCommandType(CommandType.STOP);
 		} else {
@@ -664,29 +659,17 @@ class JobInProgress {
 		sb.append("\nIteCompuTime: " + (this.status.getRunCostTime()*1000.0f-
 				this.loadDataTime-this.saveDataTime) / 1000.0 + " seconds");
 		sb.append("\nSaveDataTime: " + this.saveDataTime / 1000.0 + " seconds");
-
-		sb.append("\nDetailTime :");
-		for (int index = 1; index <= this.curIteNum; index++) {
-			sb.append("\n              iterator[" + index + "]  ");
-			sb.append(iteTime[index]);
-		}
 		
+		sb.append(this.jobInfo.toString());
 		sb.append(this.jobMonitor.printJobMonitor(this.curIteNum));
-		sb.append("\nMetric: \n"); sb.append(Arrays.toString(this.iteQNeu));
 		
 		sb.append("\nOther Information:");
 		sb.append("\n    (1)JobID: " + jobId.toString());
-		sb.append("\n    (2)#total_vertices: " + this.global.getVerNum());
-		sb.append("\n    (3)#total_edges: " + this.global.getEdgeNum());
+		sb.append("\n    (2)#total_vertices: " + this.jobInfo.getVerNum());
+		sb.append("\n    (3)#total_edges: " + this.jobInfo.getEdgeNum());
 		sb.append("\n    (4)TaskToWorkerName:");
 		for (int index = 0; index < taskToWorkerName.length; index++) {
 			sb.append("\n              " + taskToWorkerName[index]);
-		}
-		
-		sb.append("\nCommand Info:");
-		for (int index = 1; index <= this.curIteNum; index++) {
-			sb.append("\n              iterator[" + index + "]  ");
-			sb.append(iteCommand[index]);
 		}
 		
 		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -695,5 +678,7 @@ class JobInProgress {
 		sb.append("\nauthor: HybridGraph");
 
 		MyLOG.info(sb.toString());
+		this.jobInfo = null;
+		this.jobMonitor = null;
 	}
 }

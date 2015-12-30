@@ -59,7 +59,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	private boolean conExe;
 	private BSP<V, W, M, I> bsp;
 	private SuperStepCommand ssc;
-	private TaskInformation lStatis;
+	private TaskInformation taskInfo;
 	private float jobAgg = 0.0f; //the global aggregator
 	private float taskAgg = 0.0f; //the local aggregator
 	
@@ -68,7 +68,6 @@ public class BSPTask<V, W, M, I> extends Task {
 	private int hasPro = 0; //its value is equal with #processed buckets
 	//java estimated, just accurately at the sampling point.
 	private float totalMem, usedMem; 
-	private long memUsagePushExcludeSendBuf; //
 	//self-computed in bytes. maximum value. 
 	//record the memUsage of previous iteration.
 	private long memUsage; 
@@ -206,23 +205,23 @@ public class BSPTask<V, W, M, I> extends Task {
 	private void buildRouteTable(BSPPeerProtocol umbilical) throws Exception {
 		int verMinId = this.graphDataServer.getVerMinId(this.rawSplit, 
 				this.rawSplitClass);
-		this.lStatis = new TaskInformation(this.parId, verMinId, 
+		this.taskInfo = new TaskInformation(this.parId, verMinId, 
 				this.commServer.getPort(), this.commServer.getAddress(), 
 				this.graphDataServer.getByteOfOneMessage(), 
 				this.graphDataServer.isAccumulated());
 		
 		LOG.info("task enter the buildRouteTable() barrier");
-		this.reportServer.buildRouteTable(this.jobId, this.lStatis);
+		this.reportServer.buildRouteTable(this.jobId, this.taskInfo);
 		this.commServer.barrier();
 		LOG.info("task leave the buildRouteTable() barrier");
 		
-		this.lStatis.init(this.commServer.getGlobalStatis());
-		this.fulLoad = this.lStatis.getBlkNum();
+		this.taskInfo.init(this.commServer.getJobInformation());
+		this.fulLoad = this.taskInfo.getBlkNum();
 		this.trt.setAgent(umbilical);
 		this.trt.start();
-		job.setLocHashBucLen(this.lStatis.getBlkLen());
-		job.setLocHashBucNum(this.lStatis.getBlkNum());
-		job.setLocMinVerId(this.lStatis.getVerMinId());
+		job.setLocHashBucLen(this.taskInfo.getBlkLen());
+		job.setLocHashBucNum(this.taskInfo.getBlkNum());
+		job.setLocMinVerId(this.taskInfo.getVerMinId());
 	}
 	
 	/**
@@ -234,20 +233,20 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * the relationship among virtual buckets.
 	 */
 	private void loadData() throws Exception {
-		this.graphDataServer.initialize(this.lStatis, 
+		this.graphDataServer.initialize(this.taskInfo, 
 				this.commServer.getCommRouteTable());
 		this.graphDataServer.initMemOrDiskMetaData();
-		this.graphDataServer.loadGraphData(lStatis, this.rawSplit, 
+		this.graphDataServer.loadGraphData(taskInfo, this.rawSplit, 
 				this.rawSplitClass);
 		
-		this.msgDataServer.init(job, lStatis.getBlkLen(), lStatis.getBlkNum(), 
+		this.msgDataServer.init(job, taskInfo.getBlkLen(), taskInfo.getBlkNum(), 
 				this.graphDataServer.getLocBucMinIds(), 
 				this.parId, this.rootDir + "/" + Constants.Graph_Dir);
 		this.commServer.bindMsgDataServer(msgDataServer);
-		this.commServer.bindGraphData(graphDataServer, this.lStatis.getBlkNum());
+		this.commServer.bindGraphData(graphDataServer, this.taskInfo.getBlkNum());
 		
 		LOG.info("task enter the registerTask() barrier");
-		this.reportServer.registerTask(this.jobId, this.lStatis);
+		this.reportServer.registerTask(this.jobId, this.taskInfo);
 		this.commServer.barrier();
 		LOG.info("task leave the registerTask() barrier");
 	}
@@ -263,7 +262,6 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.counters.clearValues();
 		this.taskAgg = 0.0f; //clear the local aggregator
 		this.hasPro = 0; // clear load
-		this.memUsagePushExcludeSendBuf = this.msgDataServer.getMemUsageExcludeSendBuf();
 		this.memUsage = this.graphDataServer.getAndClearMemUsage();
 		this.memUsage += this.msgDataServer.getAndClearMemUsage();
 		
@@ -272,7 +270,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.graphDataServer.clearBefIteMemOrDisk(iteNum);
 		this.commServer.clearBefIte(iteNum, this.curIteStyle);
 		this.msgDataServer.clearBefIte(iteNum, this.preIteStyle, this.curIteStyle);
-		this.lStatis.clear();
+		this.taskInfo.clear();
 		if (iteNum%2 == 0) {
 			updateMemInfo();
 		}
@@ -296,7 +294,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		
 		ssr.setCounters(this.counters);
 		ssr.setTaskAgg(this.taskAgg);
-		ssr.setActVerNumBucs(this.lStatis.getRespondVerNumBlks());
+		ssr.setActVerNumBucs(this.taskInfo.getRespondVerNumBlks());
 		LOG.info("the local information is as follows:\n" + ssr.toString());
 		
 		LOG.info("task enter the finishSuperStep() barrier");
@@ -405,9 +403,9 @@ public class BSPTask<V, W, M, I> extends Task {
 				this.bsp.update(context); //execute the local computation
 				this.taskAgg += context.getVertexAgg();
 				
-				this.counters.addCounter(COUNTER.Ver_Act, 1);
+				this.counters.addCounter(COUNTER.Vert_Active, 1);
 				if (context.isRespond()) {
-					this.counters.addCounter(COUNTER.Ver_Upd, 1);
+					this.counters.addCounter(COUNTER.Vert_Respond, 1);
 					
 					if (this.preIteStyle==Constants.STYLE.Push && 
 							this.curIteStyle==Constants.STYLE.Push) {
@@ -420,7 +418,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			}
 			this.graphDataServer.saveGraphRecord(bucketId, iteNum, 
 					context.isActive(), context.isRespond());
-			this.counters.addCounter(COUNTER.Ver_Read, 1);
+			this.counters.addCounter(COUNTER.Vert_Read, 1);
 		}
 		
 		this.graphDataServer.closeGraphDataStream(parId, bucketId, iteNum);
@@ -456,7 +454,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.parId, this.job, 
 					this.iteNum, this.curIteStyle);
-		int bucNum = this.lStatis.getBlkNum();
+		int bucNum = this.taskInfo.getBlkNum();
 		
 		this.trt.force();
 		this.bsp.superstepSetup(context);
@@ -503,7 +501,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			this.msgDataServer.clearAftBucket();
 		}
 		
-		this.graphDataServer.updateRespondDependency(this.lStatis, this.iteNum);
+		this.taskInfo.setRespondVerNumBlks(this.graphDataServer.getRespondVerNumOfBlks());
 		
 		/** switch from Pull to Push in auto-version: first pull, and then push */
 		if (this.preIteStyle==Constants.STYLE.Pull &&
@@ -534,7 +532,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * @throws Exception
 	 */
 	private void runIterationOnlyForPush() throws Exception {
-		int bucNum = this.lStatis.getBlkNum();
+		int bucNum = this.taskInfo.getBlkNum();
 		
 		int nextIteNum = iteNum + 1; //simulate the pull process of next superstep.
 		this.graphDataServer.clearAftIte(iteNum);
@@ -552,7 +550,7 @@ public class BSPTask<V, W, M, I> extends Task {
 						parId, bucketId, nextIteNum);
 
 				while (this.graphDataServer.hasNextGraphRecord(bucketId)) {
-					graph = this.graphDataServer.getNextGraphRecord(bucketId);
+					graph = this.graphDataServer.getNextGraphRecordOnlyForPush(bucketId);
 					if (this.graphDataServer.isUpdatedOnlyForPush(
 							bucketId, graph.getVerId(), nextIteNum)) {
 						context.reset();
@@ -574,7 +572,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	@Override
 	public void run(BSPJob job, Task task, BSPPeerProtocol umbilical, String host) {
 		GraphContext<V, W, M, I> context = 
-			new GraphContext<V, W, M, I>(this.parId, this.job, -1, -1);
+			new GraphContext<V, W, M, I>(this.parId, job, -1, -1);
 		Exception exception = null;
 		try {
 			initialize(job, host);
@@ -615,59 +613,69 @@ public class BSPTask<V, W, M, I> extends Task {
 	}
 	
 	private void updateCounters() throws Exception {
-		/** total bytes */
-		this.counters.addCounter(COUNTER.Byte_Total, 
+		/** actual I/O bytes */
+		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.commServer.getIOByte());
-		this.counters.addCounter(COUNTER.Byte_Total, 
+		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.graphDataServer.getLocVerIOByte());
-		this.counters.addCounter(COUNTER.Byte_Total, 
-				this.graphDataServer.getLocEdgeIOByte());
-		this.counters.addCounter(COUNTER.Byte_Total, 
+		this.counters.addCounter(COUNTER.Byte_Actual, 
+				this.graphDataServer.getLocInfoIOByte());
+		this.counters.addCounter(COUNTER.Byte_Actual, 
+				this.graphDataServer.getLocAdjEdgeIOByte());
+		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.msgDataServer.getLocMsgIOByte());
 		
-		/** bytes of style.Push */
+		/** bytes of style.Push, 
+		 * including vertices, messages, and edges in the adjacency list */
 		this.counters.addCounter(COUNTER.Byte_Push, 
 				this.graphDataServer.getLocVerIOByte());
 		this.counters.addCounter(COUNTER.Byte_Push, 
-				this.graphDataServer.getLocEdgeIOByte());
-		this.counters.addCounter(COUNTER.Byte_Push, 
-				this.graphDataServer.getEstimatedPushBytes(iteNum));
-		this.counters.addCounter(COUNTER.Byte_Push, 
 				this.msgDataServer.getLocMsgIOByte());
+		if (this.estimatePullByte) {
+			//curIteStyle=Push
+			this.counters.addCounter(COUNTER.Byte_Push, 
+				this.graphDataServer.getLocAdjEdgeIOByte());
+		} else {
+			this.counters.addCounter(COUNTER.Byte_Push, 
+				this.graphDataServer.getEstimatedPushBytes(iteNum));
+		}
 		
 		/** bytes of style.Pull */
 		this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.graphDataServer.getLocVerIOByte());
-		/*this.counters.addCounter(COUNTER.Byte_Pull, 
-				this.graphDataServer.getLocEdgeIOByte());*/ 
-		//used in graphinfo, e.g. PageRank
-		this.counters.addCounter(COUNTER.Byte_Pull, 
-				this.commServer.getIOByte());
-		this.counters.addCounter(COUNTER.Byte_Pull, 
+		if (this.estimatePullByte) {
+			//curIteStyle=Push
+			this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.graphDataServer.getEstimatedPullBytes(iteNum));
+		} else {
+			this.counters.addCounter(COUNTER.Byte_Pull, 
+				this.commServer.getIOByte());
+			this.counters.addCounter(COUNTER.Byte_Pull, 
+				this.graphDataServer.getLocInfoIOByte());
+			this.counters.addCounter(COUNTER.Byte_Pull, 
+				this.graphDataServer.getLocAdjEdgeIOByte());
+		}
 		
 		this.counters.addCounter(COUNTER.Edge_Read, 
 				this.commServer.getReadEdgeNum());
 		this.counters.addCounter(COUNTER.Edge_Read, 
-				this.graphDataServer.getLocReadEdgeNum());
+				this.graphDataServer.getLocReadAdjEdgeNum());
 		this.counters.addCounter(COUNTER.Fragment_Read, 
 				this.commServer.getReadFragmentNum());
 		
-		this.counters.addCounter(COUNTER.Msg_Pro, 
+		this.counters.addCounter(COUNTER.Msg_Produced, 
 				this.commServer.getMsgProNum());
-		this.counters.addCounter(COUNTER.Msg_Rec, 
+		this.counters.addCounter(COUNTER.Msg_Received, 
 				this.commServer.getMsgRecNum());
-		this.counters.addCounter(COUNTER.Msg_Init_Net, 
-				this.commServer.getMsgInitNetNum());
 		this.counters.addCounter(COUNTER.Msg_Net, 
 				this.commServer.getMsgNetNum());
+		this.counters.addCounter(COUNTER.Msg_Net_Actual, 
+				this.commServer.getMsgNetActualNum());
 		this.counters.addCounter(COUNTER.Msg_Disk, 
 				this.commServer.getMsgOnDisk());
 		
 		this.counters.addCounter(COUNTER.Mem_Used, 
 				this.memUsage);
-		this.counters.addCounter(COUNTER.Mem_Used_PushEldSendBuf, 
-				this.memUsagePushExcludeSendBuf);
 	}
 	
 	@SuppressWarnings("deprecation")

@@ -69,12 +69,14 @@ public class CommunicationServer<V, W, M, I>
 	private long io_byte = 0L;
 	private long read_edge = 0L, read_fragment = 0L;
 	/** 
-	 * 1. msg_init_msg: original network messages.
-	 * 2. msg_net: real network messages after being combined
+	 * 1. msg_net: original network messages.
+	 * 2. msg_net_actual: actual network messages after being combined/concatenated. 
+	 *                    for push, .= msg_net, for pull, .<= msg_net.
 	 * 3. msg_disk: messages resident on disk (push).
+	 * 4. msg_rec: received messages. for push, .= msg_pro, for pull, .<= msg_pro.
 	 * */
 	private long msg_pro = 0L, msg_rec = 0L, 
-				 msg_init_net = 0L, msg_net = 0L, msg_disk = 0L;
+				 msg_net = 0L, msg_net_actual = 0L, msg_disk = 0L;
 	
 	public class PushMsgDataThread implements Callable<Boolean> {
 		private int srcParId, iteNum;
@@ -137,7 +139,7 @@ public class CommunicationServer<V, W, M, I>
 			boolean flag = false;
 			try {
 				while (!this.isOver) {
-					long _msg_rec = 0L, _msg_init_net = 0L, _msg_net = 0L;
+					long _msg_rec = 0L, _msg_net = 0L, _msg_net_actual = 0L;
 					MsgPack<V, W, M, I> recMsgPack = null;
 					if (this.srcAddr.equals(this.dstAddr)) {
 						recMsgPack = 
@@ -153,8 +155,8 @@ public class CommunicationServer<V, W, M, I>
 						} else {
 							recMsgPack = 
 								comm.obtainMsgData(this.srcParId, this.bid, this.iteNum);
-							_msg_init_net = recMsgPack.getMsgProNum();
-							_msg_net = recMsgPack.getMsgRecNum();
+							_msg_net = recMsgPack.getMsgProNum();
+							_msg_net_actual = recMsgPack.getMsgRecNum();
 						}
 					}
 					
@@ -163,7 +165,7 @@ public class CommunicationServer<V, W, M, I>
 							recMsgPack.getReadEdgeNum(), 
 							recMsgPack.getReadFragNum(),
 							recMsgPack.getMsgProNum(), _msg_rec, 
-							_msg_init_net, _msg_net, 0L);
+							_msg_net, _msg_net_actual, 0L);
 					/** 
 					 * Use .size() instead of getMsgRecNum(), 
 					 * the latter of subsequent @{link MsgPack}s is zero.
@@ -250,7 +252,7 @@ public class CommunicationServer<V, W, M, I>
 		
 		for(int idx = 0; idx < pro_msg; idx++) {
 			dstVid = msgData[idx].getDstVerId();
-			dstPid = commRT.getDstParId(dstVid);
+			dstPid = commRT.getDstTaskId(dstVid);
 			switch(this.msgDataServer.putIntoSendBuffer(dstPid, msgData[idx])) {
 			case NORMAL :
 				break;
@@ -285,7 +287,7 @@ public class CommunicationServer<V, W, M, I>
 		clearPushMsgResult();
 		for (int dstParId = 0; dstParId < taskNum; dstParId++) {
 			dstAddr = commRT.getInetSocketAddress(dstParId);
-			if (this.msgDataServer.getSendBufferLen(dstParId) > 0) {
+			if (this.msgDataServer.getSendBufferSize(dstParId) > 0) {
 				MsgPack<V, W, M, I> pack = this.msgDataServer.getMsgPack(dstParId);
 				startPushMsgDataThread(dstParId, dstAddr, iteNum, pack);
 			}
@@ -371,21 +373,21 @@ public class CommunicationServer<V, W, M, I>
 	 * @param _read_fragment
 	 * @param _msg_pro
 	 * @param _msg_rec
-	 * @param _msg_init_net
 	 * @param _msg_net
+	 * @param _msg_net_actual
 	 * @param _msg_disk
 	 */
 	public synchronized void updateCounters(long _io_byte, 
 			long _read_edge, long _read_fragment,
 			long _msg_pro, long _msg_rec, 
-			long _msg_init_net, long _msg_net, long _msg_disk) {
+			long _msg_net, long _msg_net_actual, long _msg_disk) {
 		this.io_byte += _io_byte;
 		this.read_edge += _read_edge;
 		this.read_fragment += _read_fragment;
 		this.msg_pro += _msg_pro;
 		this.msg_rec += _msg_rec;
-		this.msg_init_net += _msg_init_net;
 		this.msg_net += _msg_net;
+		this.msg_net_actual += _msg_net_actual;
 		this.msg_disk += _msg_disk;
 	}
 	
@@ -402,7 +404,6 @@ public class CommunicationServer<V, W, M, I>
 	/**
 	 * Return #edges read when pulling messages from source vertices.
 	 * Only make sense for style.Pull.
-	 * It is produced due to reading fragments.
 	 * @return
 	 */
 	public long getReadEdgeNum() {
@@ -412,29 +413,56 @@ public class CommunicationServer<V, W, M, I>
 	/**
 	 * Return #fragments read when pulling messages from source vertices.
 	 * Only make sense for style.Pull.
-	 * It is produced due to reading fragments.
 	 * @return
 	 */
 	public long getReadFragmentNum() {
 		return this.read_fragment;
 	}
 	
+	/**
+	 * Return #messages produced at the sender side.
+	 * @return
+	 */
 	public long getMsgProNum() {
 		return this.msg_pro;
 	}
 	
+	/**
+	 * Return #messages received at the receiver side. 
+	 * For style.Push, it is equal with getMsgProNum();
+	 * for style.Pull, it should be less than getMsgProNum() 
+	 * due to combining/concatenating.
+	 * @return
+	 */
 	public long getMsgRecNum() {
 		return this.msg_rec;
 	}
 	
-	public long getMsgInitNetNum() {
-		return this.msg_init_net;
-	}
-	
+	/**
+	 * Return #messages transferred via network. 
+	 * (no combining/concatentating)
+	 * @return
+	 */
 	public long getMsgNetNum() {
 		return this.msg_net;
 	}
 	
+	/**
+	 * Return #messages actually transferred via network. 
+	 * For style.Push, it is equal with getMsgNetNum();
+	 * for style.Pull, it should be less than getMsgNetNum() 
+	 * due to combining/cancatenating.
+	 * @return
+	 */
+	public long getMsgNetActualNum() {
+		return this.msg_net_actual;
+	}
+	
+	/**
+	 * Return #messages written onto local disks. 
+	 * It only makes sense for style.Push. 
+	 * For style.Pull, that shoule be zero.
+	 */
 	public long getMsgOnDisk() {
 		return this.msg_disk;
 	}
@@ -445,8 +473,8 @@ public class CommunicationServer<V, W, M, I>
 		this.read_fragment = 0L;
 		this.msg_pro = 0L;
 		this.msg_rec = 0L;
-		this.msg_init_net = 0L;
 		this.msg_net = 0L;
+		this.msg_net_actual = 0L;
 		this.msg_disk = 0L;
 	}
 	
@@ -515,8 +543,8 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	@Override
-	public void setPreparation(JobInformation _gStatis) {
-		this.commRT.resetGlobalStatis(_gStatis);
+	public void setPreparation(JobInformation _jobInfo) {
+		this.commRT.resetJobInformation(_jobInfo);
 		
 		synchronized(mutex) {
 			this.hasNotify = true;
@@ -571,7 +599,7 @@ public class CommunicationServer<V, W, M, I>
 	}
 
 	
-	public final JobInformation getGlobalStatis() {
-		return this.commRT.getGlobalStatis();
+	public final JobInformation getJobInformation() {
+		return this.commRT.getJobInformation();
 	}
 }

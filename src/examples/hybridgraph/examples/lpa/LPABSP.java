@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.lpa.pull;
+package hybridgraph.examples.lpa;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,15 +10,11 @@ import java.util.Map.Entry;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.api.GraphRecordInterface;
+import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.api.MsgRecordInterface;
-import org.apache.hama.myhama.util.GraphContextInterface;
+import org.apache.hama.myhama.util.Context;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
-import hybridgraph.examples.lpa.pull.LPAUserTool.LPAMsgRecord;
+import hybridgraph.examples.lpa.LPAUserTool.LPAMsgRecord;
 
 /**
  * LPABSP.java implements {@link BSP}.
@@ -37,7 +33,6 @@ import hybridgraph.examples.lpa.pull.LPAUserTool.LPAMsgRecord;
  * @version 0.1
  */
 public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
-	public static final Log LOG = LogFactory.getLog(LPABSP.class);
 	
 	@Override
 	public Opinion processThisBucket(int _bucId, int _iteNum) {
@@ -46,11 +41,11 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	
 	@Override
 	public void update(
-			GraphContextInterface<Integer, Integer, MsgBundle, Integer> context) 
+			Context<Integer, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Integer, Integer, MsgBundle, Integer> graph = 
+		GraphRecord<Integer, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
-		MsgRecordInterface<MsgBundle> msg = context.getReceivedMsgRecord();
+		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
 		
 		/** first superstep, just send its value to all outer neighbors */
 		if (context.getIteCounter() == 1) {
@@ -64,9 +59,9 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	
 	@Override
 	public MsgRecord<MsgBundle>[] getMessages(
-			GraphContextInterface<Integer, Integer, MsgBundle, Integer> context) 
+			Context<Integer, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Integer, Integer, MsgBundle, Integer> graph = 
+		GraphRecord<Integer, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
 		LPAMsgRecord[] result = new LPAMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
@@ -81,7 +76,7 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 		return result;
 	}
 	
-	private int findLabel(MsgRecordInterface<MsgBundle> msg) {
+	private int findLabel(MsgRecord<MsgBundle> msg) {
 		HashMap<Integer, Integer> recLabels = 
 			new HashMap<Integer, Integer>(
 					msg.getMsgValue().getAll().size()); //labelId:count

@@ -1,19 +1,16 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.pagerank.pull;
+package hybridgraph.examples.pagerank;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hama.Constants.Opinion;
 //import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.api.GraphRecordInterface;
+import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.api.MsgRecordInterface;
-import org.apache.hama.myhama.util.GraphContextInterface;
+import org.apache.hama.myhama.util.Context;
 
-import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRMsgRecord;
+import hybridgraph.examples.pagerank.PageRankUserTool.PRMsgRecord;
 
 /**
  * PageRankBSP.java implements {@link BSP}.
@@ -26,14 +23,13 @@ import hybridgraph.examples.pagerank.pull.PageRankUserTool.PRMsgRecord;
  * @version 0.1
  */
 public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
-	public static final Log LOG = LogFactory.getLog(PageRankBSP.class);
 	private static double FACTOR = 0.85f;
 	private static double RandomRate;
 	private double value = 0.0d;
 	
 	@Override
 	public void taskSetup(
-			GraphContextInterface<Double, Integer, Double, Integer> context) {
+			Context<Double, Integer, Double, Integer> context) {
 		//BSPJob job = context.getBSPJobInfo();
 		//RandomRate = (1 - FACTOR) / (float)job.getGloVerNum();
 		RandomRate = 0.15;
@@ -46,11 +42,11 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	
 	@Override
 	public void update(
-			GraphContextInterface<Double, Integer, Double, Integer> context) 
+			Context<Double, Integer, Double, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Double, Integer, Double, Integer> graph = 
+		GraphRecord<Double, Integer, Double, Integer> graph = 
 			context.getGraphRecord();
-		MsgRecordInterface<Double> msg = context.getReceivedMsgRecord();
+		MsgRecord<Double> msg = context.getReceivedMsgRecord();
 		value = 0.0d;
 		
 		if (context.getIteCounter() == 1) {
@@ -73,9 +69,9 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	
 	@Override
 	public MsgRecord<Double>[] getMessages(
-			GraphContextInterface<Double, Integer, Double, Integer> context) 
+			Context<Double, Integer, Double, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Double, Integer, Double, Integer> graph = 
+		GraphRecord<Double, Integer, Double, Integer> graph = 
 			context.getGraphRecord();
 		PRMsgRecord[] result = new PRMsgRecord[graph.getEdgeNum()];
 		int idx = 0;

@@ -43,7 +43,8 @@ public class GraphDataServerMem<V, W, M, I>
 	private static final Log LOG = LogFactory.getLog(GraphDataServerMem.class);
 	public static int VERTEX_ID_BYTE = 4;
 	/**
-	 * A temporary byte buffer for (de)serializing a vertex value, 
+	 * A temporary byte buffer for (de)serializing a vertex value in 
+	 * {@link VertexTripleInMem}, 
 	 * to separate the two values used in superstep t and t+1.
 	 * Its capacity should be big enough to hold the maximum vertex value.
 	 * The capacity is 500 (bytes) by default.
@@ -51,13 +52,18 @@ public class GraphDataServerMem<V, W, M, I>
 	private ByteBuffer byteBufForOneVerValue = ByteBuffer.allocate(500);
 	
 	/**
-	 * A triple in VBlock.
+	 * A memory-based triple in VBlock. 
+	 * It maintains two vertex values used by {@link BSPInterface}.update() 
+	 * and {@link BSPInterface}.getMessages(), respectively. 
+	 * Specifically, verValue is read by update() and getMessages(), 
+	 * and nextVerValue is used to store the new value after performing update().
+	 * Before launching a new superstep, exchange() will be invoked 
+	 * to exchange verValue and nextVerValue if this vertex triple has been 
+	 * read&written by invoking getNextGraphRecord() and saveNextGraphRecord() 
+	 * at the previous superstep.
 	 */
-	private class VertexTriple<V, W, M, I> {
-		private int verId;
-		private V curVerValue;
+	private class VertexTripleInMem<V, W, M, I> extends VertexTriple<V, W, M, I> {
 		private V nextVerValue;
-		private I graphInfo;
 		
 		/**
 		 * Initialize variables based on the given {@link GraphRecord}.
@@ -68,12 +74,10 @@ public class GraphDataServerMem<V, W, M, I>
 		 * 
 		 * @param record
 		 */
-		public VertexTriple(GraphRecord<V, W, M, I> record) {
-			verId = record.getVerId();
-			curVerValue = record.getVerValue();
+		public VertexTripleInMem(GraphRecord<V, W, M, I> record) {
+			super(record.getVerId(), record.getVerValue(), record.getGraphInfo());
 			//nextVerValue will be initialized by putForUpdate() if necessary.
 			nextVerValue = null;
-			graphInfo = record.getGraphInfo();
 		}
 		
 		/**
@@ -89,13 +93,15 @@ public class GraphDataServerMem<V, W, M, I>
 		public void getForUpdate(GraphRecord<V, W, M, I> record) 
 				throws Exception {
 			record.setVerId(verId);
-			record.setVerValue(curVerValue);
-			record.setGraphInfo(graphInfo);
+			record.setVerValue(verValue);
+			record.setGraphInfo(graphInfo); //may be null
 			
 			byteBufForOneVerValue.position(0);
 			record.serVerValue(byteBufForOneVerValue); //serialize
 			byteBufForOneVerValue.position(0);
 			record.deserVerValue(byteBufForOneVerValue); //deserialize
+			
+			record.setEdges(eIds, eWeights); //may be null
 		}
 		
 		/**
@@ -108,7 +114,7 @@ public class GraphDataServerMem<V, W, M, I>
 		 */
 		public void getForRespond(GraphRecord<V, W, M, I> record) {
 			record.setVerId(verId);
-			record.setVerValue(curVerValue); //read-only
+			record.setVerValue(verValue); //read-only
 		}
 		
 		/**
@@ -127,20 +133,20 @@ public class GraphDataServerMem<V, W, M, I>
 		 * Invoked before launching a new superstep.
 		 */
 		public void exchange() {
-			curVerValue = nextVerValue;
+			verValue = nextVerValue;
 			nextVerValue = null;
 		}
 	}
 	
 	/** VBlocks: [local_block_id][triple_idx] */
-	private VertexTriple<V,W,M,I>[][] vBlocks;
+	private VertexTripleInMem<V,W,M,I>[][] vBlocks;
 	/** EBlocks: [local_block_id][global_block_id] = array of fragments */
 	private ArrayList<EdgeFragment<V,W,M,I>>[][] eBlocks;
 	private long vBlockByte = 0L, eBlockByte = 0L, veBlockByte = 0L;
 	/** Index in one VBlock, used in getNextGraphRecord() */
 	private int tripleIdx = 0;
-	/** Need to exchange {@link VertexTriple}.curVerValue and 
-	 *  {@link VertexTriple}.nextVerValue, or not? 
+	/** Need to exchange {@link VertexTripleInMem}.curVerValue and 
+	 *  {@link VertexTripleInMem}.nextVerValue, or not? 
 	 *  True:exchange, 
 	 *  False:nothing.
 	 *  False by default.
@@ -158,9 +164,12 @@ public class GraphDataServerMem<V, W, M, I>
 	public GraphDataServerMem(int _parId, BSPJob _job, String _rootDir) 
 			throws Exception {
 		super(_parId, _job);
-		
-		LOG.info("set useGraphInfo=" + this.useGraphInfo 
-				+ " when loading graph data, memory version");
+		StringBuffer sb = new StringBuffer();
+		sb.append("\n initialize graph data server in memory version;");
+		sb.append("\n   storeAdjEdge="); sb.append(_job.isStoreAdjEdge());
+		sb.append("\n   useAdjEdgeInUpdate="); sb.append(_job.isUseAdjEdgeInUpdate());
+		sb.append("\n   useGraphInfoInUpdate="); sb.append(_job.isUseGraphInfoInUpdate());
+		LOG.info(sb.toString());
 	}
 	
 	@Override
@@ -168,10 +177,10 @@ public class GraphDataServerMem<V, W, M, I>
 		int locBucNum = this.verBlkMgr.getBlkNum();
 		int locBucLen = this.verBlkMgr.getBlkLen();
 		this.vBlocks = 
-			(VertexTriple<V, W, M, I>[][]) new VertexTriple[locBucNum][];
+			(VertexTripleInMem<V, W, M, I>[][]) new VertexTripleInMem[locBucNum][];
 		for (int locBid = 0; locBid < locBucNum; locBid++) {
 			this.vBlocks[locBid] = 
-				(VertexTriple<V, W, M, I>[]) new VertexTriple[locBucLen];
+				(VertexTripleInMem<V, W, M, I>[]) new VertexTripleInMem[locBucLen];
 		}
 		this.tripleIdx = 0;
 		this.vBlockExchFlag = new boolean[locBucNum];
@@ -179,7 +188,7 @@ public class GraphDataServerMem<V, W, M, I>
 		
 		/** only used in pull or hybrid */
 		if (this.bspStyle != Constants.STYLE.Push) {
-			int gBucNum = this.commRT.getGlobalSketchGraph().getBucNumJob();
+			int gBucNum = this.commRT.getJobInformation().getBlkNumOfJob();
 			this.eBlocks = (ArrayList<EdgeFragment<V, W, M, I>>[][])
 				new ArrayList[locBucNum][gBucNum];
 			for (int locBid = 0; locBid < locBucNum; locBid++) {
@@ -196,7 +205,12 @@ public class GraphDataServerMem<V, W, M, I>
 		this.vBlockByte += (VERTEX_ID_BYTE + graph.getVerByte() 
 				+ graph.getGraphInfoByte());
 		this.vBlocks[_bid][idx] = 
-			new VertexTriple<V, W, M, I>(graph);
+			new VertexTripleInMem<V, W, M, I>(graph); 
+		if (this.job.isStoreAdjEdge()) {
+			this.vBlockByte += graph.getEdgeByte();
+			this.vBlocks[_bid][idx].setAdjEdges(
+					graph.getEdgeIds(), graph.getEdgeWeights());
+		}
 	}
 	
 	private void putIntoEdgeBuf(ArrayList<EdgeFragmentEntry<V,W,M,I>> frags) {
@@ -211,7 +225,7 @@ public class GraphDataServerMem<V, W, M, I>
 			dstTid = frag.getDstTid();
 			dstBid = frag.getDstBid();
 			gBucIdx = 
-				this.commRT.getGlobalSketchGraph().getGlobalBucIndex(dstTid, dstBid);
+				this.commRT.getJobInformation().getGlobalBlkIdx(dstTid, dstBid);
 			this.eBlocks[locBid][gBucIdx].add(frag);
 			
 			verBlkMgr.updateBlkFragmentLenAndNum(locBid, dstTid, dstBid, 
@@ -238,7 +252,7 @@ public class GraphDataServerMem<V, W, M, I>
 					input.getCurrentValue().toString());
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
-			bid = commRT.getDstBucId(taskId, vid);
+			bid = commRT.getDstLocalBlkIdx(taskId, vid);
 			graph.setSrcBlkId(bid);
 			
 			putIntoVerBuf(graph, bid, idxs[bid]);
@@ -252,7 +266,7 @@ public class GraphDataServerMem<V, W, M, I>
 		
 		this.verBlkMgr.setEdgeNum(edgeNum);
 		this.verBlkMgr.loadOver(this.bspStyle, this.commRT.getTaskNum(), 
-				this.commRT.getGlobalSketchGraph().getBucNumTask());
+				this.commRT.getJobInformation().getBlkNumOfTasks());
 		this.veBlockByte = this.vBlockByte + this.eBlockByte;
 		
 		int[] verNumBlks = new int[this.verBlkMgr.getBlkNum()];
@@ -419,7 +433,7 @@ public class GraphDataServerMem<V, W, M, I>
 			int type, int _tid, int _bid, int _iteNum, 
 			MsgRecord<M>[] cache, int dstVerMinId) throws Exception {
 		int dstBucIdx = 
-			this.commRT.getGlobalSketchGraph().getGlobalBucIndex(_tid, _bid);
+			this.commRT.getJobInformation().getGlobalBlkIdx(_tid, _bid);
 		int verMinId = this.verBlkMgr.getVerMinId();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.taskId, this.job, 
@@ -440,7 +454,6 @@ public class GraphDataServerMem<V, W, M, I>
 			context.reset();
 			context.initialize(graph, null, -1.0f, true);
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-			this.resDepend[resBid][dstBucIdx] = true;
 			statis[3] += msgs.length; // msg_pro
 			for (MsgRecord<M> msg : msgs) {
 				int index = msg.getDstVerId() - dstVerMinId;
@@ -467,6 +480,15 @@ public class GraphDataServerMem<V, W, M, I>
 	@Override
 	public void closeGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
 		throws Exception {
+	}
+	
+	@Override
+	public GraphRecord<V, W, M, I> getNextGraphRecordOnlyForPush(int _bid) 
+			throws Exception {
+		graph_rw.setVerId(this.verBlkMgr.getVerBlkBeta(_bid).getVerId());
+		this.vBlocks[_bid][tripleIdx].getForUpdate(graph_rw);
+		this.tripleIdx++;
+		return graph_rw;
 	}
 	
 	@Override

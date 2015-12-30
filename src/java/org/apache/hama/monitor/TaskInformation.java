@@ -3,7 +3,6 @@ package org.apache.hama.monitor;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
 
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
@@ -23,7 +22,7 @@ public class TaskInformation implements Writable {
 	private int blkNum = 0;
 	private long loadByte = 0L;
 	
-	private GlobalSketchGraph skGraph = null;
+	private JobInformation jobInfo;
 	/** dependency among VBlocks with responding vertices */
 	private boolean[][] resDepend;
 	private int[] verNumBlks; //total source vertices of each VBlock
@@ -44,13 +43,13 @@ public class TaskInformation implements Writable {
 		this.isAccumulated = _isAccumulated;
 	}
 	
-	public void init(JobInformation global) {
-		this.verMaxId = global.getRangeMaxId(taskId);
+	public void init(JobInformation _jobInfo) {
+		this.jobInfo = _jobInfo;
+		this.verMaxId = jobInfo.getVerMaxId(taskId);
 		this.verNum = verMaxId - verMinId + 1;
-		this.skGraph = global.getGlobalSketchGraph();
-		this.blkNum = skGraph.getBucNumTask(taskId);
-		this.blkLen = skGraph.getBucLenTask(taskId);
-		this.resDepend = new boolean[blkNum][skGraph.getBucNumJob()];
+		this.blkNum = jobInfo.getBlkNumOfTasks(taskId);
+		this.blkLen = jobInfo.getBlkLenOfTasks(taskId);
+		this.resDepend = new boolean[blkNum][jobInfo.getBlkNumOfJob()];
 		this.verNumBlks = new int[blkNum];
 		this.resVerNumBlks = new int[blkNum];
 	}
@@ -145,24 +144,9 @@ public class TaskInformation implements Writable {
 	 */
 	public void updateRespondDependency(int _dstTid, int _dstBid, 
 			int vid, long len) {
-		int row = skGraph.getTaskBucIndex(this.taskId, vid);
-		int col = skGraph.getGlobalBucIndex(_dstTid, _dstBid);
+		int row = jobInfo.getLocalBlkIdx(this.taskId, vid);
+		int col = jobInfo.getGlobalBlkIdx(_dstTid, _dstBid);
 		this.resDepend[row][col] = true;
-	}
-	
-	/**
-	 * Update the dependency relationship among VBlocks.
-	 * This function should be invoked by {@link GraphDataServer}.
-	 * @param taskId
-	 * @param vId
-	 * @param exch
-	 */
-	public void updateRespondDependency(boolean[][] m) {
-		for (int i = 0; i < this.blkNum; i++) {
-			for (int j = 0; j < this.skGraph.getBucNumJob(); j++) {
-				this.resDepend[i][j] = m[i][j];
-			}
-		}
 	}
 	
 	public boolean[][] getRespondDependency() {
@@ -170,9 +154,8 @@ public class TaskInformation implements Writable {
 	}
 	
 	public void clear() {
-		for (int bid = 0; bid < this.blkNum; bid++) {
-			Arrays.fill(this.resDepend[bid], false);
-		}
+		this.resDepend = null;
+		this.verNumBlks = null;
 	}
 	
 	public int getByteOfOneMessage() {

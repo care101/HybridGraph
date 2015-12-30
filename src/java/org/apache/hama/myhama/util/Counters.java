@@ -23,20 +23,20 @@ public class Counters implements Writable {
 	
 	public static enum COUNTER {
 		/** counters of vertices */
-		Ver_Read, //load from local disk
-		Ver_Act,  //active vertices (may be updated)
-		Ver_Upd,  //has been updated
+		Vert_Read, //number of vertices loaded from local disk/memory
+		Vert_Active,  //number of active vertices
+		Vert_Respond,  //number of responding vertices
 		
 		/** counters of edges */
-		Edge_Read,     //load from local disk (adjacency list or EBlock)
+		Edge_Read,     //load from local disk (adjacency list and EBlock)
 		Fragment_Read, //useful for style.Pull
 		
 		/** counters of messages */
-		Msg_Pro,      //produced messages
-		Msg_Rec,      //received messages (from local and remote tasks)
-		Msg_Init_Net, //original network messages at the sender-side
-		Msg_Net,      //network messages after being combined at the sender-side if possible
-		Msg_Disk,     //messages resident on disk (only for push)
+		Msg_Produced,   //totally produced messages
+		Msg_Received,   //totally received messages from local and remote tasks, for pull, some messages have been combined/concatenated
+		Msg_Net,        //network messages without combining/concatenating
+		Msg_Net_Actual, //actual network messages, for pull, some messages have been combined/concatenated
+		Msg_Disk,       //messages resident on disk (only for push)
 		
 		/** counters of runtime */
 		Time_Pull, //runtime of pulling msgs from source vertices
@@ -45,11 +45,10 @@ public class Counters implements Writable {
 		/** counters of io_bytes */
 		Byte_Push,  //io_bytes under "PUSH" model, accurate or estimated
 		Byte_Pull,  //io_bytes under "PULL" model, accurate or estimated
-		Byte_Total, //io_bytes of one iteration, accurate
+		Byte_Actual, //io_bytes of one iteration, accurate, actual
 		
 		/** counters of memory */
 		Mem_Used,                //memory size used during iteration
-		Mem_Used_PushEldSendBuf  //memory size used in Push, excluding sendBuf
 	}
 	
 	public static int SIZE = COUNTER.values().length;

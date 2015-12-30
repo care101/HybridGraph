@@ -1,25 +1,20 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.sa.hybrid;
+package hybridgraph.examples.sa;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Random;
 import java.util.Map.Entry;
 
-import org.apache.hama.Constants;
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.api.GraphRecordInterface;
+import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.api.MsgRecordInterface;
-import org.apache.hama.myhama.util.GraphContextInterface;
+import org.apache.hama.myhama.util.Context;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
-import hybridgraph.examples.sa.hybrid.SAUserTool.SAMsgRecord;
+import hybridgraph.examples.sa.SAUserTool.SAMsgRecord;
 
 /**
  * SABSP.java implements {@link BSP}.
@@ -42,23 +37,21 @@ import hybridgraph.examples.sa.hybrid.SAUserTool.SAMsgRecord;
  * @author 
  * @version 0.1
  */
-public class SABSP extends BSP<Value, Integer, MsgBundle, EdgeSet> {
-	public static final Log LOG = LogFactory.getLog(SABSP.class);
+public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	public static final String SOURCE = "source.vertex.id";
 	private static int SourceVerId;
-	private static int SourceBucId;
+	private static int SourceBlkId;
 	
 	@Override
 	public void taskSetup(
-			GraphContextInterface<Value, Integer, MsgBundle, EdgeSet> context) {
+			Context<Value, Integer, MsgBundle, Integer> context) {
 		SourceVerId = context.getBSPJobInfo().getInt(SOURCE, 2);
-		LOG.info(SOURCE + "=" + SourceVerId);
 	}
 	
 	@Override
 	public void superstepSetup(
-			GraphContextInterface<Value, Integer, MsgBundle, EdgeSet> context) {
-		SourceBucId = (SourceVerId-context.getBSPJobInfo().getLocMinVerId()) 
+			Context<Value, Integer, MsgBundle, Integer> context) {
+		SourceBlkId = (SourceVerId-context.getBSPJobInfo().getLocMinVerId()) 
 			/ context.getBSPJobInfo().getLocHashBucLen();
 	}
 	
@@ -67,7 +60,7 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, EdgeSet> {
 		if (_iteNum > 1) {
 			return Opinion.MSG_DEPEND;
 		}
-		if (_bucId == SourceBucId) {
+		if (_bucId == SourceBlkId) {
 			return Opinion.YES;
 		} else {
 			return Opinion.NO;
@@ -76,11 +69,11 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, EdgeSet> {
 	
 	@Override
 	public void update(
-			GraphContextInterface<Value, Integer, MsgBundle, EdgeSet> context) 
+			Context<Value, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Value, Integer, MsgBundle, EdgeSet> graph = 
+		GraphRecord<Value, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
-		MsgRecordInterface<MsgBundle> msg = context.getReceivedMsgRecord();
+		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
 		
 		//first superstep, send source vertex's advertisement to its out-neighbors.
 		if (context.getIteCounter() == 1) {
@@ -102,18 +95,19 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, EdgeSet> {
 	
 	@Override
 	public MsgRecord<MsgBundle>[] getMessages(
-			GraphContextInterface<Value, Integer, MsgBundle, EdgeSet> context) 
+			Context<Value, Integer, MsgBundle, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Value, Integer, MsgBundle, EdgeSet> graph = 
+		GraphRecord<Value, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
-		Integer[] eids = context.getIteStyle()==Constants.STYLE.Push? 
-				graph.getGraphInfo().getEdgeIds():graph.getEdgeIds();
-		SAMsgRecord[] result = new SAMsgRecord[eids.length];
-		for (int i = 0; i < eids.length; i++) {
-			result[i] = new SAMsgRecord();
+		SAMsgRecord[] result = new SAMsgRecord[graph.getEdgeNum()];
+		
+		int idx = 0;
+		for (int eid: graph.getEdgeIds()) {
+			result[idx] = new SAMsgRecord();
 			MsgBundle msgBundle = new MsgBundle();
 			msgBundle.add(graph.getVerValue().getAdverId());
-			result[i].initialize(graph.getVerId(), eids[i], msgBundle);
+			result[idx].initialize(graph.getVerId(), eid, msgBundle);
+			idx++;
 		}
 		
 		return result;
@@ -123,7 +117,7 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, EdgeSet> {
 	 * Find new candidate Value.
 	 * @return
 	 */
-	private Value findNewValue(MsgRecordInterface<MsgBundle> msg) {
+	private Value findNewValue(MsgRecord<MsgBundle> msg) {
 		HashMap<Integer, Integer> recAIds = 
 			new HashMap<Integer, Integer>(
 					msg.getMsgValue().getAll().size()); //aId:count

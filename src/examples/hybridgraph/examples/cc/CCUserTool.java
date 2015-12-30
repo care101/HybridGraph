@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.sa.pull;
+package hybridgraph.examples.cc;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -15,12 +15,8 @@ import org.apache.hama.myhama.api.UserTool;
 import org.apache.hama.myhama.io.EdgeParser;
 
 /**
- * LPAUserTool.java
- * Support for {@link SAGraphRecord}, {@link SAMsgRecord}.
- * 
- * <K>, vertex value, send value;
- * <W>, message value and edge weight;
- * <I>, graphInfo;
+ * CCUserTool.java
+ * Support for {@link CCGraphRecord}, {@link CCMsgRecord}.
  * 
  * @author 
  * @version 0.1
@@ -30,21 +26,15 @@ import org.apache.hama.myhama.io.EdgeParser;
  * @param <M> message value
  * @param <I> graph information
  */
-public class SAUserTool 
-		extends UserTool<Value, Integer, MsgBundle, Integer> {
+public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 	private static EdgeParser edgeParser = new EdgeParser();
 	
-	public static class SAGraphRecord 
-			extends GraphRecord<Value, Integer, MsgBundle, Integer> {
-		
-		public SAGraphRecord() {
-			this.verValue = new Value();
-		}
-		
+	public static class CCGraphRecord 
+			extends GraphRecord<Integer, Integer, Integer, Integer> {
 		@Override
 	    public void parseGraphData(String vData, String eData) {
 			this.verId = Integer.valueOf(vData);
-			this.verValue = new Value(this.verId, 1);
+			this.verValue = this.verId;
 			
 			if (eData.equals("")) {
 	 			setEdges(new Integer[]{this.verId}, null);
@@ -57,12 +47,13 @@ public class SAUserTool
 		@Override
 		public void serVerValue(ByteBuffer vOut) 
 				throws EOFException, IOException {
-			this.verValue.write(vOut);
+			vOut.putInt(this.verValue);
 		}
 
 		@Override
-		public void deserVerValue(ByteBuffer vIn) throws EOFException, IOException {
-			this.verValue.read(vIn);
+		public void deserVerValue(ByteBuffer vIn) 
+				throws EOFException, IOException {
+			this.verValue = vIn.getInt();
 		}
 
 		@Override
@@ -86,7 +77,7 @@ public class SAUserTool
 		
 		@Override
 		public int getVerByte() {
-			return this.verValue.getByteSize();
+			return 4;
 		}
 		
 		@Override
@@ -103,44 +94,44 @@ public class SAUserTool
 		}
 	}
 	
-	public static class SAMsgRecord extends MsgRecord<MsgBundle> {
-		
+	public static class CCMsgRecord extends MsgRecord<Integer> {	
 		@Override
-		public void combiner(MsgRecord<MsgBundle> msg) {
-			this.msgValue.combine(msg.getMsgValue().getAll());
+		public void combiner(MsgRecord<Integer> msg) {
+			this.msgValue = this.msgValue>msg.getMsgValue()? 
+					msg.getMsgValue():this.msgValue;
 		}
 		
 		@Override
 		public int getMsgByte() {
-			return this.msgValue==null? 8:(4+this.msgValue.getByteSize());
+			return 8; //4+4
 		}
 		
 		@Override
 		public void deserialize(DataInputStream in) throws IOException {
 			this.dstId = in.readInt();
-			this.msgValue = new MsgBundle();
-			this.msgValue.read(in);
+			this.msgValue = in.readInt();
 		}
 		
 		@Override
 		public void serialize(DataOutputStream out) throws IOException {
 			out.writeInt(this.dstId);
-			this.msgValue.write(out);
+			out.writeInt(this.msgValue);
 		}
 	}
 	
 	@Override
-	public GraphRecord<Value, Integer, MsgBundle, Integer> getGraphRecord() {
-		return new SAGraphRecord();
+	public GraphRecord<Integer, Integer, Integer, Integer> 
+			getGraphRecord() {
+		return new CCGraphRecord();
 	}
 
 	@Override
-	public MsgRecord<MsgBundle> getMsgRecord() {
-		return new SAMsgRecord();
+	public MsgRecord<Integer> getMsgRecord() {
+		return new CCMsgRecord();
 	}
 	
 	@Override
 	public boolean isAccumulated() {
-		return false;
+		return true;
 	}
 }

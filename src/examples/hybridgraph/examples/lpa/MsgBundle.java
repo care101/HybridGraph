@@ -1,4 +1,4 @@
-package hybridgraph.examples.lpa.pull;
+package hybridgraph.examples.lpa;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;

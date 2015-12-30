@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.cc.pull;
+package hybridgraph.examples.cc;
 
 import org.apache.hadoop.fs.Path;
 
@@ -21,10 +21,11 @@ import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 public class CCPullDriver {
 	
 	public static void main(String[] args) throws Exception {
-		//check the input parameters
+		//check the input paramaters
 		if (args.length != 7) {
 			StringBuffer sb = 
-				new StringBuffer("the connected component job must be given arguments(7):"); 
+				new StringBuffer("the connected component job " +
+						"must be given arguments(7):"); 
 			sb.append("\n  [1] input directory on HDFS"); 
 			sb.append("\n  [2] output directory on HDFS");
 			sb.append("\n  [3] #tasks(int)");
@@ -40,9 +41,10 @@ public class CCPullDriver {
 		//set the job configuration
 		HamaConfiguration conf = new HamaConfiguration();
 		BSPJob bsp = new BSPJob(conf, CCPullDriver.class);
-		bsp.setJobName("CC-Range");
-		bsp.setBspClass(CCBSP.class);
+		bsp.setJobName("connected components");
 		bsp.setPriority(Constants.PRIORITY.NORMAL);		
+
+		bsp.setBspClass(CCBSP.class);
 		bsp.setUserToolClass(CCUserTool.class);
 		bsp.setInputFormatClass(KeyValueInputFormat.class);
 		bsp.setOutputFormatClass(TextBSPFileOutputFormat.class);

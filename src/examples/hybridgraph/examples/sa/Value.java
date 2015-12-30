@@ -1,4 +1,4 @@
-package hybridgraph.examples.sa.pull;
+package hybridgraph.examples.sa;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

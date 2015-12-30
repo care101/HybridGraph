@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.sa.hybrid;
+package hybridgraph.examples.sssp;
 
 import org.apache.hadoop.fs.Path;
 
@@ -12,19 +12,20 @@ import org.apache.hama.myhama.io.KeyValueInputFormat;
 import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 
 /**
- * SADriver.java
- * A driven program is used to submit the simulate advertisement job.
+ * SSSPDriver.java
+ * A driven program is used to submit the 
+ * single source shortest distance computation job.
  * 
  * @author 
- * @version 0.2
+ * @version 0.1
  */
-public class SAHybridDriver {
+public class SSSPHybridDriver {
 	
 	public static void main(String[] args) throws Exception {
 		// check the input parameters
 		if (args.length != 11) {
 			StringBuffer sb = 
-				new StringBuffer("the sa job must be given arguments(11):");
+				new StringBuffer("the sssp job must be given arguments(11):");
 			sb.append("\n  [1]  input directory on HDFS"); 
 			sb.append("\n  [2]  output directory on HDFS"); 
 			sb.append("\n  [3]  #task(int)");
@@ -41,19 +42,20 @@ public class SAHybridDriver {
 			System.exit(-1);
 		}
 
-		//set the job configuration
+		// set the job configuration
 		HamaConfiguration conf = new HamaConfiguration();
-		BSPJob bsp = new BSPJob(conf, SAHybridDriver.class);
-		bsp.setJobName("SA");
-		bsp.setBspClass(SABSP.class);
+		BSPJob bsp = new BSPJob(conf, SSSPHybridDriver.class);
+		bsp.setJobName("single source shortest path");
 		bsp.setPriority(Constants.PRIORITY.NORMAL);
-		bsp.setUserToolClass(SAUserTool.class);
+
+		bsp.setBspClass(SPBSP.class);
+		bsp.setUserToolClass(SPUserTool.class);
 		bsp.setInputFormatClass(KeyValueInputFormat.class);
 		bsp.setOutputFormatClass(TextBSPFileOutputFormat.class);
 		
 		KeyValueInputFormat.addInputPath(bsp, new Path(args[0]));
 		TextBSPFileOutputFormat.setOutputPath(bsp, new Path(args[1]));
-		bsp.setNumBspTask(Integer.parseInt(args[2]));
+		bsp.setNumBspTask(Integer.valueOf(args[2]));
 		bsp.setNumSuperStep(Integer.parseInt(args[3]));
 		bsp.setNumTotalVertices(Integer.valueOf(args[4]));
 		bsp.setNumBucketsPerTask(Integer.valueOf(args[5]));
@@ -64,12 +66,12 @@ public class SAHybridDriver {
 		  bsp.setMsgRecBufSize(Integer.valueOf(args[8]));
 		  bsp.setStartIteStyle(Integer.valueOf(args[9]));
 		
-		bsp.setGraphDataOnDisk(true);
-		  
 		// set the source vertex id
-		bsp.setInt(SABSP.SOURCE, Integer.valueOf(args[10]));
+		bsp.setInt(SPBSP.SOURCE, Integer.valueOf(args[10]));
 		
-		//submit the job
+		bsp.setGraphDataOnDisk(true);
+		
+		// submit the job
 		bsp.waitForCompletion(true);
 	}
 }

@@ -1,12 +1,12 @@
 package hybridgraph.examples.driver;
 
-import hybridgraph.examples.cc.pull.CCPullDriver;
-import hybridgraph.examples.lpa.pull.LPAPullDriver;
-import hybridgraph.examples.pagerank.pull.PageRankPullDriver;
-import hybridgraph.examples.sa.hybrid.SAHybridDriver;
-import hybridgraph.examples.sa.pull.SAPullDriver;
-import hybridgraph.examples.sssp.hybrid.SSSPHybridDriver;
-import hybridgraph.examples.sssp.pull.SSSPPullDriver;
+import hybridgraph.examples.cc.CCPullDriver;
+import hybridgraph.examples.lpa.LPAPullDriver;
+import hybridgraph.examples.pagerank.PageRankPullDriver;
+import hybridgraph.examples.sa.SAHybridDriver;
+import hybridgraph.examples.sa.SAPullDriver;
+import hybridgraph.examples.sssp.SSSPHybridDriver;
+import hybridgraph.examples.sssp.SSSPPullDriver;
 
 import org.apache.hadoop.util.ProgramDriver;
 

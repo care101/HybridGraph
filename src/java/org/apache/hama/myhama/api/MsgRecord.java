@@ -5,8 +5,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-public abstract class MsgRecord<M> 
-		implements MsgRecordInterface<M> {
+public abstract class MsgRecord<M> {
 	
 	protected int srcId = -1;
 	/** only used in the target vertex end */
@@ -114,6 +113,18 @@ public abstract class MsgRecord<M>
 		return 0;
 	}
 	
+	/** 
+	 * Get the number of real message values in this {@link MsgRecordInterface}.
+	 * Only used in style.Pull.
+	 * Normally, for algorithms with Combiner, such as Shortest Path, 
+	 * return 1 as default if Combiner is enable. 
+	 * That means one {@link MsgRecordInterface} only stores one single message value.
+	 * However, for algorithms without Combiner, such as Simulate Advertisements, 
+	 * user should override this function, return #message_values, 
+	 * since multiple message values may shared the same target vertex id and 
+	 * be combined into this {@link MsgRecordInterface}.
+	 * @return
+	 */
 	public int getNumOfMsgValues() {
 		return 1;
 	}

@@ -53,8 +53,9 @@ public abstract class GraphDataServer<V, W, M, I> {
 	protected int preIteStyle;
 	/** the actual model of the current superstep */
 	protected int curIteStyle;
-	/** graphInfo is required or not? */
-	protected boolean useGraphInfo;
+	/** edges in the adjacency list is required at this superstep? */
+	protected boolean loadAdjEdge;
+	protected boolean loadGraphInfo;
 	
 	protected VerBlockMgr verBlkMgr; //local VBlock manager
 	protected EdgeHashBucMgr edgeBlkMgr; //local EBlock manager
@@ -69,17 +70,16 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * all flags are false as default.
 	 * True: this source vertex should send messages to its neighbors. */
 	protected boolean[][] resFlag;
-	/** dependency relationship among VBlocks with responding vertices,
-	 * #row=locBlkNum, #col=globalBlkNum */
-	protected boolean[][] resDepend;
 	
 	protected GraphRecord<V, W, M, I> graph_rw;
-	protected Long read_edge; //read edges, used in push, i.e. GraphInfo
+	protected Long read_adj_edge; //read edges in the adjacency list
 	protected Long io_byte_ver; //io cost of updating vertex values
-	protected Long io_byte_edge; //io cost of reading edges, used in style.Push
+	protected Long io_byte_info; //io cost of reading graphInfo
+	protected Long io_byte_adj; //io cost of reading edges in the adjacency list
 	protected int[] locMinVerIds;
 	
-	protected boolean estimatePullByte;
+	protected boolean estimatePullByteFlag;
+	protected long estimatePullByte = 0L;
 	protected long estimatePushByte = 0L;
 	
 	//message buffer for per target task.
@@ -94,7 +94,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 	public GraphDataServer(int _taskId, BSPJob _job) {
 		taskId = _taskId;
 		job = _job;
-		useGraphInfo = _job.isUseGraphInfo();
+		loadAdjEdge = false;
+		loadGraphInfo = false;
 		bspStyle = _job.getBspStyle();
 		
 		userTool = 
@@ -153,18 +154,13 @@ public abstract class GraphDataServer<V, W, M, I> {
 		commRT = _commRT;
 		locMinVerIds = new int[taskInfo.getBlkNum()];
 		
-		int[] blkNumTask = commRT.getGlobalSketchGraph().getBucNumTask();
+		int[] blkNumTask = commRT.getJobInformation().getBlkNumOfTasks();
 		int taskNum = commRT.getTaskNum();
 		verBlkMgr = new VerBlockMgr(taskInfo.getVerMinId(), taskInfo.getVerMaxId(), 
 				taskInfo.getBlkNum(), taskInfo.getBlkLen(), 
 				taskNum, blkNumTask, bspStyle);
 		
-		int blkNumJob = commRT.getGlobalSketchGraph().getBucNumJob();
-		resDepend = new boolean[taskInfo.getBlkNum()][];
-		for (int i = 0; i < taskInfo.getBlkNum(); i++) {
-			resDepend[i] = new boolean[blkNumJob];
-			Arrays.fill(resDepend[i], false);
-		}
+		int blkNumJob = this.commRT.getJobInformation().getBlkNumOfJob();
 		
 		int verNum = this.verBlkMgr.getVerNum();
 		actFlag = new boolean[verNum]; Arrays.fill(actFlag, true);
@@ -173,8 +169,9 @@ public abstract class GraphDataServer<V, W, M, I> {
 		resFlag[1] = new boolean[verNum]; Arrays.fill(resFlag[1], false);
 		
 		this.io_byte_ver = 0L;
-		this.io_byte_edge = 0L;
-		this.read_edge = 0L;
+		this.io_byte_info = 0L;
+		this.io_byte_adj = 0L;
+		this.read_adj_edge = 0L;
 		this.memUsedByMsgPull = new long[taskNum];
 		
 		/** only used in pull or hybrid */
@@ -229,21 +226,16 @@ public abstract class GraphDataServer<V, W, M, I> {
 	}
 	
 	/**
-	 * Update the dependency information among VBlocks with 
-	 * responding source vertices, 
-	 * and the number of responding source vertices of each VBlock.  
+	 * Get the number of responding source vertices of each VBlock.  
 	 * 
-	 * @param taskInfo
-	 * @param iteNum
+	 * @return
 	 */
-	public void updateRespondDependency(TaskInformation taskInfo, int iteNum) {
-		taskInfo.updateRespondDependency(this.resDepend);
-		
+	public int[] getRespondVerNumOfBlks() {		
 		int[] resVerNumBlks = new int[this.verBlkMgr.getBlkNum()];
 		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
 			resVerNumBlks[i] = this.verBlkMgr.getVerBlkBeta(i).getRespondVerNum();
 		}
-		taskInfo.setRespondVerNumBlks(resVerNumBlks);
+		return resVerNumBlks;
 	}
 	
 	/**
@@ -293,27 +285,36 @@ public abstract class GraphDataServer<V, W, M, I> {
 	}
 	
 	/**
-	 * Return local io_bytes of reading edges, used in style.Push.
-	 * 
+	 * Return local io_bytes of reading graphInfo, used for Pull.
 	 * @return
 	 */
-	public long getLocEdgeIOByte() {
-		return this.io_byte_edge;
+	public long getLocInfoIOByte() {
+		return this.io_byte_info;
 	}
 	
 	/**
-	 * Return edges accessed in stype.Push.
+	 * Return local io_bytes of reading edges in the adjacency list.
 	 * 
 	 * @return
 	 */
-	public long getLocReadEdgeNum() {
-		return this.read_edge;
+	public long getLocAdjEdgeIOByte() {
+		return this.io_byte_adj;
 	}
 	
 	/**
-	 * Estimate bytes of style.Push if pushing messages 
-	 * from current active vertices (not updated). 
-	 * Only considering bytes of graphInfo, since verValue has been counted.
+	 * Return #edges in the adjacency list.
+	 * 
+	 * @return
+	 */
+	public long getLocReadAdjEdgeNum() {
+		return this.read_adj_edge;
+	}
+	
+	/**
+	 * Estimate bytes of style.Push.
+	 * Only edges in the adjacency list are considered, 
+	 * since vertex id and value have been counted 
+	 * and messages will be evaluated by {@link JobInProgress}.
 	 * 
 	 * @param iteNum
 	 * @return
@@ -323,27 +324,34 @@ public abstract class GraphDataServer<V, W, M, I> {
 	}
 	
 	/**
-	 * Estimate bytes of style.Pull if pulling messages from 
-	 * source vertices updated in the previous iteration.
+	 * Estimate bytes of style.Pull. 
+	 * I/O costs include bytes of graphInfo, edges in the adjacency list, 
+	 * edges in fragments and the associated data. 
+	 * Note that vertices have been accurately counted.
 	 * 
 	 * @param iteNum
 	 * @return
 	 * @throws Exception
 	 */
 	public long getEstimatedPullBytes(int iteNum) throws Exception {
-		return 0L;
+		return this.estimatePullByte;
 	}
 	
 	/** 
-	 * Memory usage of current iteration is available in the next iteration.
+	 * Memory usage of the previous superstep.
+	 * Note that the usage of superstep t is available in superstep (t+1).
+	 * Thus, this function should be invoked by 
+	 * {@link BSPTask}.beginIteration().
 	 * 
 	 * @return
 	 */
 	public long getAndClearMemUsage() {
 		long size = 0; 
-		for (long t: this.memUsedByMsgPull) {
-			size += t;
-		}
+		if (this.isAccumulated) {
+			for (long t: this.memUsedByMsgPull) {
+				size += t;
+			}
+		}//otherwise, messages will be generated and sent using the ck mechanism.
 		Arrays.fill(this.memUsedByMsgPull, 0);
 		
 		return (size+this.memUsedByMetaData);
@@ -434,22 +442,32 @@ public abstract class GraphDataServer<V, W, M, I> {
 			boolean estimate) throws Exception {
 		this.preIteStyle = _preIteStyle;
 		this.curIteStyle = _curIteStyle;
-		this.estimatePullByte = estimate;
+		this.estimatePullByteFlag = estimate;
+		this.estimatePullByte = 0L;
 		this.estimatePushByte = 0L;
-		if (this.bspStyle == Constants.STYLE.Hybrid) {
-			if (_curIteStyle == Constants.STYLE.Push) {
-				this.useGraphInfo = true;
-			} else if (_curIteStyle == Constants.STYLE.Pull) {
-				this.useGraphInfo = false;
+		if (_curIteStyle == Constants.STYLE.Push) {
+			if (_preIteStyle == Constants.STYLE.Pull) {
+				//pre=pull&&cur=push.
+				this.loadAdjEdge = this.job.isUseAdjEdgeInUpdate();
+				this.loadGraphInfo = this.job.isUseGraphInfoInUpdate();
 			} else {
-				throw new Exception("invalid _curIteStyle=" 
-						+ _curIteStyle + " at iteNum=" + _iteNum);
+				//pre=push&&cur=push.
+				this.loadAdjEdge = true;
+				this.loadGraphInfo = false;
 			}
-		} //so, pagerank, cannot use Hybrid, since its Pull cannot use GraphInfo.
+		} else if (_curIteStyle == Constants.STYLE.Pull) {
+			//pre=pull&&cur=pull, or pre=push&&cur=pull.
+			this.loadAdjEdge = this.job.isUseAdjEdgeInUpdate();
+			this.loadGraphInfo = this.job.isUseGraphInfoInUpdate();
+		} else {
+			throw new Exception("invalid _curIteStyle=" 
+					+ _curIteStyle + " at iteNum=" + _iteNum);
+		}
 		String pre = this.preIteStyle==Constants.STYLE.Pull? "pull":"push";
 		String cur = this.curIteStyle==Constants.STYLE.Pull? "pull":"push";
 		LOG.info("IteStyle=[pre:" + pre + " cur:" + cur 
-				+ "], useGraphInfo=" + this.useGraphInfo);
+				+ "], loadAdjEdge=" + this.loadAdjEdge 
+				+ ", loadGraphInfo=" + this.loadGraphInfo);
 		
 		/** clear the message buffer used in pull @getMsg */
 		if (this.bspStyle != Constants.STYLE.Push) {
@@ -464,13 +482,9 @@ public abstract class GraphDataServer<V, W, M, I> {
 		
 		this.verBlkMgr.clearBefIte(_iteNum);
 		this.io_byte_ver = 0L;
-		this.io_byte_edge = 0L;
-		this.read_edge = 0L;
-		
-		/** only used in evaluate the maximum allocated memory */
-		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
-			Arrays.fill(this.resDepend[i], false);
-		}
+		this.io_byte_info = 0L;
+		this.io_byte_adj = 0L;
+		this.read_adj_edge = 0L;
 	}
 	
 	/** 
@@ -497,18 +511,27 @@ public abstract class GraphDataServer<V, W, M, I> {
 	}
 	
 	/** 
-	 * Only open vertex value file and graphInfo file, read-only.
-	 * Just used by {@link BSPTask.runIterationOnlyForPush()}
+	 * Only open vertex value file and adj edge file, read-only.
+	 * Just used by {@link BSPTask}.runIterationOnlyForPush
 	 * 
 	 * */
 	public abstract void openGraphDataStreamOnlyForPush(int _parId, int _bid, 
 			int _iteNum) throws Exception;
 	
 	/** 
-	 * Just used by {@link BSPTask.runSimplePushIteration()} 
+	 * Just used by {@link BSPTask}.runIterationOnlyForPush(). 
 	 **/
 	public abstract void closeGraphDataStreamOnlyForPush(int _parId, int _bid, 
 			int _iteNum) throws Exception;
+	
+	/**
+	 * Just used by {@link BSPTask}.runIterationOnlyForPush().
+	 * @param _bid
+	 * @return
+	 * @throws Exception
+	 */
+	public abstract GraphRecord<V, W, M, I> getNextGraphRecordOnlyForPush(int _bid) 
+			throws Exception;
 	
 	/**
 	 * Initialize the file variables according to the bucketId.

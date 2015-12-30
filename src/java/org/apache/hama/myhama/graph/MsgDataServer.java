@@ -64,30 +64,15 @@ public class MsgDataServer<V, W, M, I> {
 		
 		/**
 		 * Return the total memory usage, 
-		 * including sendBuf, incomingBuf, incomedBuf, cache, and pre_cache.
+		 * including incomingBuf, incomedBuf, cache, and pre_cache. 
+		 * Here, we ignore the size of sendBuffer used by Push.
 		 * @return
 		 */
 		public long size() {
 			long counter = 0;
-			for (long mem: this.usedBySendBuf) {
+			/*for (long mem: this.usedBySendBuf) {
 				counter += mem;
-			}
-			for (long mem: this.usedByIncomedBuf) {
-				counter += mem;
-			}
-			for (long mem: this.usedByIncomingBuf) {
-				counter += mem;
-			}
-			return (counter+this.usedByCache+this.usedByPreCache);
-		}
-		
-		/**
-		 * Return partial memory usage, 
-		 * including incomingBuf, incomedBuf, cache, and pre_cache.
-		 * @return
-		 */
-		public long sizeExcludeSendBuf() {
-			long counter = 0;
+			}*/
 			for (long mem: this.usedByIncomedBuf) {
 				counter += mem;
 			}
@@ -143,7 +128,6 @@ public class MsgDataServer<V, W, M, I> {
 	private int MESSAGE_SEND_BUFFER_THRESHOLD;
 	private int MESSAGE_RECEIVE_BUFFER_THRESHOLD;
 	private ArrayList<MsgRecord<M>>[] sendBuffer; //[DstPartitionId]: msgs
-	private int[] sendBufferLen;
 	
 	private File rootDir;
 	private File msgDataDir;
@@ -221,7 +205,6 @@ public class MsgDataServer<V, W, M, I> {
 			
 			/** used in push: send messages */
 			this.sendBuffer = new ArrayList[this.taskNum];
-			this.sendBufferLen = new int[this.taskNum];
 			for (int index = 0; index < this.taskNum; index++) {
 				this.sendBuffer[index] = new ArrayList<MsgRecord<M>>();
 			}
@@ -278,20 +261,9 @@ public class MsgDataServer<V, W, M, I> {
 	//===============================================================
 	/** Put messages into the sendBuffer and return the status of buffer */
 	public BufferStatus putIntoSendBuffer(int dstPid, MsgRecord<M> msg) {
-		/*if (this.sendBuffer[dstPid].containsKey(msg.getDstVerId())) {
-			this.sendBuffer[dstPid].get(msg.getDstVerId()).collect(msg);
-			if (!this.isAccumulated) {
-				this.sendBufferLen[dstPid]++;
-			}
-		} else {
-			this.sendBuffer[dstPid].put(msg.getDstVerId(), msg);
-			this.sendBufferLen[dstPid]++;
-		}*/
-		
 		this.sendBuffer[dstPid].add(msg);
-		this.sendBufferLen[dstPid]++;
 		
-		if (this.sendBufferLen[dstPid] 
+		if (this.sendBuffer[dstPid].size() 
 		                       >= this.MESSAGE_SEND_BUFFER_THRESHOLD) {
 			return BufferStatus.OVERFLOW;
 		} else {
@@ -313,9 +285,8 @@ public class MsgDataServer<V, W, M, I> {
 				msgData[counter++] = msg;
 				mem += msg.getMsgByte();
 			}
-			/** counter may != this.sendBufferLen[dstPid] due to Combiner */
 			msgPack.setEdgeInfo(0L, 0L, 0L);
-			msgPack.setLocal(msgData, counter, 0L, this.sendBufferLen[dstPid]);
+			msgPack.setLocal(msgData, counter, 0L, counter);
 		} else {
 			ByteArrayOutputStream bytes = 
 				new ByteArrayOutputStream(this.sendBuffer[dstPid].size());
@@ -328,28 +299,25 @@ public class MsgDataServer<V, W, M, I> {
 			bytes.close();
 			mem += stream.size();
 			
-			/** counter may != this.sendBufferLen[dstPid] due to Combiner */
 			msgPack.setEdgeInfo(0L, 0L, 0L);
-			msgPack.setRemote(bytes, counter, 0L, this.sendBufferLen[dstPid]);
+			msgPack.setRemote(bytes, counter, 0L, counter);
 		}
 		
 		this.sendBuffer[dstPid].clear();
-		this.sendBufferLen[dstPid] = 0;
 		this.memUsage.updateSendBuf(dstPid, mem);
 		
 		return msgPack;
 	}
 	
-	/** Get the len of given buffer */
-	public long getSendBufferLen(int dstParId) {			
-		return this.sendBufferLen[dstParId];
+	/** Get the len of a given buffer */
+	public long getSendBufferSize(int dstParId) {			
+		return this.sendBuffer[dstParId].size();
 	}
 	
 	/** Clear buffer and variables at the end of one iteration */
 	public void clearSendBuffer() {
 		for (int idx = 0; idx < this.taskNum; idx++) {
 			this.sendBuffer[idx].clear();
-			this.sendBufferLen[idx] = 0;
 		}
 	}
 	
@@ -444,6 +412,7 @@ public class MsgDataServer<V, W, M, I> {
 				for (int i = 0; i < this.incomingBufLen[pbid]; i++) {
 					this.incomedBuffer[pbid][i] = this.incomingBuffer[pbid][i];
 				}
+				this.memUsage.updateIncomingBuf(pbid, this.incomingBufByte[pbid]);
 				this.memUsage.updateIncomedBuf(pbid, this.incomingBufByte[pbid]);
 			} else {
 				this.incomedBuffer[pbid] = null;
@@ -683,18 +652,9 @@ public class MsgDataServer<V, W, M, I> {
 	}
 	
 	/**
-	 * Return partial memory usage, 
-	 * must be invoked before getAndClearMemUsage().
-	 * Only include: incomingBuf, incomedBuf, cache, and pre_cache.
-	 * @return
-	 */
-	public long getMemUsageExcludeSendBuf() {
-		return this.memUsage.sizeExcludeSendBuf();
-	}
-	
-	/**
 	 * Return the total memory usage, and then clear the counters in MemoryUsage.
-	 * Including sendBuf, incomingBuf, incomedBuf, cache, and pre_cache.
+	 * Including incomingBuf, incomedBuf, cache, and pre_cache. 
+	 * Here, we ignore the size of sendBuf used by Push.
 	 * @return
 	 */
 	public long getAndClearMemUsage() {

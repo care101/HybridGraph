@@ -1,7 +1,7 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.sa.hybrid;
+package hybridgraph.examples.pagerank;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -14,14 +14,9 @@ import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.api.UserTool;
 import org.apache.hama.myhama.io.EdgeParser;
 
-
 /**
- * LPAUserTool.java
- * Support for {@link SAGraphRecord}, {@link SAMsgRecord}.
- * 
- * <K>, vertex value, send value;
- * <W>, message value and edge weight;
- * <I>, graphInfo;
+ * PageRankUserTool.java
+ * Support for {@link PageRankGraphRecord} and {@link PageRankMsgRecord}.
  * 
  * @author 
  * @version 0.1
@@ -30,57 +25,52 @@ import org.apache.hama.myhama.io.EdgeParser;
  * @param <W> edge weight
  * @param <M> message value
  * @param <I> graph information
+ * @param <S> send value
  */
-public class SAUserTool 
-		extends UserTool<Value, Integer, MsgBundle, EdgeSet> {
+public class PageRankUserTool 
+		extends UserTool<Double, Integer, Double, Integer> {
 	private static EdgeParser edgeParser = new EdgeParser();
 	
-	public static class SAGraphRecord 
-			extends GraphRecord<Value, Integer, MsgBundle, EdgeSet> {
-		
-		public SAGraphRecord() {
-			this.verValue = new Value();
-		}
+	public static class PRGraphRecord 
+			extends GraphRecord<Double, Integer, Double, Integer> {
 		
 		@Override
 	    public void parseGraphData(String vData, String eData) {
 			this.verId = Integer.valueOf(vData);
-			this.verValue = new Value(this.verId, 1);
-			
-			if (eData.equals("")) {
+			this.verValue = 10.0;
+	        	        
+	        if (eData.equals("")) {
 	 			setEdges(new Integer[]{this.verId}, null);
-	 			this.graphInfo = new EdgeSet(new Integer[]{this.verId});
+	 	        this.graphInfo = 1;
 	        	return;
 			}
-	        
-	        Integer[] parsedEdgeIds = edgeParser.parseEdgeIdArray(eData, ':');
-	        setEdges(parsedEdgeIds, null);
-	        this.graphInfo = new EdgeSet(parsedEdgeIds);
+			
+			setEdges(edgeParser.parseEdgeIdArray(eData, ':'), null);
+	        this.graphInfo = this.edgeNum;
 	    }
 
 		@Override
 		public void serVerValue(ByteBuffer vOut) 
 				throws EOFException, IOException {
-			this.verValue.write(vOut);
+			vOut.putDouble(this.verValue);
 		}
 
 		@Override
 		public void deserVerValue(ByteBuffer vIn) 
 				throws EOFException, IOException {
-			this.verValue.read(vIn);
+			this.verValue = vIn.getDouble();
 		}
 
 		@Override
 		public void serGrapnInfo(ByteBuffer eOut) 
 				throws EOFException, IOException {
-			this.graphInfo.write(eOut);
+			eOut.putInt(this.graphInfo);
 		}
-		
+
 		@Override
 		public void deserGraphInfo(ByteBuffer eIn) 
 				throws EOFException, IOException {
-			this.graphInfo = new EdgeSet();
-			this.graphInfo.readFields(eIn);
+			this.graphInfo = eIn.getInt();
 		}
 
 		@Override
@@ -103,16 +93,27 @@ public class SAUserTool
 		}
 		
 		@Override
+		public Double getFinalValue() {
+			return this.graphInfo==0? 
+					this.verValue:this.verValue*this.graphInfo;
+		}
+		
+		/**
+		 * Only for the byte of vertex value.
+		 */
+		@Override
 		public int getVerByte() {
-			return this.verValue.getByteSize();
+			return 8;
 		}
 		
 		@Override
 		public int getGraphInfoByte() {
-			return this.graphInfo.getByteSize();
+			return 4;
 		}
 		
 		/**
+		 * Bytes for edge number and every edge.
+		 * Only include normal edges.
 		 * 4 + 4 * this.edgeNum
 		 */
 		@Override
@@ -121,58 +122,44 @@ public class SAUserTool
 		}
 	}
 	
-	public static class SAMsgRecord extends MsgRecord<MsgBundle> {
-		
+	public static class PRMsgRecord extends MsgRecord<Double> {
 		@Override
-		public void combiner(MsgRecord<MsgBundle> msg) {
-			this.msgValue.combine(msg.getMsgValue().getAll());
+		public void combiner(MsgRecord<Double> msg) {
+			this.msgValue += msg.getMsgValue();
 		}
 		
 		@Override
 		public int getMsgByte() {
-			return this.msgValue==null? 
-					8:(4+this.msgValue.getByteSize()); //int+sizeof(value)
+			return 12; //int+double
 		}
-		
-		@Override
-	    public void serialize(ByteBuffer out) throws IOException {
-	    	out.putInt(this.dstId);
-	    	this.msgValue.write(out);
-	    }
-	    
-		@Override
-	    public void deserialize(ByteBuffer in) throws IOException {
-	    	this.dstId = in.getInt();
-	    	this.msgValue = new MsgBundle();
-	    	this.msgValue.read(in);
-	    }
 		
 		@Override
 		public void deserialize(DataInputStream in) throws IOException {
 			this.dstId = in.readInt();
-			this.msgValue = new MsgBundle();
-			this.msgValue.read(in);
+			this.msgValue = in.readDouble();
 		}
-		
+
 		@Override
 		public void serialize(DataOutputStream out) throws IOException {
 			out.writeInt(this.dstId);
-			this.msgValue.write(out);
+			out.writeDouble(this.msgValue);
 		}
+		
 	}
 	
 	@Override
-	public GraphRecord<Value, Integer, MsgBundle, EdgeSet> getGraphRecord() {
-		return new SAGraphRecord();
+	public GraphRecord<Double, Integer, Double, Integer> 
+			getGraphRecord() {
+		return new PRGraphRecord();
 	}
 
 	@Override
-	public MsgRecord<MsgBundle> getMsgRecord() {
-		return new SAMsgRecord();
+	public MsgRecord<Double> getMsgRecord() {
+		return new PRMsgRecord();
 	}
 	
 	@Override
 	public boolean isAccumulated() {
-		return false;
+		return true;
 	}
 }

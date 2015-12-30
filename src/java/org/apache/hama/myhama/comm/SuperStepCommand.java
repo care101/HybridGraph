@@ -19,8 +19,19 @@ public class SuperStepCommand implements Writable {
 	private int iteStyle;
 	private boolean estimatePullByte;
 	
+	//local variable
+	private double metricQ;
+	
 	public SuperStepCommand() {
 		
+	}
+	
+	public void setMetricQ(double _q) {
+		this.metricQ = _q;
+	}
+	
+	public double getMetricQ() {
+		return this.metricQ;
 	}
 	
 	public CommandType getCommandType() {
@@ -100,9 +111,9 @@ public class SuperStepCommand implements Writable {
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer();
-		sb.append("[CommandType] "); sb.append(this.commandType);
-		sb.append("\t[JobAgg] "); sb.append(this.jobAgg);
-		sb.append("\t[IteStyle] "); 
+		sb.append("command="); sb.append(this.commandType);
+		sb.append("\tsum-agg="); sb.append(this.jobAgg);
+		sb.append("\tstyle="); 
 		if (this.iteStyle == Constants.STYLE.Pull) {
 			sb.append("Pull");
 		} else {

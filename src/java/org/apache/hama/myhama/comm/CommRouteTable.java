@@ -9,13 +9,11 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.ipc.CommunicationServerProtocol;
-import org.apache.hama.monitor.GlobalSketchGraph;
 import org.apache.hama.monitor.JobInformation;
 
 public class CommRouteTable<V, W, M, I> {
 	private static final Log LOG = LogFactory.getLog(CommRouteTable.class);
-	private JobInformation global;
-	private GlobalSketchGraph skGraph;
+	private JobInformation jobInfo;
 	private BSPJob job;
 	private int parId;
 	private int taskNum;
@@ -36,15 +34,14 @@ public class CommRouteTable<V, W, M, I> {
 		mins = new int[taskNum+1]; maxs = new int[taskNum];
 	}
 	
-	public void initialilze(JobInformation _global) {
-		this.global = _global;
-		this.skGraph = _global.getGlobalSketchGraph();
-		this.bucNum = this.skGraph.getBucNumTask(this.parId);
-		int[] tmpParIds = global.getTaskIds();
-		int[] tmpMins = global.getRangeMinIds();
-		int[] tmpMaxs = global.getRangeMaxIds();
-		int[] tmpPorts = global.getPorts();
-		String[] tmpHostNames = global.getHostNames();
+	public void initialilze(JobInformation _jobInfo) {
+		this.jobInfo = _jobInfo;
+		this.bucNum = jobInfo.getBlkNumOfTasks(this.parId);
+		int[] tmpParIds = jobInfo.getTaskIds();
+		int[] tmpMins = jobInfo.getVerMinIds();
+		int[] tmpMaxs = jobInfo.getVerMaxIds();
+		int[] tmpPorts = jobInfo.getPorts();
+		String[] tmpHostNames = jobInfo.getHostNames();
 		
 		for (int i = 0; i < taskNum; i++) {
 			this.inetAddresses[i] = 
@@ -61,8 +58,8 @@ public class CommRouteTable<V, W, M, I> {
 		maxLen = findMaxLength();
 	}
 	
-	public void resetGlobalStatis(JobInformation _global) {
-		global = _global;
+	public void resetJobInformation(JobInformation _jobInfo) {
+		jobInfo = _jobInfo;
 	}
 	
 	public int getTaskNum() {
@@ -73,22 +70,17 @@ public class CommRouteTable<V, W, M, I> {
 		return this.bucNum;
 	}
 	
-	public JobInformation getGlobalStatis() {
-		return this.global;
-	}
-	
-	public GlobalSketchGraph getGlobalSketchGraph() {
-		return this.skGraph;
+	public JobInformation getJobInformation() {
+		return this.jobInfo;
 	}
 	
 	/**
-	 * Get the destination partitionId according to the vertexId.
-	 * If the destination partitionId is not found, 
-	 * the last partition is the default one.
-	 * @param vertexId
+	 * Get the destination task which vId belongs to.
+	 * If not found, the last task is returned as the default one.
+	 * @param vId
 	 * @return
 	 */
-	public int getDstParId(int vId) {
+	public int getDstTaskId(int vId) {
 		int counter = (vId - mins[0]) / maxLen;
 		try {
 			if(counter >= taskNum) {
@@ -118,12 +110,12 @@ public class CommRouteTable<V, W, M, I> {
 	}
 	
 	/**
-	 * Get the destination bucket Id in partition _dstParId, according to a given _vId.
+	 * Get the destination VBlock Id on task _dstParId, according to a given _vId.
 	 * @param vertexId
 	 * @return
 	 */
-	public int getDstBucId(int _dstParId, int _vId) {
-		return this.skGraph.getTaskBucIndex(_dstParId, _vId);
+	public int getDstLocalBlkIdx(int _dstParId, int _vId) {
+		return this.jobInfo.getLocalBlkIdx(_dstParId, _vId);
 	}
 	
 	/**

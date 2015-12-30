@@ -1,23 +1,20 @@
 /**
  * copyright 2011-2016
  */
-package hybridgraph.examples.cc.pull;
+package hybridgraph.examples.cc;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.BSP;
-import org.apache.hama.myhama.api.GraphRecordInterface;
+import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.api.MsgRecordInterface;
-import org.apache.hama.myhama.util.GraphContextInterface;
+import org.apache.hama.myhama.util.Context;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
-import hybridgraph.examples.cc.pull.CCUserTool.CCMsgRecord;
+import hybridgraph.examples.cc.CCUserTool.CCMsgRecord;
 
 /**
  * CCBSP.java implements {@link BSP}.
- * Note: input graph should be an undirected graph, and this implementation uses Combiner.
+ * Note: input graph should be an undirected graph, 
+ * and this implementation uses Combiner.
  * 
  * Implementation of the HCC algorithm that identifies connected components and
  * assigns each vertex its "component identifier" (the smallest vertex id in the
@@ -39,7 +36,6 @@ import hybridgraph.examples.cc.pull.CCUserTool.CCMsgRecord;
  */
 
 public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
-	public static final Log LOG = LogFactory.getLog(CCBSP.class);
 	
 	@Override
 	public Opinion processThisBucket(int _bucId, int _iteNum) {
@@ -48,11 +44,11 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	
 	@Override
 	public void update(
-			GraphContextInterface<Integer, Integer, Integer, Integer> context) 
+			Context<Integer, Integer, Integer, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Integer, Integer, Integer, Integer> graph = 
+		GraphRecord<Integer, Integer, Integer, Integer> graph = 
 			context.getGraphRecord();
-		MsgRecordInterface<Integer> msg = context.getReceivedMsgRecord();
+		MsgRecord<Integer> msg = context.getReceivedMsgRecord();
 		
 		//first superstep, just send its value to all outgoing neighbors.
 		if (context.getIteCounter() == 1) {
@@ -70,9 +66,9 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	
 	@Override
 	public MsgRecord<Integer>[] getMessages(
-			GraphContextInterface<Integer, Integer, Integer, Integer> context) 
+			Context<Integer, Integer, Integer, Integer> context) 
 				throws Exception {
-		GraphRecordInterface<Integer, Integer, Integer, Integer> graph = 
+		GraphRecord<Integer, Integer, Integer, Integer> graph = 
 			context.getGraphRecord();
 		CCMsgRecord[] result = new CCMsgRecord[graph.getEdgeNum()];
 		int idx = 0;

@@ -5,7 +5,7 @@ package org.apache.hama.myhama.api;
 
 import org.apache.hama.Constants.Opinion;
 import org.apache.hama.myhama.api.MsgRecord;
-import org.apache.hama.myhama.util.GraphContextInterface;
+import org.apache.hama.myhama.util.Context;
 
 /**
  * Interface BSP defines the basic operations needed to 
@@ -25,14 +25,14 @@ public interface BSPInterface<V, W, M, I> {
 	 * This function will be invoked by framework only once during the whole task.
 	 * @param context
 	 */
-	public void taskSetup(GraphContextInterface<V, W, M, I> context);
+	public void taskSetup(Context<V, W, M, I> context);
 	
 	/**
 	 * Setup befor executing the user-defined algorithm.
 	 * This function will be invoked by framework only once during one superstep.
 	 * @param job
 	 */
-	public void superstepSetup(GraphContextInterface<V, W, M, I> context);
+	public void superstepSetup(Context<V, W, M, I> context);
 	
 	/**
 	 * Does this bucket need to be processed?
@@ -49,7 +49,7 @@ public interface BSPInterface<V, W, M, I> {
 	 * 
 	 * @throws Exception
 	 */
-	public void update(GraphContextInterface<V, W, M, I> context) 
+	public void update(Context<V, W, M, I> context) 
 			throws Exception;
 	
 	/**
@@ -62,7 +62,7 @@ public interface BSPInterface<V, W, M, I> {
 	 * @return
 	 * @throws Exception
 	 */
-	public MsgRecord<M>[] getMessages(GraphContextInterface<V, W, M, I> context) 
+	public MsgRecord<M>[] getMessages(Context<V, W, M, I> context) 
 			throws Exception;
 	
 	/**
@@ -70,12 +70,12 @@ public interface BSPInterface<V, W, M, I> {
 	 * This function will be invoked by framework only once during one superstep.
 	 * @param context
 	 */
-	public void superstepCleanup(GraphContextInterface<V, W, M, I> context);
+	public void superstepCleanup(Context<V, W, M, I> context);
 	
 	/**
 	 * Cleanup after executing the user-defined algorithm.
 	 * This function will be invoked by framework only once during the whole job.
 	 * @param context
 	 */
-	public void taskCleanup(GraphContextInterface<V, W, M, I> context);
+	public void taskCleanup(Context<V, W, M, I> context);
 }

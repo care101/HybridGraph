@@ -36,13 +36,16 @@ import org.apache.hama.myhama.util.GraphContext;
  * VBlocks: variables in one VBlock are stored in two files 
  * for values (file "value") and graphInfos (file "info"). 
  * File "vale" is read-write, but "info" is read-only.
- *             rootDir         (rootDir:jobId/taskId/graph)
- *                |
- *              verDir         (verDir:rootDir/vertex)
- *            /   |   \
- *        lbd1  lbd2   lbd3    (lbdx:one VBlock dir x, name:locbuc-1)
- *        /  \   ...   /  \
- *    value info             (file name: value, info)
+ *              rootDir           (rootDir:jobId/taskId/graph)
+ *                 |
+ *               verDir           (verDir:rootDir/vertex)
+ *            /    |    \
+ *       lbd1     lbd2    lbd3    (lbdx:one VBlock dir x, name:locbuc-1)
+ *      /  |  \    ...   /  |  \
+ * value info [edge]              (file name: value, info, [edge])
+ * In addition, if bspStyle={@link Constants}.STYLE.Push or Hybrid, 
+ * edges should be stored in the adjacency list.   
+ *    
  * 
  * EBlocks: edges linking to target vertices in one VBlock of a task 
  * are stored into one disk file.
@@ -78,7 +81,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	private static String Ver_Dir_Buc_Pre = "locbuc-";
 	private static String Ver_File_Value = "value-";
 	private static String Ver_File_Info = "info";
-	private static String Edge_Dir_Task_Pre = "task-";
+	private static String Ver_File_Adj = "edge_adj"; //edges in adjacency list used by Push.
+	private static String Edge_Dir_Task_Pre = "task-"; //edges in fragments usecd by Pull
 	private static String Edge_File_Buc_Pre = "buc-";
 	
 	/** directory and managers for graph data */
@@ -89,6 +93,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	private int verBufLen = 0;
 	private long valBufByte = 0;
 	private long infoBufByte = 0;
+	private long adjBufByte = 0; //edges in the adjacency list
 	private GraphRecord<V, W, M, I>[][][] edgeBuf; //[TaskId][BucId]:graph record
 	private int[][] edgeBufLen;
 	private long[][] edgeBufByte;
@@ -100,9 +105,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	/** used to read or write graph data during iteration computation */
 	private class VBlockFileHandler {
-		private RandomAccessFile raf_v_r, raf_info_r, raf_v_w;
-		private FileChannel fc_v_r, fc_info_r, fc_v_w;
-		private MappedByteBuffer mbb_v_r, mbb_info_r, mbb_v_w;
+		private RandomAccessFile raf_v_r, raf_v_w, raf_info, raf_adj;
+		private FileChannel fc_v_r, fc_v_w, fc_info, fc_adj;
+		private MappedByteBuffer mbb_v_r, mbb_v_w, mbb_info, mbb_adj;
 				
 		public VBlockFileHandler() { }
 		
@@ -121,21 +126,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			fc_v_r.close(); raf_v_r.close();
 		}
 		
-		public void openInfoReadHandler(File f_info_r) throws Exception {
-			raf_info_r = new RandomAccessFile(f_info_r, "r");
-			fc_info_r = raf_info_r.getChannel();
-			mbb_info_r = fc_info_r.map(FileChannel.MapMode.READ_ONLY, 0L, 
-					fc_info_r.size());
-		}
-		
-		public MappedByteBuffer getInfoReadHandler() {
-			return mbb_info_r;
-		}
-		
-		public void closeInfoReadHandler() throws Exception {
-			fc_info_r.close(); raf_info_r.close();
-		}
-		
 		public void openVerWriteHandler(File f_v_w) throws Exception {
 			raf_v_w = new RandomAccessFile(f_v_w, "rw");
 			fc_v_w = raf_v_w.getChannel();
@@ -149,6 +139,36 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 		public void closeVerWriteHandler() throws Exception {
 			fc_v_w.close(); raf_v_w.close();
+		}
+		
+		public void openInfoReadHandler(File f_info) throws Exception {
+			raf_info = new RandomAccessFile(f_info, "r");
+			fc_info = raf_info.getChannel();
+			mbb_info = fc_info.map(FileChannel.MapMode.READ_ONLY, 0L, 
+					fc_info.size());
+		}
+		
+		public MappedByteBuffer getInfoReadHandler() {
+			return mbb_info;
+		}
+		
+		public void closeInfoReadHandler() throws Exception {
+			fc_info.close(); raf_info.close();
+		}
+		
+		public void openAdjReadHandler(File f_adj) throws Exception {
+			raf_adj = new RandomAccessFile(f_adj, "r");
+			fc_adj = raf_adj.getChannel();
+			mbb_adj = fc_adj.map(FileChannel.MapMode.READ_ONLY, 0L, 
+					fc_adj.size());
+		}
+		
+		public MappedByteBuffer getAdjReadHandler() {
+			return mbb_adj;
+		}
+		
+		public void closeAdjReadHandler() throws Exception {
+			fc_adj.close(); raf_adj.close();
 		}
 	}
 	private VBlockFileHandler vbFile;
@@ -251,9 +271,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		}
 	}
 	private VEBlockFileHandler<V, W, M, I>[] vebFile; //per requested task
-	
-	private boolean[][] hitFlag; //to compute bytes of style.Pull when running style.Push
-	private long[] numOfReadVal; //to compute bytes of style.Pull when running style.Push
+	private boolean[][] hitFlag; //used to estimate #fragments in pull when running push
+	private long fragNumOfPull = 0L;
 	
 	/**
 	 * Spill vertex data onto local disk.
@@ -267,16 +286,18 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		private GraphRecord<V, W, M, I>[] gBuf;
 		private long writeValByte;
 		private long writeInfoByte;
+		private long writeAdjByte;
 		
 		public SpillVertexThread(int _bid, int _verBufLen, 
 				GraphRecord<V, W, M, I>[] _verBuf, 
-				long _valBufByte, long _infoBufByte) {
+				long _valBufByte, long _infoBufByte, long _adjBufByte) {
 			this.bid = _bid;
 			this.writeLen = _verBufLen;
 			this.gBuf = _verBuf;
 			this.writeValByte = _valBufByte;
 			this.writeInfoByte = _infoBufByte;
-			loadByte += (_valBufByte + _infoBufByte);
+			this.writeAdjByte = _adjBufByte;
+			loadByte += (_valBufByte + _infoBufByte + _adjBufByte);
 		}
 		
 		@Override
@@ -287,11 +308,19 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			FileChannel fc_v = raf_v.getChannel();
 			MappedByteBuffer mbb_v = 
 				fc_v.map(FileChannel.MapMode.READ_WRITE, fc_v.size(), this.writeValByte);
-			
+			//graphInfo.
 			File f_info;
 			RandomAccessFile raf_info = null;
 			FileChannel fc_info = null;
 			MappedByteBuffer mbb_info = null;
+			//edges in the adjacnecy list
+			File f_adj;
+			RandomAccessFile raf_adj = null;
+			FileChannel fc_adj = null;
+			MappedByteBuffer mbb_adj = null;
+			
+			boolean useGraphInfo = job.isUseGraphInfoInUpdate();
+			boolean storeAdjEdge = job.isStoreAdjEdge();
 			
 			if (useGraphInfo) {
 				f_info = new File(dir, Ver_File_Info);
@@ -302,10 +331,22 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 							fc_info.size(), this.writeInfoByte);
 			}
 			
+			if (storeAdjEdge) {
+				f_adj = new File(dir, Ver_File_Adj);
+				raf_adj = new RandomAccessFile(f_adj, "rw");
+				fc_adj = raf_adj.getChannel();
+				mbb_adj = 
+					fc_adj.map(FileChannel.MapMode.READ_WRITE, 
+							fc_adj.size(), this.writeAdjByte);
+			}
+			
 			for (int i = 0; i < this.writeLen; i++) {
 				this.gBuf[i].serVerValue(mbb_v);
 				if (useGraphInfo) {
 					this.gBuf[i].serGrapnInfo(mbb_info);
+				}
+				if (storeAdjEdge) {
+					this.gBuf[i].serEdges(mbb_adj);
 				}
 			}
 			
@@ -315,12 +356,16 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				fc_info.close(); 
 				raf_info.close();
 			}
+			if (storeAdjEdge) {
+				fc_adj.close();
+				raf_adj.close();
+			}
 			return true;
 		}
 	}
 	
 	/**
-	 * Spill edge data onto local disk.
+	 * Spill edge data in EBlock onto local disk.
 	 * 
 	 * @author 
 	 * @version 0.1
@@ -352,7 +397,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			MappedByteBuffer mbb = 
 				fc.map(FileChannel.MapMode.READ_WRITE, fc.size(), this.writeByte);
 			
-			int vid = 0;
 			for (int i = 0; i < this.writeLen; i++) {
 				this.gBuf[i].serVerId(mbb);
 				this.gBuf[i].serEdges(mbb);
@@ -372,8 +416,12 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	 */
 	public GraphDataServerDisk(int _parId, BSPJob _job, String _rootDir) {
 		super(_parId, _job);
-		LOG.info("set useGraphInfo=" + this.useGraphInfo 
-				+ " when loading graph data, disk version");
+		StringBuffer sb = new StringBuffer();
+		sb.append("\n initialize graph data server in disk version;");
+		sb.append("\n   storeAdjEdge="); sb.append(_job.isStoreAdjEdge());
+		sb.append("\n   useAdjEdgeInUpdate="); sb.append(_job.isUseAdjEdgeInUpdate());
+		sb.append("\n   useGraphInfoInUpdate="); sb.append(_job.isUseGraphInfoInUpdate());
+		LOG.info(sb.toString());
 	    createDir(_rootDir);
 	}
 	
@@ -402,8 +450,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		spillVerThRe = null;
 		
 		int taskNum = this.commRT.getTaskNum();
-		this.hitFlag = new boolean[taskNum][this.verBlkMgr.getBlkNum()];
-		this.numOfReadVal = new long[]{0L, 0L};
 		
 		/** only used in pull or hybrid */
 		if (this.bspStyle != Constants.STYLE.Push) {
@@ -415,7 +461,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			spillEdgeTh = Executors.newSingleThreadExecutor();
 			spillEdgeThRe = null;
 			
-			int[] bucNumTask = commRT.getGlobalSketchGraph().getBucNumTask();
+			this.hitFlag = new boolean[taskNum][];
+			int[] bucNumTask = commRT.getJobInformation().getBlkNumOfTasks();
 			for (int i = 0; i < taskNum; i++) {
 				edgeBuf[i] = 
 					(GraphRecord<V, W, M, I>[][]) new GraphRecord[bucNumTask[i]][];
@@ -425,6 +472,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 					edgeBuf[i][j] = 
 						(GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 				}
+				
+				this.hitFlag[i] = new boolean[bucNumTask[i]];
 			}
 		
 			this.vebFile = 
@@ -492,7 +541,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	private void clearEdgeBuf() throws Exception {
 		int taskNum = commRT.getTaskNum();
-		int[] bucNumTask = commRT.getGlobalSketchGraph().getBucNumTask();
+		int[] bucNumTask = commRT.getJobInformation().getBlkNumOfTasks();
 		for (int i = 0; i < taskNum; i++) {
 			for (int j = 0; j < bucNumTask[i]; j++) {
 				if (edgeBufLen[i][j] > 0) {
@@ -521,6 +570,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		verBufLen++;
 		valBufByte += graph.getVerByte();
 		infoBufByte += graph.getGraphInfoByte();
+		adjBufByte += graph.getEdgeByte();
 		
 		if (verBufLen >= Buf_Size) {
 			if (this.spillVerThRe != null && this.spillVerThRe.isDone()) {
@@ -530,12 +580,13 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			this.spillVerThRe = 
 				this.spillVerTh.submit(
 						new SpillVertexThread(_bid, verBufLen, verBuf, 
-								valBufByte, infoBufByte));
+								valBufByte, infoBufByte, adjBufByte));
 			
 			verBuf = (GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 			verBufLen = 0;
 			valBufByte = 0;
 			infoBufByte = 0;
+			adjBufByte = 0;
 		}
 	}
 	
@@ -556,13 +607,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			this.spillVerThRe = 
 				this.spillVerTh.submit(
 						new SpillVertexThread(_bid, verBufLen, verBuf, 
-								valBufByte, infoBufByte));
+								valBufByte, infoBufByte, adjBufByte));
 			this.spillVerThRe.get();
 		}
 		verBuf = (GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 		verBufLen = 0;
 		valBufByte = 0;
 		infoBufByte = 0;
+		adjBufByte = 0;
 	}
 	
 	private void clearVerBuf(int _bid) throws Exception {
@@ -574,6 +626,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		verBufLen = 0;
 		valBufByte = 0;
 		infoBufByte = 0;
+		adjBufByte = 0;
 		this.spillVerTh.shutdown();
 		this.spillVerThRe = null;
 	}
@@ -592,7 +645,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 					input.getCurrentValue().toString());
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
-			curBid = commRT.getDstBucId(taskId, vid);
+			curBid = commRT.getDstLocalBlkIdx(taskId, vid);
 			bid = bid<0? curBid:bid;
 			graph.setSrcBlkId(curBid);
 			
@@ -614,7 +667,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		}
 		this.verBlkMgr.setEdgeNum(edgeNum);
 		this.verBlkMgr.loadOver(this.bspStyle, this.commRT.getTaskNum(), 
-				this.commRT.getGlobalSketchGraph().getBucNumTask());
+				this.commRT.getJobInformation().getBlkNumOfTasks());
 		
 		
 		int[] verNumBlks = new int[this.verBlkMgr.getBlkNum()];
@@ -639,27 +692,30 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	@Override
 	public long getEstimatedPullBytes(int iteNum) throws Exception {
-		int type = iteNum % 2;
+		int type = iteNum % 2; //not (iteNum+1)%2, should be equal with "type" in getMsg();
 		long bytes = 0L;
 		
-		if (this.estimatePullByte) {
-			int[] bucNumTask = this.commRT.getGlobalSketchGraph().getBucNumTask();
+		if (this.estimatePullByteFlag) {
+			int[] blkNumOfTasks = this.commRT.getJobInformation().getBlkNumOfTasks();
 			for (int dstTid = 0; dstTid < this.commRT.getTaskNum(); dstTid++) {
-				for (int dstBid = 0; dstBid < bucNumTask[dstTid]; dstBid++) {
+				for (int dstBid = 0; dstBid < blkNumOfTasks[dstTid]; dstBid++) {
 					for (int srcBid = 0; 
 							srcBid < this.verBlkMgr.getBlkNum(); srcBid++) {
-						VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(srcBid);
-						if (!vHbb.isRespond(type) ||
-								vHbb.getFragmentNum(dstTid, dstBid)==0) {continue;} //skip
-						bytes += vHbb.getFragmentLen(dstTid, dstBid);
+						VerBlockBeta beta = this.verBlkMgr.getVerBlkBeta(srcBid);
+						if (!beta.isRespond(type) ||
+								beta.getFragmentNum(dstTid, dstBid)==0) {
+							continue;
+						}//skip
+						bytes += beta.getFragmentLen(dstTid, dstBid);
 					}
 				}
-			}
+			}//calculate bytes of fragments (svid, #edges, edges)
 			
-			bytes += this.numOfReadVal[type] * this.graph_rw.getVerByte();
+			//associated data, i.e., vertex values associated with fragments.
+			bytes += this.fragNumOfPull * this.graph_rw.getVerByte();
+			bytes += this.estimatePullByte; //actual info&adj-edge
 		} 
-		
-		this.numOfReadVal[type] = 0L;
+		this.fragNumOfPull = 0L;
 		
 		return bytes;
 	}
@@ -834,7 +890,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			MsgRecord<M>[] cache, int dstVerMinId) throws Exception {
 		int curLocVerId = 0, counter = 0; 
 		int skip = 0, curLocVerPos = 0;
-		int dstBucIndex = this.commRT.getGlobalSketchGraph().getGlobalBucIndex(_tid, _bid);
 		int verMinId = this.verBlkMgr.getVerMinId();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.taskId, this.job, 
@@ -888,7 +943,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			context.initialize(graph, null, 0.0f, true);
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
 			
-			this.resDepend[resBid][dstBucIndex] = true;
 			statis[3] += msgs.length; //msg_pro
 			for (MsgRecord<M> msg: msgs) {
 				int index = msg.getDstVerId() - dstVerMinId;
@@ -937,32 +991,38 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				f_v_r.renameTo(f_v_w);
 			}
 		}
-		
-		for (int i = 0; i < this.commRT.getTaskNum(); i++) {
-			Arrays.fill(hitFlag[i], false);
-		}
 	}
 	
 	@Override
 	public void openGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
-		throws Exception {
+			throws Exception {
 		File dir = getVerDir(_bid);
 		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
 		this.vbFile.openVerReadHandler(f_v_r);
 		
-		if (this.useGraphInfo) {
-			File f_info_r = new File(dir, Ver_File_Info);
-			this.vbFile.openInfoReadHandler(f_info_r);
-		}
+		File f_adj = new File(dir, Ver_File_Adj);
+		this.vbFile.openAdjReadHandler(f_adj);
+		this.io_byte_adj += f_adj.length();
 	}
 	
 	@Override
 	public void closeGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
-		throws Exception {
+			throws Exception {
 		this.vbFile.closeVerReadHandler();
-		if (useGraphInfo) {
-			this.vbFile.closeInfoReadHandler();
-		}
+		this.vbFile.closeAdjReadHandler();
+	}
+	
+	@Override
+	public GraphRecord<V, W, M, I> getNextGraphRecordOnlyForPush(int _bid) 
+			throws Exception {
+		graph_rw.setVerId(this.verBlkMgr.getVerBlkBeta(_bid).getVerId());
+		graph_rw.deserVerValue(this.vbFile.getVerReadHandler());
+		io_byte_ver += (VERTEX_ID_BYTE + graph_rw.getVerByte());
+		
+		graph_rw.deserEdges(this.vbFile.getAdjReadHandler()); //read-only
+		read_adj_edge += graph_rw.getEdgeNum(); 
+		
+		return graph_rw;
 	}
 	
 	@Override
@@ -972,32 +1032,49 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
 		this.vbFile.openVerReadHandler(f_v_r);
 		
-		File f_info_r = new File(dir, Ver_File_Info);
-		if (this.useGraphInfo) {
-			this.vbFile.openInfoReadHandler(f_info_r);
-		} else {
-			this.estimatePushByte += f_info_r.length();
+		File f_info = new File(dir, Ver_File_Info);
+		if (this.loadGraphInfo) {
+			//curIteStyle=Pull and graphInfo is required
+			this.vbFile.openInfoReadHandler(f_info);
+			io_byte_info += f_info.length();
+		}
+		
+		File f_adj = new File(dir, Ver_File_Adj);
+		if (this.loadAdjEdge) {
+			this.vbFile.openAdjReadHandler(f_adj);
+			this.io_byte_adj += f_adj.length();
 		}
 		
 		File f_v_w = new File(dir, Ver_File_Value + (_iteNum+1));
 		this.vbFile.openVerWriteHandler(f_v_w);
+		
+		if (this.estimatePullByteFlag) {
+			//curIteStyle=Push
+			if (this.job.isUseGraphInfoInUpdate()) {
+				//if graphInfo is required by Pull
+				this.estimatePullByte += f_info.length();
+			}
+			if (this.job.isUseAdjEdgeInUpdate()) {
+				//if adj is required by Pull
+				this.estimatePullByte += f_adj.length();
+			}
+		} else {
+			//curIteStyle=Pull, adj must be read by Push.
+			this.estimatePushByte += f_adj.length();
+		}
 	}
 	
 	@Override
 	public void closeGraphDataStream(int _parId, int _bid, int _iteNum) 
 			throws Exception {
 		this.vbFile.closeVerReadHandler();
-		if (useGraphInfo) {
+		if (this.loadGraphInfo) {
 			this.vbFile.closeInfoReadHandler();
 		}
-		this.vbFile.closeVerWriteHandler();
-		
-		int type = (_iteNum+1) % 2;
-		if (this.estimatePullByte && 
-				this.verBlkMgr.getVerBlkBeta(_bid).isRespond(type)) {
-			this.numOfReadVal[type] += 
-				this.verBlkMgr.getVerBlkBeta(_bid).getFragmentNum();
+		if (this.loadAdjEdge) {
+			this.vbFile.closeAdjReadHandler();
 		}
+		this.vbFile.closeVerWriteHandler();
 	}
 	
 	@Override
@@ -1006,24 +1083,31 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		graph_rw.deserVerValue(this.vbFile.getVerReadHandler());
 		io_byte_ver += (VERTEX_ID_BYTE + graph_rw.getVerByte());
 		
-		if (this.useGraphInfo) {
+		if (this.loadGraphInfo) {
 			graph_rw.deserGraphInfo(this.vbFile.getInfoReadHandler()); //read-only
-			io_byte_edge += graph_rw.getGraphInfoByte();
-			read_edge += graph_rw.getEdgeNum(); 
 		}
+		if (this.loadAdjEdge) {
+			graph_rw.deserEdges(this.vbFile.getAdjReadHandler()); //read-only
+			read_adj_edge += graph_rw.getEdgeNum(); 
+		}
+		
 		return graph_rw;
 	}
 	
 	@Override
 	public void saveGraphRecord(int _bid, int _iteNum, 
-			boolean _acFlag, boolean _upFlag) throws Exception {
+			boolean _acFlag, boolean _resFlag) throws Exception {
 		int index = graph_rw.getVerId() - this.verBlkMgr.getVerMinId(); //global index
 		int type = (_iteNum+1)%2;
 		actFlag[index] = _acFlag;
-		resFlag[type][index] = _upFlag;
-		if (_upFlag) {
-			this.verBlkMgr.setBlkRespond(type, _bid, _upFlag);
+		resFlag[type][index] = _resFlag;
+		if (_resFlag) {
+			this.verBlkMgr.setBlkRespond(type, _bid, _resFlag);
 			this.verBlkMgr.incRespondVerNum(_bid);
+			
+			if (this.estimatePullByteFlag) {
+				this.fragNumOfPull += graph_rw.getFragmentNum(commRT, hitFlag);
+			}
 		}
 		
 		graph_rw.serVerValue(this.vbFile.getVerWriteHandler());
@@ -1046,9 +1130,13 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
     		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
     		this.vbFile.openVerReadHandler(f_v_r);
     		
-    		if (this.useGraphInfo) {
-    			File f_info_r = new File(dir, Ver_File_Info);
-        		this.vbFile.openInfoReadHandler(f_info_r);
+    		if (this.job.isUseGraphInfoInUpdate()) {
+    			File f_info = new File(dir, Ver_File_Info);
+        		this.vbFile.openInfoReadHandler(f_info);
+    		}
+    		if (this.job.isUseAdjEdgeInUpdate()) {
+    			File f_adj = new File(dir, Ver_File_Adj);
+    			this.vbFile.openAdjReadHandler(f_adj);
     		}
         	
     		int bucVerNum = this.verBlkMgr.getVerBlkBeta(bid).getVerNum();
@@ -1056,15 +1144,21 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
             
     		for (int idx = 0; idx < bucVerNum; idx++) {
     			graph_rw.deserVerValue(this.vbFile.getVerReadHandler());
-    			if (this.useGraphInfo) {
+    			if (this.job.isUseGraphInfoInUpdate()) {
     				graph_rw.deserGraphInfo(this.vbFile.getInfoReadHandler());
+    			}
+    			if (this.job.isUseAdjEdgeInUpdate()) {
+    				graph_rw.deserEdges(this.vbFile.getAdjReadHandler());
     			}
     			output.write(new Text(Integer.toString(min+idx)), 
     					new Text(graph_rw.getFinalValue().toString()));
     		}
     		this.vbFile.closeVerReadHandler();
-    		if (this.useGraphInfo) {
+    		if (this.job.isUseGraphInfoInUpdate()) {
     			this.vbFile.closeInfoReadHandler();
+    		}
+    		if (this.job.isUseAdjEdgeInUpdate()) {
+    			this.vbFile.closeAdjReadHandler();
     		}
     		saveNum += bucVerNum;
         }

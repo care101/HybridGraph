@@ -314,13 +314,72 @@ public void setBspClass(Class<? extends BSP> cls)
 	return conf.getInt("bsp.supersteps.num", 1);
   }
   
-  public void useGraphInfo(boolean flag) {
-	  conf.setBoolean("bsp.use.graphinfo", flag);
+  /**
+   * If ture, HybridGraph stores graphInfo 
+   * and initializes graphInfo when executing {@link BSPInterface}.update() 
+   * to update vertex values. 
+   * Only for Pull.
+   * User-defined paramater, false as default.
+   * @param flag
+   */
+  public void useGraphInfoInUpdate(boolean flag) {
+	  conf.setBoolean("bsp.update.use.graphinfo", flag);
   }
   
-  /** return false as default */
-  public boolean isUseGraphInfo() {
-	  return conf.getBoolean("bsp.use.graphinfo", false);
+  /**
+   * Is graphInfo required when updating vertex values. 
+   * Only for Pull.
+   * Return false as default.
+   * @return
+   */
+  public boolean isUseGraphInfoInUpdate() {
+	  return conf.getBoolean("bsp.update.use.graphinfo", false);
+  }
+  
+  /**
+   * If ture, HybridGraph stores edges in the adjacency list, 
+   * and initializes edges when executing {@link BSPInterface}.update() 
+   * to update vertex values.
+   * User-defined paramater, false as default.
+   * @param flag
+   */
+  public void useAdjEdgeInUpdate(boolean flag) {
+	  storeAdjEdge(true);
+	  conf.setBoolean("bsp.update.use.edge.adj", flag);
+  }
+  
+  /**
+   * Are edges in the adjacency list required when updating 
+   * vertex values.
+   * Return false as default.
+   * @return
+   */
+  public boolean isUseAdjEdgeInUpdate() {
+	  return conf.getBoolean("bsp.update.use.edge.adj", false);
+  }
+  
+  /**
+   * If ture, HybridGraph stores edges in the adjacency list.
+   * Auto-defined paramater:
+   *   true, if "style" is Push or Hybrid in setBspStyle(int style), 
+   *         or "flag" is true in useAdjEdgeInUpdate(boolean flag).
+   * False as default.
+   * @param flag
+   */
+  private void storeAdjEdge(boolean flag) {
+	  conf.setBoolean("bsp.store.edge.adj", flag);
+  }
+  
+  /**
+   * Does HybridGraph store edges in the adjacency list?
+   * Auto-defined paramater:
+   *   true, if "style" is Push or Hybrid in setBspStyle(int style), 
+   *         or "flag" is true in useAdjEdgeInUpdate(boolean flag).
+   * Return false as default.
+   * @return
+   */
+  public boolean isStoreAdjEdge() {
+	  return conf.getBoolean("bsp.store.edge.adj", false);
   }
   
   /** Push, Pull, or Hybrid */
@@ -333,13 +392,13 @@ public void setBspClass(Class<? extends BSP> cls)
 		  break;
 	  case Constants.STYLE.Push:
 		  setStartIteStyle(style);
-		  useGraphInfo(true);
-		  //LOG.info("set default StartIteStyle=push, useGraphInfo=true");
+		  storeAdjEdge(true);
+		  //LOG.info("set default StartIteStyle=push, storeAdjEdge=true");
 		  break;
 	  case Constants.STYLE.Hybrid:
 		  setStartIteStyle(Constants.STYLE.Pull);
-		  useGraphInfo(true);
-		  //LOG.info("set default StartIteStyle=pull, useGraphInfo=true");
+		  storeAdjEdge(true);
+		  //LOG.info("set default StartIteStyle=pull, storeAdjEdge=true");
 		  break;
 	  }
   }
@@ -372,10 +431,14 @@ public void setBspClass(Class<? extends BSP> cls)
   /**
    * True, using {@link GraphDataServerDisk}, 
    * otherwise, using {@link GraphDataServerMem}.
+   * Now, {@link GraphDataServerMem} is only used for Pull.
    * @param _flag
    */
   public void setGraphDataOnDisk(boolean _flag) {
 	  conf.setBoolean("bsp.storage.graphdata.disk", _flag);
+	  if (!_flag) {
+		  setBspStyle(Constants.STYLE.Pull); 
+	  }
   }
   
   /**

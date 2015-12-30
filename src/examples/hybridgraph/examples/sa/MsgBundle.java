@@ -1,8 +1,9 @@
-package hybridgraph.examples.sa.pull;
+package hybridgraph.examples.sa;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 public class MsgBundle {
@@ -26,6 +27,21 @@ public class MsgBundle {
 	
 	public int getByteSize() {
 		return (4 + 4*this.aIds.size());
+	}
+	
+	public void write(ByteBuffer out) throws IOException {
+		out.putInt(this.aIds.size());
+		for (int aId: this.aIds) {
+    		out.putInt(aId);
+    	}
+	}
+	
+	public void read(ByteBuffer in) throws IOException {
+		int size = in.getInt();
+    	this.aIds = new ArrayList<Integer>(size);
+    	for (int i = 0; i < size; i++) {
+    		this.aIds.add(in.getInt());
+    	}
 	}
 	
     public void write(DataOutputStream out) throws IOException {

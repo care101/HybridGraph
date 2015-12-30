@@ -12,34 +12,11 @@ public class EdgeFragmentEntry<V,W,M,I> extends EdgeFragment<V,W,M,I> {
 	
 	public EdgeFragmentEntry(int _vid,  
 			int _srcBid, int _dstTid, int _dstBid) {
-		super();
+		super(_vid);
 		
-		verId = _vid;
 		srcBid = _srcBid;
 		dstTid = _dstTid;
 		dstBid = _dstBid;
-	}
-	
-	public void initialize(Integer[] _edgeIds, W[] _edgeWeights) {
-		edgeIds = _edgeIds;
-		edgeWeights = _edgeWeights;
-		edgeNum = _edgeIds==null? 0:edgeIds.length;
-	}
-	
-	/**
-	 * Return the source vertex id.
-	 * @return
-	 */
-	public int getVerId() {
-		return this.verId;
-	}
-	
-	public Integer[] getEdgeIds() {
-		return this.edgeIds;
-	}
-	
-	public W[] getEdgeWeights() {
-		return this.edgeWeights;
 	}
 	
 	public int getSrcBid() {

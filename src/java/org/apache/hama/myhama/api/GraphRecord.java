@@ -4,6 +4,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.CommRouteTable;
@@ -25,8 +26,7 @@ import org.apache.hama.myhama.graph.EdgeFragmentEntry;
  * @param <M> message value
  * @param <I> graph information
  */
-public abstract class GraphRecord<V, W, M, I> 
-		implements GraphRecordInterface<V, W, M, I> {
+public abstract class GraphRecord<V, W, M, I> {
 	
 	public GraphRecord() { };
 	
@@ -276,7 +276,7 @@ public abstract class GraphRecord<V, W, M, I>
     			decompose(CommRouteTable<V, W, M, I> commRT, 
     					TaskInformation taskInfo) {
 		int dstTid, dstBid, taskNum = commRT.getTaskNum();
-		int[] blkNumOfTask = commRT.getGlobalSketchGraph().getBucNumTask();
+		int[] blkNumOfTask = commRT.getJobInformation().getBlkNumOfTasks();
 		boolean hasWeight = this.edgeWeights==null? false:true;
 		ArrayList<Integer>[][] idOfFragments = new ArrayList[taskNum][];
 		ArrayList<W>[][] weightOfFragments = null;
@@ -292,8 +292,8 @@ public abstract class GraphRecord<V, W, M, I>
 		
 		//decomposing
 		for (int index = 0; index < this.edgeNum; index++) {
-			dstTid = commRT.getDstParId(this.edgeIds[index]);
-			dstBid = commRT.getDstBucId(dstTid, this.edgeIds[index]);
+			dstTid = commRT.getDstTaskId(this.edgeIds[index]);
+			dstBid = commRT.getDstLocalBlkIdx(dstTid, this.edgeIds[index]);
 			if (idOfFragments[dstTid][dstBid] == null) {
 				idOfFragments[dstTid][dstBid] = new ArrayList<Integer>(); 
 				if (hasWeight) {
@@ -332,8 +332,33 @@ public abstract class GraphRecord<V, W, M, I>
 				}
 			}
 		}
-		this.setEdges(null, null);
 
 		return result;
     }
+    
+    /**
+     * Return #fragments. 
+     * #fragments is used to calculate the io bytes of reading vertex values 
+     * during pulling messages, when the current superstep is running style.Push.
+     * @param commRT
+     * @param hitFlag
+     * @return
+     */
+	public int getFragmentNum(CommRouteTable<V, W, M, I> commRT, 
+			boolean[][] hitFlag) {
+		for (int i = 0; i < hitFlag.length; i++) {
+			Arrays.fill(hitFlag[i], false);
+		}
+		int dstTid = -1, dstBid = -1, counter = 0;
+		for (int index = 0; index < this.edgeNum; index++) {
+			dstTid = commRT.getDstTaskId(this.edgeIds[index]);
+			dstBid = commRT.getDstLocalBlkIdx(dstTid, this.edgeIds[index]);
+			if (!hitFlag[dstTid][dstBid]) {
+				hitFlag[dstTid][dstBid] = true;
+				counter++;
+			}
+		}
+		
+		return counter;
+	}
 }
