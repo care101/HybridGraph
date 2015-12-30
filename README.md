@@ -12,7 +12,7 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern Univeristy (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
-This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. Without loss of generality, suppose that HybridGraph is installed in `/usr/HybridGraph`.
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. Without loss of generality, suppose that HybridGraph is installed in `/usr/HybridGraph`.
 
 ###2.1 Requirements
 * Apache Ant 1.7.1 or higher version
