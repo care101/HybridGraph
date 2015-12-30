@@ -23,7 +23,8 @@ import org.apache.hama.myhama.io.RecordWriter;
 import org.apache.hama.myhama.util.GraphContext;
 
 /**
- * GraphDataServerMem manages graph data in memory.
+ * GraphDataServerMem manages graph data in memory. 
+ * Currently, the memory version only supports style.Pull. 
  * The overall performance may be affected 
  * when starting Java GC or applying for more memory resources 
  * to increase the heap size of JVM.
