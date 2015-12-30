@@ -139,7 +139,7 @@ About arguments:
 HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`.
 
 ##3. Programming Guide
-HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the src/examples/hybrid/examples package and have been packaged into the termite-examples-0.1.jar file. Users can implement their own algorithms by learning these examples.
+HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples.
 
 ##4. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
