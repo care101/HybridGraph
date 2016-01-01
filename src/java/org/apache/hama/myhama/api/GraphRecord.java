@@ -11,15 +11,13 @@ import org.apache.hama.myhama.comm.CommRouteTable;
 import org.apache.hama.myhama.graph.EdgeFragmentEntry;
 
 /**
- * GraphRecord implemented by users, 
- * which consists of five components:
- *   1) variables and operations for the VBlock's Triple;
- *   2) variables and operations for the EBlock's Fragment;
- *   3) some functions used for disk operations;
- *   4) user-defined functions for loading and decomposing graph data;
- *   5) variables and operations used by decomposing.
+ * GraphRecord is a data structure used by HybridGraph. 
+ * Intuitively, it represents one adjacency list.
+ *  
+ * Users should define their own representation by 
+ * extending {@link GraphRecord}.
  * 
- * @author root
+ * @author zhigang wang
  *
  * @param <V> vertex value
  * @param <W> edge weight
@@ -45,28 +43,92 @@ public abstract class GraphRecord<V, W, M, I> {
 		return verId;
 	}
 	
+	/**
+	 * Set the vertex value.
+	 * The physical meaning of vertex value in HybridGraph 
+	 * may be different from that in Giraph for some algorithms. 
+	 * Actually, in HybridGraph, vertex value is used to generate 
+	 * correct messages in {@link BSP}.getMessages() without 
+	 * help of statistical information of edges. 
+	 * This is because edges may be divided and then stored in 
+	 * several fragments, and in getMessages(), only partial edges 
+	 * in one fragment are provided. Obviously, the global statistical 
+	 * information, such as out-degree, is not available.
+	 * Take PageRank as an example. 
+	 * it is PageRank_Score/out-degree, 
+	 * because "out-degree" is not available in getMessages(). 
+	 * However, for Giraph, it is PageRank_Score, and the corrent 
+	 * message value can be calculated based on out-degree, because 
+	 * edges are not divided. 
+	 * 
+	 * @param _verValue
+	 */
 	public void setVerValue(V _verValue) {
 		verValue = _verValue;
 	}
 	
+	/**
+	 * Get a read-only vertex value.
+	 * The physical meaning of vertex value in HybridGraph 
+	 * may be different from that in Giraph for some algorithms. 
+	 * Actually, in HybridGraph, vertex value is used to generate 
+	 * correct messages in {@link BSP}.getMessages() without 
+	 * help of statistical information of edges. 
+	 * This is because edges may be divided and then stored in 
+	 * several fragments, and in getMessages(), only partial edges 
+	 * in one fragment are provided. Obviously, the global statistical 
+	 * information, such as out-degree, is not available.
+	 * Take PageRank as an example. 
+	 * it is PageRank_Score/out-degree, 
+	 * because "out-degree" is not available in getMessages(). 
+	 * However, for Giraph, it is PageRank_Score, and the corrent 
+	 * message value can be calculated based on out-degree, because 
+	 * edges are not divided. 
+	 * @return
+	 */
 	public final V getVerValue() {
 		return verValue;
 	}
 	
+	/**
+	 * Get a read-only statistical information. 
+	 * Take PageRank as an example. 
+     * The information should be the out-degree 
+     * which can be used in {@link BSP}.update() to 
+     * calculate vertex value.
+     * We use graphInfo instead of edgeNum, because 
+     * edges may not be available in update() when running 
+     * style.Pull.
+	 * @return
+	 */
     public final I getGraphInfo() {
     	return graphInfo;
     }
     
+    /**
+     * Set the statistical information. 
+	 * Take PageRank as an example. 
+     * The information should be the out-degree 
+     * which can be used in {@link BSP}.update() to 
+     * calculate vertex value.
+     * We use graphInfo instead of edgeNum, because 
+     * edges may not be available in update() when running 
+     * style.Pull.
+     * @param _graphInfo
+     */
     public void setGraphInfo(I _graphInfo) {
     	graphInfo = _graphInfo;
     }
     
     /**
-     * Get the final value and save it onto HDFS.
-     * For most algorithms, such as SSSP, it is equal to the current value.
-     * Thus, the defalut return-value is this.verValue.
-     * However, for PageRank, the current value is RealValue/OutDegree.
-     * Thus, users should override this function to get the correct final value.
+     * Get the correct vertex value and save it onto HDFS. 
+     * Return this.verValue if {@link BSPJob}useGraphInfoInUpdate(false). 
+     * Otherwise, it should be defined based on the logics in 
+     * {@link BSP}.update(). 
+     * Take PageRank as an example, this.verValue actually represents 
+     * PageRank_Score/out-degree calculated in {@link BSP}.update(). 
+     * Thus, users should recovery the correct value PageRank_Score 
+     * by this.verValue*this.graphInfo.
      * @return
      */
     public V getFinalValue() {
@@ -175,31 +237,33 @@ public abstract class GraphRecord<V, W, M, I> {
     		throws EOFException, IOException { this.verId = vIn.getInt(); };
     
     /**
-     * Searialize graph record statistics info. onto the local disk.
-     * This should be overrided if the local disk is used.
-     * 
-     * @param eOut
-     * @throws EOFException
-     * @throws IOException
-     */
+	 * Searialize graph record statistics info. onto the local disk. Do
+	 * nothing if {@link BSPJob}.setGraphDataOnDisk(false); or
+	 * {@link BSPJob}useGraphInfoInUpdate(false).
+	 * 
+	 * @param eOut
+	 * @throws EOFException
+	 * @throws IOException
+	 */			     
     public void serGrapnInfo(ByteBuffer eOut) 
 			throws EOFException, IOException { };
 
-    /**
-     * Deserialize graph record statistics info. from the local disk.
-     * This should be overrided if the local disk is used.
-     * 
-     * @param eIn
-     * @throws EOFException
-     * @throws IOException
-     */
+	/**
+	 * Deserialize graph record statistics info. from the local disk.
+	 * Do nothing if {@link BSPJob}.setGraphDataOnDisk(false) 
+	 * or {@link BSPJob}useGraphInfoInUpdate(false).
+	 * 
+	 * @param eIn
+	 * @throws EOFException
+	 * @throws IOException
+	 */
     public void deserGraphInfo(ByteBuffer eIn) 
 			throws EOFException, IOException { };
     
     /**
      * Serialize outer edges onto the local disk.
      * Include the number of edges.
-     * This should be overrided if the local disk is used.
+     * Do nothing if {@link BSPJob}.setGraphDataOnDisk(false);
      * 
      * @param eOut
      * @throws EOFException
@@ -211,7 +275,7 @@ public abstract class GraphRecord<V, W, M, I> {
     /**
      * Deserialize outer edges from the local disk.
      * Include the number of edges.
-     * This should be overrided if the local disk is used.
+     * Do nothing if {@link BSPJob}.setGraphDataOnDisk(false);
      * 
      * @param eIn
      * @throws EOFException
