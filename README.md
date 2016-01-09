@@ -41,6 +41,12 @@ The details are shown in [termite-site.xml](https://github.com/HybridGraph/Hybri
 `slave1`  
 `slave2`  
 
+####2.2.3 deploying  
+Copy configurated files on `master` to `slave1` and `slave2`.  
+`scp -r ~/HybridGraph slave1:.`  
+`scp -r ~/HybridGraph slave2:.`  
+
+
 ####2.2.3  building   
 `cd $HybridGraph_HOME`  
 `ant`  
@@ -52,7 +58,6 @@ Notice that you can build a specified part of HybridGraph as follows:
 
 By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building. In addition, users also can import source code into Eclipse as an existing Java project and build it using the `$HybridGraph_HOME/build.xml` file.
 
-####2.2.4 deploying  
 First, configurate HybridGraph on the master machine as described in Sections 2.2.1-2.2.3, and then copy `$HybridGraph_HOME` to the same location on all slaves. 
 Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top level directory `$HybridGraph_HOME` on all machines.  
 
