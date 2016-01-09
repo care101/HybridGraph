@@ -46,6 +46,7 @@ Copy configurated files on `master` to `slave1` and `slave2`.
 `scp -r ~/HybridGraph slave2:.`  
 
 ###2.3 Starting HybridGraph  
+Type the following commands on `master` to start HybridGraph.  
 * __starting HDFS:__  
 `start-dfs.sh`  
 * __starting HybridGraph after NameNode has left safemode:__  
