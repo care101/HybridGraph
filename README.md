@@ -86,7 +86,7 @@ About arguments:
 [10] starting style: 1--push, 2--b-pull  
 [11] the source vertex id  
 
-HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`. Currently, the memory version only works for `b-pull`.
+HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`. Currently, the memory version only works for `b-pull`. Please type `termite jar $HybridGraph_HOME/termite-examples-0.1.jar` to list all example algorithms.  
 
 ##3  Building HybridGraph with Apache Ant  
 Users can import source code into Eclipse as an existing Java project to modify the core engine of HybridGraph, and then build your  modified version. Before building, you should install Apache Ant 1.7.1 or higher version on your `master`. Suppose the modified version is located in `~/source/HybridGraph`.  You can build it using `~/source/HybridGraph/build.xml` as follows:  
