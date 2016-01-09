@@ -12,10 +12,9 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern University (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
-This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. 
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. 
 
 ###2.1 Requirements
-* Apache Ant 1.7.1 or higher version
 * Apache hadoop-0.20.2
 * Sun Java JDK 1.6.x or higher version  
 Without loss of generality, suppose that HybridGraph is installed in `~/HybridGraph` and Java is installed in `/usr/java/jdk1.6.0_23`.
@@ -88,7 +87,7 @@ About arguments:
 
 HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`. Currently, the memory version only works for `b-pull`.
 
-##3  Building HybridGraph with Apache Ant   
+##3  Building HybridGraph with Apache Ant(1.7.1 or higher version)  
 Users can import source code into Eclipse as an existing Java project to modify the core engine of HybridGraph, and then build your  modified version. Before building, you should install Apache Ant on your `master`. Suppose the modified version is located in `~/source/HybridGraph`.  You can build it using `~/source/HybridGraph/build.xml` as follows:  
 `cd ~/source/HybridGraph`  
 `ant`  
