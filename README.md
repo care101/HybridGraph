@@ -21,7 +21,7 @@ This section describes how to configurate, compile and then deploy HybridGraph o
 Without loss of generality, suppose that HybridGraph is installed in `~/HybridGraph` and Java is installed in `/usr/java/jdk1.6.0_23`.
 
 ###2.2 Deploying HybridGraph   
-####download files on `master`  
+####downloading files on `master`  
 `cd ~/`  
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
@@ -33,11 +33,11 @@ First, edit `/etc/profile` by typing `sudo vi /etc/profile` and then add the fol
 After that, type `source /etc/profile` in the command line to make changes take effect.  
 
 Second, edit configuration files in `HybridGraph_HOME/conf` as follows:  
-* __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
+* __termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
-* __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
+* __termite-site.xml:__ configurating the HybridGraph engine.  
 The details are shown in [termite-site.xml](https://github.com/HybridGraph/HybridGraph/blob/master/conf/termite-site.xml)  
-* __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
+* __workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
 
