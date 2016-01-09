@@ -12,50 +12,41 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern University (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
-This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. Without loss of generality, suppose that HybridGraph is installed in `/usr/HybridGraph`.
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. 
 
 ###2.1 Requirements
-* Apache Ant 1.7.1 or higher version
 * Apache hadoop-0.20.2
-* Sun Java JDK 1.6.x or higher version
+* Sun Java JDK 1.6.x or higher version  
+Without loss of generality, suppose that HybridGraph is installed in `~/HybridGraph` and Java is installed in `/usr/java/jdk1.6.0_23`.
 
 ###2.2 Deploying HybridGraph   
-####2.2.1 download  
-`cd /usr`  
+####downloading files on `master`  
+`cd ~/`  
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
-####2.2.2 configuration  
-First, edit `/etc/profile` and add the following information:  
-`export HybridGraph_HOME=/usr/HybridGraph`   
-`export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
-`export PATH=$PATH:$HybridGraph_HOME/sbin`  
+####configuration on `master`  
+First, edit `/etc/profile` by typing `sudo vi /etc/profile` and then add the following information:  
+`export HybridGraph_HOME=~/HybridGraph`   
+`export HybridGraph_CONF_DIR=$HybridGraph_HOME/conf`  
+`export PATH=$PATH:$HybridGraph_HOME/bin`  
 After that, type `source /etc/profile` in the command line to make changes take effect.  
 
 Second, edit configuration files in `HybridGraph_HOME/conf` as follows:  
-* __$HybridGraph_HOME/conf/termite-env.sh:__ setting up the Java path.  
+* __termite-env.sh:__ setting up the Java path.  
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
-* __$HybridGraph_HOME/conf/termite-site.xml:__ configurating the HybridGraph engine.  
+* __termite-site.xml:__ configurating the HybridGraph engine.  
 The details are shown in [termite-site.xml](https://github.com/HybridGraph/HybridGraph/blob/master/conf/termite-site.xml)  
-* __$HybridGraph_HOME/conf/workers:__ settting up workers of HybridGraph.  
+* __workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
 
-####2.2.3  building   
-`cd $HybridGraph_HOME`  
-`ant`  
-Notice that you can build a specified part of HybridGraph as follows:  
-1) build the core engine  
-`ant core.jar`  
-2) build examples  
-`ant examples.jar`   
-
-By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building. In addition, users also can import source code into Eclipse as an existing Java project and build it using the `$HybridGraph_HOME/build.xml` file.
-
-####2.2.4 deploying  
-First, configurate HybridGraph on the master machine as described in Sections 2.2.1-2.2.3, and then copy `$HybridGraph_HOME` to the same location on all slaves. 
-Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top level directory `$HybridGraph_HOME` on all machines.  
+####deploying  
+Copy configurated files on `master` to `slave1` and `slave2`.  
+`scp -r ~/HybridGraph slave1:.`  
+`scp -r ~/HybridGraph slave2:.`  
 
 ###2.3 Starting HybridGraph  
+Type the following commands on `master` to start HybridGraph.  
 * __starting HDFS:__  
 `start-dfs.sh`  
 * __starting HybridGraph after NameNode has left safemode:__  
@@ -63,14 +54,14 @@ Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top leve
 * __stopping HybridGraph:__  
 `stop-termite.sh`  
 
-###2.4 Running a Single Source Shortest Path (SSSP) job on master  
-First, create an example graph under input/file.txt on HDFS with the follwing:  
+###2.4 Running a Single Source Shortest Path (SSSP) job on `master`  
+First, create an input file under input/file.txt on HDFS. Input file should be in format of:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
-An example is given in [input_graph](https://github.com/HybridGraph/HybridGraph/blob/master/input_graph.txt).  
+An example is given in [graph_data_example](https://github.com/HybridGraph/HybridGraph/blob/master/input_graph.txt).  
 
 Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
-`termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -81,7 +72,7 @@ About arguments:
 [7] the sending threshold  
 [8] the source vertex id  
 * __SSSP (using hybrid):__  
-`termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -95,12 +86,24 @@ About arguments:
 [10] starting style: 1--push, 2--b-pull  
 [11] the source vertex id  
 
-HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`. Currently, the memory version only works for `b-pull`.
+HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`. Currently, the memory version only works for `b-pull`. Please type `termite jar $HybridGraph_HOME/termite-examples-0.1.jar` to list all example algorithms.  
 
-##3. Programming Guide
-HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples.
+##3  Building HybridGraph with Apache Ant  
+Users can import source code into Eclipse as an existing Java project to modify the core engine of HybridGraph, and then build your  modified version. Before building, you should install Apache Ant 1.7.1 or higher version on your `master`. Suppose the modified version is located in `~/source/HybridGraph`.  You can build it using `~/source/HybridGraph/build.xml` as follows:  
+`cd ~/source/HybridGraph`  
+`ant`  
+Notice that you can build a specified part of HybridGraph as follows:  
+1) build the core engine  
+`ant core.jar`  
+2) build examples  
+`ant examples.jar`   
 
-##4. Testing Report
+By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `~/source/HybridGraph/build` after a successful building. Finally, use the new `termite-core-0.1.jar` to replace the old one in `$HybridGraph_HOME` on the cluster (i.e., `master`, `slave1`, and `slave2`). At anytime, you should guarantee that there exists only one `termite-core-xx.jar` file in `$HybridGraph_HOME`.  
+
+##4. Programming Guide
+HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples. After that, as described in Section 3 and Section 2.4, you can build your own algorithm can then run it.
+
+##5. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
 and the modified pull-based sytem [GraphLab PowerGraph](https://github.com/HybridGraph/GraphLab-PowerGraph.git).
 
@@ -122,7 +125,7 @@ In all the testing, each node runs one task,
 to avoid the resource contention.
 
 
-###4.1 Blocking time `push vs. b-pull` using PageRank  
+###5.1 Blocking time `push vs. b-pull` using PageRank  
 Here, blocking time is the time when nodes are exchanging messages.
 It is calculated by summing up the message exchanging time in iterations.
 We run PageRank in this test and provide sufficient memory.
@@ -134,7 +137,7 @@ datasets. Note that b-pull starts exchanging messages from the 2nd superstep.
 <img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />  
 
 
-###4.2 Network traffic `push vs. b-pull` using PageRank  
+###5.2 Network traffic `push vs. b-pull` using PageRank  
 The network traffic includes all input and
 output on bytes, and is extracted by [Ganglia](http://ganglia.sourceforge.net/),
 a cluster monitoring tool, where the monitoring interval is for every 2 seconds. 
@@ -148,7 +151,7 @@ as that of push, as it cannot optimize communication costs.
 <img src="figures/app_3_b_nettraf_orkut.jpg" alt="network traffic of orkut" title="network traffic of orkut" width="300" />  
 
 
-###4.3 Testing runtime over wiki by varying the memroy resource  
+###5.3 Testing runtime over wiki by varying the memroy resource  
 The runtime of push obviously increases when the message buffer
 decreases, since accessing messages on disk is extremely expensive.
 Taking PageRank as an example, the
@@ -179,7 +182,7 @@ LPA and SA
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
 
-###4.4 Scalability  
+###5.4 Scalability  
 Scalability of computations for `push` and `hybrid` (LPA)  
 <img src="figures/app_6_a_sca_run_lpa_push.jpg" alt="scalability of push LPA" title="scalability of push LPA" width="300" />
 <img src="figures/app_6_b_sca_run_lpa_pull.jpg" alt="scalability of hybrid LPA" title="scalability of hybrid LPA" width="300" />  
@@ -189,8 +192,8 @@ Scalability of computations for `push` and `hybrid` (SA)
 <img src="figures/app_7_b_sca_run_sa_hybrid.jpg" alt="scalability of hybrid SA" title="scalability of hybrid SA" width="300" /> 
 
 
-##5. Publications
+##6. Publications
 <!-- * Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing. to appear in SIGMOD2016. -->
 
-##6. Contact  
+##7. Contact  
 If you encounter any problem with HybridGraph, please feel free to contact wangzhiganglab@gmail.com.
