@@ -21,11 +21,11 @@ This section describes how to configurate, compile and then deploy HybridGraph o
 Without loss of generality, suppose that HybridGraph is installed in `~/HybridGraph` and Java is installed in `/usr/java/jdk1.6.0_23`.
 
 ###2.2 Deploying HybridGraph   
-####2.2.1 download files on `master`  
+####download files on `master`  
 `cd ~/`  
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
-####2.2.2 configuration on `master`  
+####configuration on `master`  
 First, edit `/etc/profile` by typing `sudo vi /etc/profile` and then add the following information:  
 `export HybridGraph_HOME=~/HybridGraph`   
 `export HybridGraph_CONF_DIR=$HybridGraph_HOME/conf`  
@@ -41,7 +41,7 @@ The details are shown in [termite-site.xml](https://github.com/HybridGraph/Hybri
 `slave1`  
 `slave2`  
 
-####2.2.3 deploying  
+####deploying  
 Copy configurated files on `master` to `slave1` and `slave2`.  
 `scp -r ~/HybridGraph slave1:.`  
 `scp -r ~/HybridGraph slave2:.`  
