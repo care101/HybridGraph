@@ -19,7 +19,7 @@
 <property>
 <name>bsp.task.max</name>
 <value>1</value>
-<description>The maximum number of child processes that will be run simultaneously by a worker(slave).
+<description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>
 </property>
 <property>
 <name>bsp.local.dir</name>
