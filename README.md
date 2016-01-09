@@ -12,7 +12,7 @@ Features of HybridGraph:
 The HybridGraph project started at Northeastern University (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ##2. Quick Start
-This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. Without loss of generality, suppose that HybridGraph is installed in `/usr/HybridGraph`.
+This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Ant and Apache Hadoop should be installed on the cluster, and their illustration is beyond the scope of this document. Without loss of generality, suppose that HybridGraph is installed in `~/HybridGraph`.
 
 ###2.1 Requirements
 * Apache Ant 1.7.1 or higher version
@@ -20,14 +20,14 @@ This section describes how to configurate, compile and then deploy HybridGraph o
 * Sun Java JDK 1.6.x or higher version
 
 ###2.2 Deploying HybridGraph   
-####2.2.1 download  
-`cd /usr`  
+####2.2.1 download files on `master`  
+`cd ~/`  
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
-####2.2.2 configuration  
+####2.2.2 configuration on `master`  
 First, edit `/etc/profile` and add the following information:  
-`export HybridGraph_HOME=/usr/HybridGraph`   
-`export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
+`export HybridGraph_HOME=~/HybridGraph`   
+`export HybridGraph_CONF_DIR=$HybridGraph_HOME/conf`  
 `export PATH=$PATH:$HybridGraph_HOME/bin`  
 After that, type `source /etc/profile` in the command line to make changes take effect.  
 
