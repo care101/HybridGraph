@@ -23,7 +23,7 @@
 </property>
 <property>
 <name>bsp.local.dir</name>
-<value>/tmp/termite_tmp_data</value>
+<value>~/HybridGraph/data</value>
 <description>Temporary directory on the local filesystem.</description>
 </property>
 <property>
