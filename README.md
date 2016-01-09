@@ -46,21 +46,6 @@ Copy configurated files on `master` to `slave1` and `slave2`.
 `scp -r ~/HybridGraph slave1:.`  
 `scp -r ~/HybridGraph slave2:.`  
 
-
-####2.2.3  building   
-`cd $HybridGraph_HOME`  
-`ant`  
-Notice that you can build a specified part of HybridGraph as follows:  
-1) build the core engine  
-`ant core.jar`  
-2) build examples  
-`ant examples.jar`   
-
-By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `$HybridGraph_HOME/build` after a successful building. In addition, users also can import source code into Eclipse as an existing Java project and build it using the `$HybridGraph_HOME/build.xml` file.
-
-First, configurate HybridGraph on the master machine as described in Sections 2.2.1-2.2.3, and then copy `$HybridGraph_HOME` to the same location on all slaves. 
-Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top level directory `$HybridGraph_HOME` on all machines.  
-
 ###2.3 Starting HybridGraph  
 * __starting HDFS:__  
 `start-dfs.sh`  
@@ -69,14 +54,14 @@ Second, copy `termite-core-0.1.jar` in `$HybridGraph_HOME/build` to the top leve
 * __stopping HybridGraph:__  
 `stop-termite.sh`  
 
-###2.4 Running a Single Source Shortest Path (SSSP) job on master  
-First, create an example graph under input/file.txt on HDFS with the follwing:  
+###2.4 Running a Single Source Shortest Path (SSSP) job on `master`  
+First, create an input file under input/file.txt on HDFS. Input file should be in format of:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
-An example is given in [input_graph](https://github.com/HybridGraph/HybridGraph/blob/master/input_graph.txt).  
+An example is given in [graph_data_example](https://github.com/HybridGraph/HybridGraph/blob/master/input_graph.txt).  
 
 Second, submit the SSSP job with different models:  
 * __SSSP (using b-pull):__  
-`termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -87,7 +72,7 @@ About arguments:
 [7] the sending threshold  
 [8] the source vertex id  
 * __SSSP (using hybrid):__  
-`termite jar $HybridGraph_HOME/build/termite-examples-0.1.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -103,8 +88,20 @@ About arguments:
 
 HybridGraph manages graph data on disk as default. Users can tell HybridGraph to keep graph data in memory through `BSPJob.setGraphDataOnDisk(false)`. Currently, the memory version only works for `b-pull`.
 
-##3. Programming Guide
-HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples.
+##3  Building HybridGraph with Apache Ant   
+Users can import source code into Eclipse as an existing Java project to modify the core engine of HybridGraph, and then build your  modified version. Before building, you should install Apache Ant on your `master`. Suppose the modified version is located in `~/source/HybridGraph`.  You can build it using `~/source/HybridGraph/build.xml` as follows:  
+`cd ~/source/HybridGraph`  
+`ant`  
+Notice that you can build a specified part of HybridGraph as follows:  
+1) build the core engine  
+`ant core.jar`  
+2) build examples  
+`ant examples.jar`   
+
+By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `~/source/HybridGraph/build` after a successful building. Finally, use the new `termite-core-0.1.jar` to replace the old one in `$HybridGraph_HOME` on the cluster (i.e., `master`, `slave1`, and `slave2`). 
+
+##4. Programming Guide
+HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples. After that, as described in Section 3 and Section 2.4, you can build your own algorithm can then run it.
 
 ##4. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
