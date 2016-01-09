@@ -25,7 +25,7 @@ This section describes how to configurate, compile and then deploy HybridGraph o
 `git clone https://github.com/HybridGraph/HybridGraph.git` 
 
 ####2.2.2 configuration on `master`  
-First, edit `/etc/profile` and add the following information:  
+First, edit `/etc/profile` by typing `sudo vi /etc/profile` and then add the following information:  
 `export HybridGraph_HOME=~/HybridGraph`   
 `export HybridGraph_CONF_DIR=$HybridGraph_HOME/conf`  
 `export PATH=$PATH:$HybridGraph_HOME/bin`  
