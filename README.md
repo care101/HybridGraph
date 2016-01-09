@@ -28,7 +28,7 @@ This section describes how to configurate, compile and then deploy HybridGraph o
 First, edit `/etc/profile` and add the following information:  
 `export HybridGraph_HOME=/usr/HybridGraph`   
 `export HybridGraph_CONF_DIR=/usr/HybridGraph/conf`  
-`export PATH=$PATH:$HybridGraph_HOME/sbin`  
+`export PATH=$PATH:$HybridGraph_HOME/bin`  
 After that, type `source /etc/profile` in the command line to make changes take effect.  
 
 Second, edit configuration files in `HybridGraph_HOME/conf` as follows:  
