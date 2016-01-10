@@ -57,7 +57,9 @@ Type the following commands on `master` to start HybridGraph.
 ###2.4 Running a Single Source Shortest Path (SSSP) job on `master`  
 First, create an input file under input/random_graph on HDFS. Input file should be in format of:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
-An example is given in [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph).  
+An example is given in [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph). You can download it and put it onto your HDFS:  
+`hadoop dfs -mkdir input`  
+`hadoop dfs -put random_graph input/`
 
 Second, submit the SSSP job with different models for the example graph [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph):  
 * __SSSP (using b-pull):__  
