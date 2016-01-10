@@ -193,7 +193,8 @@ Scalability of computations for `push` and `hybrid` (SA)
 
 
 ##6. Publications
-<!-- * Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing. to appear in SIGMOD2016. -->
+* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing. to appear in SIGMOD2016.
+<!-- * more -->
 
 ##7. Contact  
 If you encounter any problem with HybridGraph, please feel free to contact wangzhiganglab@gmail.com.
