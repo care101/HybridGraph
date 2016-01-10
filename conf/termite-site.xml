@@ -23,7 +23,7 @@
 </property>
 <property>
 <name>bsp.local.dir</name>
-<value>~/HybridGraph/data</value>
+<value>/home/$your_account_name/HybridGraph/data</value>
 <description>Temporary directory on the local filesystem.</description>
 </property>
 <property>
