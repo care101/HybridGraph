@@ -55,13 +55,13 @@ Type the following commands on `master` to start HybridGraph.
 `stop-termite.sh`  
 
 ###2.4 Running a Single Source Shortest Path (SSSP) job on `master`  
-First, create an input file under input/file.txt on HDFS. Input file should be in format of:  
+First, create an input file under input/random_graph on HDFS. Input file should be in format of:  
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
-An example is given in [graph_data_example](https://github.com/HybridGraph/HybridGraph/blob/master/input_graph.txt).  
+An example is given in [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph).  
 
-Second, submit the SSSP job with different models:  
+Second, submit the SSSP job with different models for the example graph [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph):  
 * __SSSP (using b-pull):__  
-`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.pull input output 5 50 4847571 13 10000 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.pull input output 2 50 100000 5 10000 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
@@ -72,7 +72,7 @@ About arguments:
 [7] the sending threshold  
 [8] the source vertex id  
 * __SSSP (using hybrid):__  
-`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.hybrid input output 5 50 4847571 13 10000 10000 10000 2 2`  
+`termite jar $HybridGraph_HOME/termite-examples-0.1.jar sssp.hybrid input output 2 50 100000 5 10000 10000 10000 2 2`  
 About arguments:  
 [1] input directory on HDFS  
 [2] output directory on HDFS  
