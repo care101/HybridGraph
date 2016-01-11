@@ -447,8 +447,7 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * @throws Exception
 	 */
 	private void runIteration() throws Exception {
-		long iteStaTime, iteEndTime, msgTime = 0, compTime = 0; 
-		long totalMsgTime=0, totalCompTime=0;
+		long iteStaTime, iteEndTime, msgTime = 0, compTime = 0, totalMsgTime=0;
 		StringBuffer hbInfo = new StringBuffer();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.parId, this.job, 
@@ -463,7 +462,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		hbInfo.append("begin the calculation of superstep-" + iteNum);
 		iteStaTime = System.currentTimeMillis();
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
-			hbInfo.append("\nHashBucId=" + bucketId); //loop real buckets
+			hbInfo.append("\nVBlockId=" + bucketId); //loop real buckets
 			this.msgDataServer.clearBefBucket(); //prepare to collect msgs
 			msgTime = 0L;
 			switch(this.bspStyle) {
@@ -493,7 +492,6 @@ public class BSPTask<V, W, M, I> extends Task {
 			if (isUpdateVBlock(context.getVBlockUpdateRule(), msgNum)) {
 				hbInfo.append("\tType=Normal");
 				compTime = runBucket(bucketId);
-				totalCompTime += compTime;
 				hbInfo.append("\tcompTime=" + compTime + "ms");
 			} else {
 				hbInfo.append("\tType=Skip\tcompTime=0ms");
@@ -519,7 +517,6 @@ public class BSPTask<V, W, M, I> extends Task {
 		}
 		
 		iteEndTime = System.currentTimeMillis();
-		hbInfo.append("compute time:" + (totalCompTime)/1000.0 + " seconds");
 		this.counters.addCounter(COUNTER.Time_Pull, totalMsgTime);
 		this.counters.addCounter(COUNTER.Time_Ite, (iteEndTime-iteStaTime));
 		this.bsp.superstepCleanup(context);
