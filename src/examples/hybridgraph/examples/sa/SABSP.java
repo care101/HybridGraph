@@ -18,21 +18,25 @@ import hybridgraph.examples.sa.SAUserTool.SAMsgRecord;
 
 /**
  * SABSP.java implements {@link BSP}.
- * Note: this algorithm cannot use Combiner.
+ * Note: messages of this algorithm can only be concatenated.
  * 
- * Implement a simple but efficient simulating advertisement method. 
- * The idea can refer to Zuhair Khayyat et al. 
+ * Implement a simple but efficient simulating advertisement algorithm. 
+ * The basic idea can refer to Zuhair Khayyat et al. 
  * "Mizan: A System for Dynamic Load Balancing in Large-scale Graph Processing", 
  * EuroSys 2013.
  * Here, we implement this application based on LPA:
- * (1) an unique Integer is used to indicate an advertisement;
- * (2) each vertex only maintain one advertisement;
+ * (1) an unique Integer, aId, is used to indicate an advertisement;
+ * (2) each vertex maintain one advertisement 
+ *     with the highest popularity among the vertex's incoming neighbors;
  * (3) each vertex is initialized with its vertex id (aid), 
- * denoting the advertisement it has;
- * (4) at each iteration, each vertex adopts a label that: 
- *     1) a maximum number of its neighbors have,
- *     2) the aId is not equal with its current aId, 
- *        or the number is more than current number;
+ *     denoting the advertisement it maintains;
+ * (4) at each superstep, each vertex update its value using a candidate advertisement 
+ *     which satisfies the following constraints: 
+ *     1) a maximum number of the vertex's incoming neighbors have, 
+ *        i.e., the highest popularity,
+ *     and, 
+ *     2) it is not equal with the vertex's current value, 
+ *        or it popularity is more than the vertex's current value's.
  * 
  * @author 
  * @version 0.1
@@ -52,6 +56,10 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	@Override
 	public void vBlockSetup(
 			Context<Value, Integer, MsgBundle, Integer> context) {
+		//At the first superstep, only VBlock which SourceVertex belongs to 
+		//will be processed, i.e., invoking update() for any vertex in that VBlock.
+		//Otherwise, the condition of processing one VBLock is that 
+		//there exist messages sent to its vertices.
 		if (context.getSuperstepCounter() > 1) {
 			context.setVBlockUpdateRule(VBlockUpdateRule.MSG_DEPEND);
 		} else if (context.getVBlockId() == SourceBlkId) {
@@ -69,13 +77,13 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 			context.getGraphRecord();
 		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
 		
-		//first superstep, send source vertex's advertisement to its out-neighbors.
+		//At the first superstep, send source vertex's advertisement to its out-neighbors.
 		if (context.getSuperstepCounter() == 1) {
 			if (graph.getVerId() == SourceVerId) {
 				context.setRespond();
 			}
 		} else if (msg != null) {
-			//otherwise, update value and send new advertisement or not.
+			//Otherwise, update value and send new advertisement or not.
 			Value canV = findNewValue(msg);
 			if ((graph.getVerValue().getAdverId()!=canV.getAdverId()) ||
 					(graph.getVerValue().getAdverIdNum()<canV.getAdverIdNum())) {
