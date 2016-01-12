@@ -12,11 +12,12 @@ import org.apache.hama.myhama.io.KeyValueInputFormat;
 import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 
 /**
- * SADriver.java
- * A driven program is used to submit the simulate advertisement job.
+ * SAPullDriver.java
+ * A driven program is used to submit the simulate advertisement job 
+ * using the STYLE.PULL (i.e., b-pull) model.
  * 
  * @author 
- * @version 0.2
+ * @version 0.1
  */
 public class SAPullDriver {
 	
