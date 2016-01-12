@@ -12,22 +12,18 @@ import hybridgraph.examples.cc.CCUserTool.CCMsgRecord;
 
 /**
  * CCBSP.java implements {@link BSP}.
- * Note: input graph should be an undirected graph, 
- * and this implementation uses Combiner.
+ * Note: input graph should be undirected.
  * 
  * Implementation of the HCC algorithm that identifies connected components and
  * assigns each vertex its "component identifier" (the smallest vertex id in the
  * component)
  * 
  * The idea behind the algorithm is very simple: propagate the smallest vertex
- * id along the edges to all vertices of a connected component. The number of
- * supersteps necessary is equal to the length of the maximum diameter of all
- * components + 1
+ * id along the edges to all vertices of a connected component.
  * 
  * The original Hadoop-based variant of this algorithm was proposed by Kang,
  * Charalampos, Tsourakakis and Faloutsos in
- * "PEGASUS: Mining Peta-Scale Graphs", 2010
- * 
+ * "PEGASUS: Mining Peta-Scale Graphs", 2010.
  * http://www.cs.cmu.edu/~ukang/papers/PegasusKAIS.pdf
  * 
  * @author 
@@ -44,7 +40,7 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 			context.getGraphRecord();
 		MsgRecord<Integer> msg = context.getReceivedMsgRecord();
 		
-		//first superstep, just send its value to all outgoing neighbors.
+		//At the first superstep, just send its value to all outgoing neighbors.
 		if (context.getSuperstepCounter() == 1) {
 			graph.setVerValue(graph.getVerId());
 			context.setRespond();
