@@ -18,7 +18,9 @@ import hybridgraph.examples.lpa.LPAUserTool.LPAMsgRecord;
 
 /**
  * LPABSP.java implements {@link BSP}.
- * This algorithm cannot use Combiner.
+ * Note: 
+ *   1) messages of this algorithm can only be concatenated;
+ *   2) the input graph can be directed/undirected.
  * 
  * Implement a simple but efficient community detection method 
  * based on the label propagation algorithm (LPA). 
@@ -48,14 +50,14 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 			context.getGraphRecord();
 		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
 		
-		/** first superstep, just send its value to all outer neighbors */
+		/** At the first superstep, just send its value to all outer neighbors */
 		if (context.getSuperstepCounter() == 1) {
 			graph.setVerValue(graph.getVerId());
 		} else if (msg != null) {
 			graph.setVerValue(findLabel(msg));
 		}
 		
-		context.setRespond(); //always active per iteration
+		context.setRespond(); //always send messages for outer neighbors
 	}
 	
 	@Override
