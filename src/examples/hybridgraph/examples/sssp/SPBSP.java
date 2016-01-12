@@ -15,9 +15,8 @@ import hybridgraph.examples.sssp.SPUserTool.SPMsgRecord;
 
 /**
  * SSSPBSP.java implements {@link BSP}.
- * Note: without combiner.
  * 
- * The original Pregel-based variant of this algorithm was proposed in 
+ * For more details, please refer to 
  * "Pregel: A System for Large-Scale Graph Processing", SIGMOG 2010.
  * 
  * @author
@@ -32,13 +31,17 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	@Override
 	public void taskSetup(
 			Context<Double, Double, Double, Integer> context) {
-		SourceVerId = context.getBSPJobInfo().getInt(SOURCE, 2);
+		SourceVerId = context.getBSPJobInfo().getInt(SOURCE, 2); 
 		SourceBlkId = context.getVBlockId(SourceVerId);
 	}
 	
 	@Override
 	public void vBlockSetup(
 			Context<Double, Double, Double, Integer> context) {
+		//At the first superstep, only VBlock which SourceVertex belongs to 
+		//will be processed, i.e., invoking update() for any vertex in that VBlock.
+		//Otherwise, the condition of processing one VBLock is that 
+		//there exist messages sent to its vertices.
 		if (context.getSuperstepCounter() > 1) {
 			context.setVBlockUpdateRule(VBlockUpdateRule.MSG_DEPEND);
 		} else if (context.getVBlockId() == SourceBlkId) {
@@ -57,19 +60,22 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 		MsgRecord<Double> msg = context.getReceivedMsgRecord();
 		
 		if (context.getSuperstepCounter() == 1) {
-			//first superstep, set the source vertex value 0 and send new messages.
+			//At the first superstep, set the source vertex value as 0.
 			if (graph.getVerId() == SourceVerId) {
 				graph.setVerValue(0.0);
 				context.setRespond();
 			}
 		} else {
-			//otherwise, receive messages, processing and then send new messages.
+			//Otherwise, update vertex value based on received messages.
+			//Received messages have been combined into a single one.
 			double recMsgValue = msg.getMsgValue();
 			if (recMsgValue < graph.getVerValue()) {
 				graph.setVerValue(recMsgValue);
 				context.setRespond();
-			}
+			} //The updated value should be broadcasted to neighbors.
 		}
+		//Deactive itself. An inactive vertex becomes active automically 
+		//if it receives messages at the next superstep.
 		context.voteToHalt();
 	}
 	
@@ -81,6 +87,7 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 			context.getGraphRecord();
 		SPMsgRecord[] result = new SPMsgRecord[graph.getEdgeNum()];
 		int idx = 0;
+		//Generate a message based on a random edge weight and then send it to a neighbor. 
 		for (int eid: graph.getEdgeIds()) {
 			result[idx] = new SPMsgRecord();
 			result[idx].initialize(graph.getVerId(), eid, 
