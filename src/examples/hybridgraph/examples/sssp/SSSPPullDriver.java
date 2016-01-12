@@ -14,7 +14,8 @@ import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 /**
  * SSSPDriver.java
  * A driven program is used to submit the 
- * single source shortest distance computation job.
+ * single source shortest distance computation job 
+ * using the STYLE.PULL (i.e., b-pull) model.
  * 
  * @author 
  * @version 0.1
