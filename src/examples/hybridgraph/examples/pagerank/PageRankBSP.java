@@ -14,9 +14,8 @@ import hybridgraph.examples.pagerank.PageRankUserTool.PRMsgRecord;
 
 /**
  * PageRankBSP.java implements {@link BSP}.
- * Note: with combiner.
  * 
- * The original Pregel-based variant of this algorithm was proposed in 
+ * For more details, please refer to  
  * "Pregel: A System for Large-Scale Graph Processing", SIGMOG 2010.
  * 
  * @author 
@@ -31,7 +30,7 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	public void taskSetup(
 			Context<Double, Integer, Double, Integer> context) {
 		//BSPJob job = context.getBSPJobInfo();
-		//RandomRate = (1 - FACTOR) / (float)job.getGloVerNum();
+		//RandomRate = (1-FACTOR) / (float)job.getGloVerNum();
 		RandomRate = 0.15;
 	}
 	
@@ -52,12 +51,12 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 		
 		if (context.getSuperstepCounter() == 1) {
 			//value = RandomRate;
-			value = 10.0;
+			value = 1.0;
 		} else if (msg != null){
 			value = RandomRate + msg.getMsgValue()*FACTOR;
 		} else {
 			//value = RandomRate;
-			value = 10.0;
+			value = 1.0;
 		}
 		
 		if (graph.getGraphInfo() > 0) {
