@@ -36,11 +36,14 @@ Second, edit configuration files in `HybridGraph_HOME/conf` as follows:
 `export JAVA_HOME=/usr/java/jdk1.6.0_23`  
 * __termite-site.xml:__ configurating the HybridGraph engine.  
 The details are shown in [termite-site.xml](https://github.com/HybridGraph/HybridGraph/blob/master/conf/termite-site.xml).  
-In particular, our current implementation uses the read/write throughput of disk reported by the disk benchmarking tool [fio-2.0.13](http://pkgs.fedoraproject.org/repo/pkgs/fio/fio-2.0.13.tar.gz/).  
+In particular, our current implementation uses the read/write throughput of disk reported by the disk benchmarking tool [fio-2.0.13](http://pkgs.fedoraproject.org/repo/pkgs/fio/fio-2.0.13.tar.gz/), and the network throughput reported by the network benchmarking tool [perf-2.0.5](http://pkgs.fedoraproject.org/repo/pkgs/iperf/iperf-2.0.5.tar.gz/).  
 1) random read/write  
 `fio -filename=/tmp/data -direct=1 -iodepth 1 -thread -rw=randrw -rwmixread=50 -ioengine=psync -bs=16k -size=10G -numjobs=30 -runtime=360 -group_reporting -name=test`  
 2) sequential read/write  
 `fio -filename=/tmp/data -direct=1 -iodepth 1 -thread -rw=rw -rwmixread=50 -ioengine=psync -bs=16k -size=10G -numjobs=30 -runtime=360 -group_reporting -name=test`  
+3) network  
+server `iperf -s -f M -w 48K`  
+client `iperf -c hadoop03 -f M -w 48K`  
 * __workers:__ settting up workers of HybridGraph.  
 `slave1`  
 `slave2`  
