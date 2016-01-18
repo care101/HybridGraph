@@ -29,12 +29,12 @@
   <property>
     <name>rand.read.speed</name>
     <value>1205</value>
-    <description>The speed of rand reads is 1077KB/s.</description>
+    <description>The speed of rand reads is 1205KB/s.</description>
   </property>
   <property>
     <name>rand.write.speed</name>
     <value>1210</value>
-    <description>The speed of rand writes is 1071KB/s.</description>
+    <description>The speed of rand writes is 1210KB/s.</description>
   </property>
   <property>
     <name>seq.read.speed</name>
