@@ -227,6 +227,14 @@ public class JobInformation implements Writable {
 		this.iteCommand.add(command);
 	}
 	
+	public Double getQ(int curIteNum) {
+		if (curIteNum < 1) {
+			return 0.0;
+		} else {
+			return this.iteQ.get(curIteNum-1);
+		}
+	}
+	
 	/**
 	 * Only invoked by {@link JobInProgress} at Master.
 	 * @param taskId

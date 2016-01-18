@@ -568,7 +568,6 @@ class JobInProgress {
 						: (reducedNetMsgNum*4)/this.netSpeed;
 			
 			Q = diskMsgWriteCost + diskReadCostDiff + reducedNetCost; //push-pull
-			ssc.setMetricQ(Q);
 			
 			/** Set the change automically
 			 *  Suppose that:
@@ -598,9 +597,11 @@ class JobInProgress {
 						}
 					}
 				} else {
+					Q = this.jobInfo.getQ(curIteNum-1);
 					this.preIteStyle = this.curIteStyle;
 				}
 			} else {
+				Q = 0.0;
 				this.preIteStyle = this.curIteStyle;
 			}
 		} else {
@@ -633,6 +634,7 @@ class JobInProgress {
 		
 		//for the next superstep
 		ssc.setIteStyle(this.curIteStyle);
+		ssc.setMetricQ(Q);
 		if (this.job.getBspStyle()==Constants.STYLE.Hybrid 
 				&& this.curIteStyle==Constants.STYLE.Push) {
 			ssc.setEstimatePullByte(true);
