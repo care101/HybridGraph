@@ -18,6 +18,7 @@ public class MsgPack<V, W, M, I> implements Writable {
 	private DataInputStream inputStream;
 	private UserTool<V, W, M, I> userTool;
 	private long io_byte; //io bytes during pulling messages based on edges
+	private long io_pull_vert; //io bytes of reading source vertices when pulling messages
 	private Long edge_read = 0L;
 	private Long fragment_read = 0L;
 	private Long msg_pro = 0L;
@@ -26,11 +27,14 @@ public class MsgPack<V, W, M, I> implements Writable {
 	private boolean over = false;
 	
 	public MsgPack() {
-		
+		this.io_byte = 0L;
+		this.io_pull_vert = 0L;
 	}
 	
 	public MsgPack(UserTool<V, W, M, I> _userTool) {
 		this.userTool = _userTool;
+		this.io_byte = 0L;
+		this.io_pull_vert = 0L;
 	}
 	
 	public void setUserTool(UserTool<V, W, M, I> _userTool) {
@@ -51,8 +55,9 @@ public class MsgPack<V, W, M, I> implements Writable {
 	 * @param _edgeNum
 	 * @param _fragNum
 	 */
-	public void setEdgeInfo(long _io, long _edgeNum, long _fragNum) {
+	public void setEdgeInfo(long _io, long _io_vert, long _edgeNum, long _fragNum) {
 		this.io_byte = _io;
+		this.io_pull_vert = _io_vert;
 		this.edge_read= _edgeNum;
 		this.fragment_read = _fragNum;
 	}
@@ -103,6 +108,10 @@ public class MsgPack<V, W, M, I> implements Writable {
 		return this.io_byte;
 	}
 	
+	public long getIOByteOfVertInPull() {
+		return this.io_pull_vert;
+	}
+	
 	public long getReadEdgeNum() {
 		return this.edge_read;
 	}
@@ -132,6 +141,7 @@ public class MsgPack<V, W, M, I> implements Writable {
 	@Override
 	public void readFields(DataInput in) throws IOException {
 		this.io_byte = in.readLong();
+		this.io_pull_vert = in.readLong();
 		this.edge_read = in.readLong();
 		this.fragment_read = in.readLong();
 		this.msg_pro = in.readLong();
@@ -150,6 +160,7 @@ public class MsgPack<V, W, M, I> implements Writable {
 	@Override
 	public void write(DataOutput out) throws IOException {
 		out.writeLong(this.io_byte);
+		out.writeLong(this.io_pull_vert);
 		out.writeLong(this.edge_read);
 		out.writeLong(this.fragment_read);
 		out.writeLong(this.msg_pro);

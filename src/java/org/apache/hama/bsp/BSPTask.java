@@ -652,6 +652,8 @@ public class BSPTask<V, W, M, I> extends Task {
 			//curIteStyle=Push
 			this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.graphDataServer.getEstimatedPullBytes(iteNum));
+			this.counters.addCounter(COUNTER.Byte_Pull_Vert, 
+				this.graphDataServer.getEstimatePullVertBytes(iteNum));
 		} else {
 			this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.commServer.getIOByte());
@@ -659,6 +661,8 @@ public class BSPTask<V, W, M, I> extends Task {
 				this.graphDataServer.getLocInfoIOByte());
 			this.counters.addCounter(COUNTER.Byte_Pull, 
 				this.graphDataServer.getLocAdjEdgeIOByte());
+			this.counters.addCounter(COUNTER.Byte_Pull_Vert, 
+				this.commServer.getIOByteOfVertInPull());
 		}
 		
 		this.counters.addCounter(COUNTER.Edge_Read, 

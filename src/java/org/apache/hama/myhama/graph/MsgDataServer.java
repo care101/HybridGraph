@@ -285,7 +285,7 @@ public class MsgDataServer<V, W, M, I> {
 				msgData[counter++] = msg;
 				mem += msg.getMsgByte();
 			}
-			msgPack.setEdgeInfo(0L, 0L, 0L);
+			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
 			msgPack.setLocal(msgData, counter, 0L, counter);
 		} else {
 			ByteArrayOutputStream bytes = 
@@ -299,7 +299,7 @@ public class MsgDataServer<V, W, M, I> {
 			bytes.close();
 			mem += stream.size();
 			
-			msgPack.setEdgeInfo(0L, 0L, 0L);
+			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
 			msgPack.setRemote(bytes, counter, 0L, counter);
 		}
 		

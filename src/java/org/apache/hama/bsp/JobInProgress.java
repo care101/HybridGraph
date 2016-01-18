@@ -21,7 +21,6 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map.Entry;
@@ -109,16 +108,22 @@ class JobInProgress {
 	private int recMsgBuf = 0;
 	/**
 	 * Local cluster with HDD:
-	 *   1) randWrite = 1071KB/s (tested by fio)
-	 *   2) randRead = 1077KB/s  (tested by fio)
-	 *   3) network = 112MB/s    (tested by iperf)
-	 * Amazon cluster with SSD:
-	 *   1) randWrite = 16905KB/s (tested by fio)
-	 *   2) randRead = 16921KB/s  (tested by fio)
-	 *   3) network = 116MB/s     (tested by iperf)
+	 *   1) randWrite = 1210KB/s (tested by fio)
+	 *   2) randRead = 1205KB/s  (tested by fio)
+	 *   3) seqWrite = 2414KB/s  (tested by fio)
+	 *   4) seqRead = 2415KB/s   (tested by fio)
+	 *   5) network = 112MB/s    (tested by iperf)
+	 * Amazon cluster with SSD (c3.xlarge, 30GB SSD):
+	 *   1) randWrite = 18631KB/s (tested by fio)
+	 *   2) randRead = 18613KB/s  (tested by fio)
+	 *   3) seqWrite = 18730KB/s  (tested by fio)
+	 *   4) seqRead = 18708KB/s   (tested by fio)
+	 *   5) network = 116MB/s     (tested by iperf)
 	 */
-	private float randWriteSpeed = 1071*ONE_KB;
-	private float randReadSpeed = 1077*ONE_KB;      
+	private float randWriteSpeed = 1210*ONE_KB;
+	private float randReadSpeed = 1205*ONE_KB;
+	private float seqWriteSpeed = 2414*ONE_KB;
+	private float seqReadSpeed = 2415*ONE_KB;
 	private float netSpeed = 112*ONE_KB*ONE_KB;    
 	private double lastCombineRatio = 0.0;
 
@@ -128,10 +133,16 @@ class JobInProgress {
 				Constants.HardwareInfo.Def_RD_Read_Speed)*ONE_KB;
 		this.randWriteSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Write_Speed, 
 				Constants.HardwareInfo.Def_RD_Write_Speed)*ONE_KB;
+		this.seqReadSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Read_Speed, 
+				Constants.HardwareInfo.Def_Seq_Read_Speed)*ONE_KB;
+		this.seqWriteSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Write_Speed, 
+				Constants.HardwareInfo.Def_Seq_Write_Speed)*ONE_KB;
 		this.netSpeed = _conf.getFloat(Constants.HardwareInfo.Network_Speed, 
 				Constants.HardwareInfo.Def_Network_Speed)*ONE_KB*ONE_KB;
 		LOG.info("hardware info: RD_Read_Speed=" + this.randReadSpeed/ONE_KB + "KB/s" 
 				+ ", RD_Write_Speed=" + this.randWriteSpeed/ONE_KB + "KB/s" 
+				+ ", Seq_Read_Speed=" + this.seqReadSpeed/ONE_KB + "KB/s"
+				+ ", Seq_Write_Speed=" + this.seqWriteSpeed/ONE_KB + "KB/s"
 				+ ", Network_Speed=" + this.netSpeed/(ONE_KB*ONE_KB) + "MB/s");
 		
 		jobId = _jobId; master = _master; MyLOG = new JobLog(jobId);
@@ -539,8 +550,12 @@ class JobInProgress {
 			diskMsgNum = diskMsgNum<0? 0:diskMsgNum;
 			double diskMsgWriteCost = (diskMsgNum*this.byteOfOneMessage) / this.randWriteSpeed;
 			
-			double diskReadCostDiff = (this.jobMonitor.getByteOfPush(curIteNum)-diskMsgNum*this.byteOfOneMessage
-					- this.jobMonitor.getByteOfPull(curIteNum)) / this.randReadSpeed;
+			long seqDiskByteDiff = this.jobMonitor.getByteOfPush(curIteNum) 
+				- diskMsgNum*this.byteOfOneMessage 
+				- (this.jobMonitor.getByteOfPull(curIteNum) 
+						- this.jobMonitor.getByteOfVertInPull(curIteNum));
+			double diskReadCostDiff = seqDiskByteDiff/this.seqReadSpeed
+				- this.jobMonitor.getByteOfVertInPull(curIteNum)/this.randReadSpeed;
 			
 			double reducedNetMsgNum = (double)this.jobMonitor.getReducedNetMsgNum(curIteNum);
 			if (this.curIteStyle == Constants.STYLE.Push) {
@@ -556,21 +571,26 @@ class JobInProgress {
 			ssc.setMetricQ(Q);
 			
 			/** Set the change automically
-			 *  Assume that:
-			 *  1 starting style=style.Pull.
-			 *  2 when #act_vertices is increasing, always style.Pull, 
-			 *    since the growing speed is usually fast and then switching frequently is not cost effective.
+			 *  Suppose that:
+			 *  1 Starting style=style.Pull.
+			 *  2 When #act_vertices is increasing, style.Pull is always performed, 
+			 *    because the growing speed is usually fast, 
+			 *    which means frequent switching operations are not cost effective.
 			 *  3 Otherwise, switch dynamically:
 			 *    1) if Q >= 0
 			 *          switch from push to pull.
 			 *    2) else
 			 *          switch from pull to push.
+			 *    3) specially, the switching function is closed 
+			 *       if |Q|<=2.0, this is because the switching benefit 
+			 *       is so tiny (negligible) that switching is not cost effective.
 			 * */
 			if (this.jobMonitor.getActVerNum(curIteNum) < 
 					this.jobMonitor.getActVerNum(curIteNum-1)) { //decreasing
 				if (this.preIteStyle==this.curIteStyle) {
 					this.preIteStyle = this.curIteStyle;
-					if (this.job.getBspStyle()==Constants.STYLE.Hybrid) {
+					if (this.job.getBspStyle()==Constants.STYLE.Hybrid 
+							&& Math.abs(Q)>2.0) {
 						if (Q >= 0.0) {
 							this.curIteStyle = Constants.STYLE.Pull;
 						} else {

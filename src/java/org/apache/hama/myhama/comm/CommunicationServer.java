@@ -66,7 +66,7 @@ public class CommunicationServer<V, W, M, I>
 	private Integer pullNum = 0;
 	private int localBucNum;
 	
-	private long io_byte = 0L;
+	private long io_byte = 0L, io_byte_vert;
 	private long read_edge = 0L, read_fragment = 0L;
 	/** 
 	 * 1. msg_net: original network messages.
@@ -106,7 +106,7 @@ public class CommunicationServer<V, W, M, I>
 					_msg_disk = 
 						comm.recMsgData(this.srcParId, this.iteNum, this.msgPack);
 				}
-				updateCounters(0L, 0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
+				updateCounters(0L, 0L, 0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
 				
 				return true;
 			} catch (Exception e) {
@@ -162,6 +162,7 @@ public class CommunicationServer<V, W, M, I>
 					
 					_msg_rec = recMsgPack.getMsgRecNum();
 					updateCounters(recMsgPack.getIOByte(), 
+							recMsgPack.getIOByteOfVertInPull(), 
 							recMsgPack.getReadEdgeNum(), 
 							recMsgPack.getReadFragNum(),
 							recMsgPack.getMsgProNum(), _msg_rec, 
@@ -248,7 +249,7 @@ public class CommunicationServer<V, W, M, I>
 	public void pushMsgData(MsgRecord<M>[] msgData, int _iteNum) 
 			throws Exception {
 		int dstVid, dstPid, pro_msg = msgData.length;
-		updateCounters(0L, 0L, 0L, pro_msg, pro_msg, 0L, 0L, 0L);
+		updateCounters(0L, 0L, 0L, 0L, pro_msg, pro_msg, 0L, 0L, 0L);
 		
 		for(int idx = 0; idx < pro_msg; idx++) {
 			dstVid = msgData[idx].getDstVerId();
@@ -369,6 +370,7 @@ public class CommunicationServer<V, W, M, I>
 	 * For Push, this should be invoked when sending messages.
 	 * For Pull, this should be invoked when pulling messages.
 	 * @param _io_byte
+	 * @param _io_byte_vert
 	 * @param _read_edge
 	 * @param _read_fragment
 	 * @param _msg_pro
@@ -377,11 +379,12 @@ public class CommunicationServer<V, W, M, I>
 	 * @param _msg_net_actual
 	 * @param _msg_disk
 	 */
-	public synchronized void updateCounters(long _io_byte, 
+	public synchronized void updateCounters(long _io_byte, long _io_byte_vert, 
 			long _read_edge, long _read_fragment,
 			long _msg_pro, long _msg_rec, 
 			long _msg_net, long _msg_net_actual, long _msg_disk) {
 		this.io_byte += _io_byte;
+		this.io_byte_vert += _io_byte_vert;
 		this.read_edge += _read_edge;
 		this.read_fragment += _read_fragment;
 		this.msg_pro += _msg_pro;
@@ -399,6 +402,10 @@ public class CommunicationServer<V, W, M, I>
 	 */
 	public long getIOByte() {
 		return this.io_byte;
+	}
+	
+	public long getIOByteOfVertInPull() {
+		return this.io_byte_vert;
 	}
 	
 	/**
@@ -469,6 +476,7 @@ public class CommunicationServer<V, W, M, I>
 	
 	public void clearBefIte(int _iteNum, int _iteStyle) {
 		this.io_byte = 0L;
+		this.io_byte_vert = 0L;
 		this.read_edge = 0L;
 		this.read_fragment = 0L;
 		this.msg_pro = 0L;

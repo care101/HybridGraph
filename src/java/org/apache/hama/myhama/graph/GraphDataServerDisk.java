@@ -715,8 +715,13 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			bytes += this.fragNumOfPull * this.graph_rw.getVerByte();
 			bytes += this.estimatePullByte; //actual info&adj-edge
 		} 
-		this.fragNumOfPull = 0L;
 		
+		return bytes;
+	}
+	
+	public long getEstimatePullVertBytes(int iteNum) {
+		long bytes = this.fragNumOfPull * this.graph_rw.getVerByte();
+		this.fragNumOfPull = 0L;
 		return bytes;
 	}
 	
@@ -726,7 +731,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		if (this.proMsgOver[_tid]) {
 			MsgPack<V, W, M, I> msgPack = 
 				new MsgPack<V, W, M, I>(userTool);
-			msgPack.setEdgeInfo(0L, 0L, 0L);
+			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
 			
 			if (this.msgBuf[_tid].size() > 0) {
 				msgPack.setRemote(this.msgBuf[_tid].remove(0), 
@@ -752,8 +757,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		/** create cache whose capacity = the number of destination vertices */
 		MsgRecord<M>[] cache = 
 			(MsgRecord<M>[]) new MsgRecord[dstVerMaxId-dstVerMinId+1];
-		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg.
-		long[] statis = new long[6];
+		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+		long[] statis = new long[7];
 		int resBid = this.vebFile[_tid].getResBid();
 		this.vebFile[_tid].openEdgeHandler(_bid);
 		for (; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
@@ -785,7 +790,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	private MsgPack<V, W, M, I> packMsg(int reqTid, MsgRecord<M>[] cache, long[] _statis) 
 		throws Exception{
 		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool); //message pack
-		msgPack.setEdgeInfo(_statis[0], _statis[1], _statis[2]);
+		msgPack.setEdgeInfo(_statis[0], _statis[6], _statis[1], _statis[2]);
 		long memUsage = 0L;
 		
 		if (_statis[5] > 0) {
@@ -939,6 +944,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				
 			graph.deserVerValue(mbb_v); //deserialize value
 			statis[0] += graph.getVerByte(); //io for value.
+			statis[6] += graph.getVerByte(); 
 			context.reset();
 			context.initialize(graph, null, 0.0f, true);
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);

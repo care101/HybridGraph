@@ -337,6 +337,16 @@ public abstract class GraphDataServer<V, W, M, I> {
 		return this.estimatePullByte;
 	}
 	
+	/**
+	 * Only return the bytes of reading source vertices if pulling messages. 
+	 * 
+	 * @param iteNum
+	 * @return
+	 */
+	public long getEstimatePullVertBytes(int iteNum) {
+		return 0;
+	}
+	
 	/** 
 	 * Memory usage of the previous superstep.
 	 * Note that the usage of superstep t is available in superstep (t+1).

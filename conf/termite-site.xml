@@ -1,44 +1,54 @@
 <?xml version="1.0"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
-<property>
-<name>bsp.master.address</name>
-<value>master:40000</value>
-<description>The hostname of the master server and the port master should bind to.</description>
-</property>
-<property>
-<name>fs.default.name</name>
-<value>hdfs://master:9000/</value>
-<description>The NameNode information of HDFS.</description>
-</property>
-<property>
-<name>bsp.child.java.opts</name>
-<value>-Xmx512m -Xms256m</value>
-<description>Java opts for the child process run on workers(slaves).</description>
-</property>
-<property>
-<name>bsp.task.max</name>
-<value>1</value>
-<description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>
-</property>
-<property>
-<name>bsp.local.dir</name>
-<value>/home/$your_account_name/HybridGraph/data</value>
-<description>Temporary directory on the local filesystem.</description>
-</property>
-<property>
-<name>rand.read.speed</name>
-<value>1077</value>
-<description>The speed of rand reads is 1077KB/s.</description>
-</property>
-<property>
-<name>rand.write.speed</name>
-<value>1071</value>
-<description>The speed of rand writes is 1071KB/s.</description>
-</property>
-<property>
-<name>network.speed</name>
-<value>112</value>
-<description>The network speed is 112MB/s.</description>
-</property>
+  <property>
+    <name>bsp.master.address</name>
+    <value>master:40000</value>
+    <description>The hostname of the master server and the port master should bind to.</description>
+  </property>
+  <property>
+    <name>fs.default.name</name>
+    <value>hdfs://master:9000/</value>
+    <description>The NameNode information of HDFS.</description>
+  </property>
+  <property>
+    <name>bsp.child.java.opts</name>
+    <value>-Xmx512m -Xms256m</value>
+    <description>Java opts for the child process run on workers(slaves).</description>
+  </property>
+  <property>
+    <name>bsp.task.max</name>
+    <value>1</value>
+    <description>The maximum number of child processes that will be run simultaneously by a worker(slave).</description>
+  </property>
+  <property>
+    <name>bsp.local.dir</name>
+    <value>/home/$your_account_name/HybridGraph/data</value>
+    <description>Temporary directory on the local filesystem.</description>
+  </property>
+  <property>
+    <name>rand.read.speed</name>
+    <value>1205</value>
+    <description>The speed of rand reads is 1077KB/s.</description>
+  </property>
+  <property>
+    <name>rand.write.speed</name>
+    <value>1210</value>
+    <description>The speed of rand writes is 1071KB/s.</description>
+  </property>
+  <property>
+    <name>seq.read.speed</name>
+    <value>2415</value>
+    <description>The speed of sequential reads is 2415KB/s.</description>
+  </property>
+  <property>
+    <name>seq.write.speed</name>
+    <value>2414</value>
+    <description>The speed of sequential writes is 2414KB/s.</description>
+  </property>
+  <property>
+    <name>network.speed</name>
+    <value>112</value>
+    <description>The network speed is 112MB/s.</description>
+  </property>
 </configuration>

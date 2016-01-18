@@ -87,6 +87,10 @@ public class JobMonitor {
 		return this.counters_list.get(curIteNum-1).getCounter(COUNTER.Byte_Pull);
 	}
 	
+	public long getByteOfVertInPull(int curIteNum) {
+		return this.counters_list.get(curIteNum-1).getCounter(COUNTER.Byte_Pull_Vert);
+	}
+	
 	public void addByteOfPush(int curIteNum, long bytes) {
 		int idx = curIteNum - 1;
 		Counters new_counters = this.counters_list.get(idx);
@@ -137,6 +141,7 @@ public class JobMonitor {
 		sb.append(printCounterInfo(COUNTER.Byte_Actual));
 		sb.append(printCounterInfo(COUNTER.Byte_Push));
 		sb.append(printCounterInfo(COUNTER.Byte_Pull));
+		sb.append(printCounterInfo(COUNTER.Byte_Pull_Vert));
 		
 		sb.append(printCounterInfo(COUNTER.Mem_Used));
 	    

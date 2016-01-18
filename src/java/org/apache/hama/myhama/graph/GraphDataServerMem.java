@@ -295,7 +295,7 @@ public class GraphDataServerMem<V, W, M, I>
 			throws Exception {
 		if (this.proMsgOver[_tid]) {
 			MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool);
-			msgPack.setEdgeInfo(0L, 0L, 0L);
+			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
 			
 			if (this.msgBuf[_tid].size() > 0) {
 				msgPack.setRemote(this.msgBuf[_tid].remove(0), 
@@ -320,8 +320,8 @@ public class GraphDataServerMem<V, W, M, I>
 		/** create cache whose capacity = the number of destination vertices */
 		MsgRecord<M>[] cache = 
 			(MsgRecord<M>[]) new MsgRecord[dstVerMaxId-dstVerMinId+1];
-		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg.
-		long[] statis = new long[6];
+		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+		long[] statis = new long[7];
 		for (int resBid = 0; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
 			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(resBid);
 			if (!vHbb.isRespond(type) || (vHbb.getFragmentNum(_tid, _bid)==0)) {
@@ -341,7 +341,7 @@ public class GraphDataServerMem<V, W, M, I>
 	private MsgPack<V, W, M, I> packMsg(int reqTid, MsgRecord<M>[] cache, long[] _statis) 
 		throws Exception{
 		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool); //message pack
-		msgPack.setEdgeInfo(_statis[0], _statis[1], _statis[2]);
+		msgPack.setEdgeInfo(_statis[0], _statis[6], _statis[1], _statis[2]);
 		long memUsage = 0L;
 		
 		if (_statis[5] > 0) {

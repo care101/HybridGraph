@@ -46,6 +46,7 @@ public class Counters implements Writable {
 		Byte_Push,  //io_bytes under "PUSH" model, accurate or estimated
 		Byte_Pull,  //io_bytes under "PULL" model, accurate or estimated
 		Byte_Actual, //io_bytes of one iteration, accurate, actual
+		Byte_Pull_Vert, //io_bytes of reading source vertices when pulling messages
 		
 		/** counters of memory */
 		Mem_Used,                //memory size used during iteration
