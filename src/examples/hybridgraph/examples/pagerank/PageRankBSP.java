@@ -4,7 +4,6 @@
 package hybridgraph.examples.pagerank;
 
 import org.apache.hama.Constants.VBlockUpdateRule;
-//import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
@@ -15,6 +14,12 @@ import hybridgraph.examples.pagerank.PageRankUserTool.PRMsgRecord;
 /**
  * PageRankBSP.java implements {@link BSP}.
  * 
+ * For u, its PageRank score 
+ * PR(u) = (1-d)*(1/#vertices) + d*sum(PR(v)/v.outDegree), 
+ * where, d = 0.85, and v belongs to N_{in}(u), i.e., the 
+ * in-neighbor set of u. After enough iterations, the sume 
+ * of all vertices's scores is supposed to be 1.0.
+ * 
  * For more details, please refer to  
  * "Pregel: A System for Large-Scale Graph Processing", SIGMOG 2010.
  * 
@@ -22,16 +27,14 @@ import hybridgraph.examples.pagerank.PageRankUserTool.PRMsgRecord;
  * @version 0.1
  */
 public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
-	private static double FACTOR = 0.85f;
-	private static double RandomRate;
+	private static double d = 0.85f;
+	private static double random = 0.15f;
 	private double value = 0.0d;
 	
 	@Override
 	public void taskSetup(
 			Context<Double, Integer, Double, Integer> context) {
-		//BSPJob job = context.getBSPJobInfo();
-		//RandomRate = (1-FACTOR) / (float)job.getGloVerNum();
-		RandomRate = 0.15;
+		random = (1-d) * (1.0f/context.getBSPJobInfo().getNumTotalVertices());
 	}
 	
 	@Override
@@ -50,13 +53,11 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 		value = 0.0d;
 		
 		if (context.getSuperstepCounter() == 1) {
-			//value = RandomRate;
-			value = 1.0;
+			value = random;
 		} else if (msg != null){
-			value = RandomRate + msg.getMsgValue()*FACTOR;
+			value = random + msg.getMsgValue()*d;
 		} else {
-			//value = RandomRate;
-			value = 1.0;
+			value = random;
 		}
 		
 		if (graph.getGraphInfo() > 0) {
@@ -65,6 +66,7 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 			graph.setVerValue(value);
 		}
 		context.setRespond();
+		context.setVertexAgg((float)value); //compute the sum of PageRank scores
 	}
 	
 	@Override

@@ -108,16 +108,16 @@ class JobInProgress {
 	private int recMsgBuf = 0;
 	/**
 	 * Local cluster with HDD:
-	 *   1) randWrite = 1210KB/s (tested by fio)
-	 *   2) randRead = 1205KB/s  (tested by fio)
-	 *   3) seqWrite = 2414KB/s  (tested by fio)
-	 *   4) seqRead = 2415KB/s   (tested by fio)
+	 *   1) randRead = 1205KB/s  (tested by fio)
+	 *   2) randWrite = 1210KB/s (tested by fio)
+	 *   3) seqRead = 2415KB/s   (tested by fio)
+	 *   4) seqWrite = 2414KB/s  (tested by fio)
 	 *   5) network = 112MB/s    (tested by iperf)
 	 * Amazon cluster with SSD (c3.xlarge, 30GB SSD):
-	 *   1) randWrite = 18631KB/s (tested by fio)
-	 *   2) randRead = 18613KB/s  (tested by fio)
-	 *   3) seqWrite = 18730KB/s  (tested by fio)
-	 *   4) seqRead = 18708KB/s   (tested by fio)
+	 * 	 1) randRead = 18613KB/s  (tested by fio)
+	 *   2) randWrite = 18631KB/s (tested by fio)
+	 *   3) seqRead = 18708KB/s   (tested by fio)
+	 *   4) seqWrite = 18730KB/s  (tested by fio)
 	 *   5) network = 116MB/s     (tested by iperf)
 	 */
 	private float randWriteSpeed = 1210*ONE_KB;
@@ -129,21 +129,22 @@ class JobInProgress {
 
 	public JobInProgress(BSPJobID _jobId, Path _jobFile, BSPMaster _master,
 			Configuration _conf) throws IOException {
-		this.randReadSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Read_Speed, 
-				Constants.HardwareInfo.Def_RD_Read_Speed)*ONE_KB;
-		this.randWriteSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Write_Speed, 
-				Constants.HardwareInfo.Def_RD_Write_Speed)*ONE_KB;
-		this.seqReadSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Read_Speed, 
-				Constants.HardwareInfo.Def_Seq_Read_Speed)*ONE_KB;
-		this.seqWriteSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Write_Speed, 
-				Constants.HardwareInfo.Def_Seq_Write_Speed)*ONE_KB;
-		this.netSpeed = _conf.getFloat(Constants.HardwareInfo.Network_Speed, 
-				Constants.HardwareInfo.Def_Network_Speed)*ONE_KB*ONE_KB;
-		LOG.info("hardware info: RD_Read_Speed=" + this.randReadSpeed/ONE_KB + "KB/s" 
-				+ ", RD_Write_Speed=" + this.randWriteSpeed/ONE_KB + "KB/s" 
-				+ ", Seq_Read_Speed=" + this.seqReadSpeed/ONE_KB + "KB/s"
-				+ ", Seq_Write_Speed=" + this.seqWriteSpeed/ONE_KB + "KB/s"
-				+ ", Network_Speed=" + this.netSpeed/(ONE_KB*ONE_KB) + "MB/s");
+		this.randReadSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Read_ThroughPut, 
+				Constants.HardwareInfo.Def_RD_Read_ThroughPut)*ONE_KB;
+		this.randWriteSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Write_ThroughPut, 
+				Constants.HardwareInfo.Def_RD_Write_ThroughPut)*ONE_KB;
+		this.seqReadSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Read_ThroughPut, 
+				Constants.HardwareInfo.Def_Seq_Read_ThroughPut)*ONE_KB;
+		this.seqWriteSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Write_ThroughPut, 
+				Constants.HardwareInfo.Def_Seq_Write_ThroughPut)*ONE_KB;
+		this.netSpeed = _conf.getFloat(Constants.HardwareInfo.Network_ThroughPut, 
+				Constants.HardwareInfo.Def_Network_ThroughPut)*ONE_KB*ONE_KB;
+		LOG.info("hardware info " 
+				+ "\nrandom.read.throughput = " + this.randReadSpeed/ONE_KB + " KB/s" 
+				+ "\nrandom.write.throughput = " + this.randWriteSpeed/ONE_KB + " KB/s" 
+				+ "\nsequential.read.throughput = " + this.seqReadSpeed/ONE_KB + " KB/s"
+				+ "\nsequential.write.throughput = " + this.seqWriteSpeed/ONE_KB + " KB/s"
+				+ "\nnetwork.throughput = " + this.netSpeed/(ONE_KB*ONE_KB) + " MB/s");
 		
 		jobId = _jobId; master = _master; MyLOG = new JobLog(jobId);
 		localFs = FileSystem.getLocal(_conf); jobFile = _jobFile;
@@ -315,6 +316,7 @@ class JobInProgress {
 		garbageCollect();
 		MyLOG.info("Job successfully done.");
 		MyLOG.close();
+		LOG.info(jobId.toString() + " is done successfully.");
 	}
 
 	public synchronized void failedJob() {
@@ -325,6 +327,7 @@ class JobInProgress {
 		this.status.setFinishTime(this.finishTime);
 		garbageCollect();
 		MyLOG.close();
+		LOG.info(jobId.toString() + " is failed.");
 	}
 
 	public void killJob() {
@@ -338,6 +341,7 @@ class JobInProgress {
 			tips[i].kill();
 		}
 		MyLOG.close();
+		LOG.info(jobId.toString() + " is killed.");
 	}
 
 	/**
@@ -471,7 +475,7 @@ class JobInProgress {
 			this.loadDataTime = 
 				System.currentTimeMillis() - this.startTime;
 			this.status.setRunState(JobStatus.RUNNING);
-			LOG.info(jobId.toString() + " completes loading, begins to compute, "
+			LOG.info(jobId.toString() + " loads over, and then starts computations, "
 							+ "please wait...");
 		}
 	}

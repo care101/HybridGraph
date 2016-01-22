@@ -27,28 +27,28 @@
     <description>Temporary directory on the local filesystem.</description>
   </property>
   <property>
-    <name>rand.read.speed</name>
+    <name>random.read.throughput</name>
     <value>1205</value>
-    <description>The speed of rand reads is 1205KB/s.</description>
+    <description>The throughput of random reads is 1205KB/s.</description>
   </property>
   <property>
-    <name>rand.write.speed</name>
+    <name>random.write.throughput</name>
     <value>1210</value>
-    <description>The speed of rand writes is 1210KB/s.</description>
+    <description>The throughput of random writes is 1210KB/s.</description>
   </property>
   <property>
-    <name>seq.read.speed</name>
+    <name>sequential.read.throughput</name>
     <value>2415</value>
-    <description>The speed of sequential reads is 2415KB/s.</description>
+    <description>The throughput of sequential reads is 2415KB/s.</description>
   </property>
   <property>
-    <name>seq.write.speed</name>
+    <name>sequential.write.throughput</name>
     <value>2414</value>
-    <description>The speed of sequential writes is 2414KB/s.</description>
+    <description>The throughput of sequential writes is 2414KB/s.</description>
   </property>
   <property>
-    <name>network.speed</name>
+    <name>network.throughput</name>
     <value>112</value>
-    <description>The network speed is 112MB/s.</description>
+    <description>The network throughput is 112MB/s.</description>
   </property>
 </configuration>
