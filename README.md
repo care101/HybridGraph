@@ -129,11 +129,9 @@ The cluster we used consists of 30 computational nodes with one additional maste
 each node is equipped with 2 Intel Core CPUs, 6GB RAM and a Hitachi disk (500GB, 7,200 RPM). In all the testing, each node runs one task, to avoid the resource contention. We test runtime by varying the memroy resource. The runtime of push obviously increases when the message buffer decreases, since accessing messages on disk is extremely expensive. Taking PageRank as an example, the percentages of disk-resident messages are 0%, 86%, and 98%, when the message buffer Bi reduces from `+infty` (i.e. sufficient memory) to 3.5 million and 0.5 million.  And the runtime rapidly increases from 10s to 24s and 64s, respectively. pushM can alleviate it by online processing messages sent to vertices resident in memory instead of spilling them onto disk. However, the performance degenerates
 when the buffer further decreases (such as 0.5 million). This is because more vertices are resident on disk, then each message received has less probabilities to be computed online. b-pull and hybrid perform the best. Finally, when Bi decreases, the performance of pull drastically degenerates due to frequently accessing vertices on disk when pulling messages, which validates the I/O-inefficiency of existing pull-based approaches. By contrast, our special data structure largely alleviates this problem in our b-pull and hybrid.
 
-PageRank and SSSP  
 <img src="figures/app_4_a_runtime_pr.jpg" alt="runtime of PageRank" title="runtime of PageRank" width="300" />
 <img src="figures/app_4_b_runtime_sssp.jpg" alt="runtime of SSSP" title="runtime of SSSP" width="300" />  
 
-LPA and SA  
 <img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" />
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
