@@ -135,33 +135,7 @@ In all the testing, each node runs one task,
 to avoid the resource contention.
 
 
-###5.1 Blocking time `push vs. b-pull` using PageRank  
-Here, blocking time is the time when nodes are exchanging messages.
-It is calculated by summing up the message exchanging time in iterations.
-We run PageRank in this test and provide sufficient memory.
-The following graphs show the average value and
-fluctuant range (min-max) for blocking time using wiki and orkut
-datasets. Note that b-pull starts exchanging messages from the 2nd superstep.  
-
-<img src="figures/app_2_a_blktime_wiki.jpg" alt="blocking time of wiki" title="blocking time of wiki" width="300" />
-<img src="figures/app_2_b_blktime_orkut.jpg" alt="blocking time of orkut" title="blocking time of orkut" width="300" />  
-
-
-###5.2 Network traffic `push vs. b-pull` using PageRank  
-The network traffic includes all input and
-output on bytes, and is extracted by [Ganglia](http://ganglia.sourceforge.net/),
-a cluster monitoring tool, where the monitoring interval is for every 2 seconds. 
-The almost 50% reduction of network traffic by b-pull is
-due to concatenating messages to the same destinations.
-In push, it is disable, as it is not cost-effective.
-The traffic of pushM is as same
-as that of push, as it cannot optimize communication costs.
-
-<img src="figures/app_3_a_nettraf_wiki.jpg" alt="network traffic of wiki" title="network traffic of wiki" width="300" />
-<img src="figures/app_3_b_nettraf_orkut.jpg" alt="network traffic of orkut" title="network traffic of orkut" width="300" />  
-
-
-###5.3 Testing runtime over wiki by varying the memroy resource  
+###5.1 Testing runtime over wiki by varying the memroy resource  
 The runtime of push obviously increases when the message buffer
 decreases, since accessing messages on disk is extremely expensive.
 Taking PageRank as an example, the
@@ -191,15 +165,6 @@ LPA and SA
 <img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" />
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
-
-###5.4 Scalability  
-Scalability of computations for `push` and `hybrid` (LPA)  
-<img src="figures/app_6_a_sca_run_lpa_push.jpg" alt="scalability of push LPA" title="scalability of push LPA" width="300" />
-<img src="figures/app_6_b_sca_run_lpa_pull.jpg" alt="scalability of hybrid LPA" title="scalability of hybrid LPA" width="300" />  
-
-Scalability of computations for `push` and `hybrid` (SA)  
-<img src="figures/app_7_a_sca_run_sa_push.jpg" alt="scalability of push SA" title="scalability of push SA" width="300" />
-<img src="figures/app_7_b_sca_run_sa_hybrid.jpg" alt="scalability of hybrid SA" title="scalability of hybrid SA" width="300" /> 
 
 
 ##6. Publications
