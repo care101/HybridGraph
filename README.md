@@ -124,18 +124,14 @@ In the following, we assume that:
 * `b-pull`: the block-centric pull approach used in HybridGraph  
 * `hybrid`: the hybrid mechanism combining push and b-pull in HybridGraph  
 
-We run four algorithms ([PageRank](http://dl.acm.org/citation.cfm?id=1807184), [SSSP](http://dl.acm.org/citation.cfm?id=1807184), [LPA](http://arxiv.org/pdf/0709.2938.pdf), and [SA](http://dl.acm.org/citation.cfm?id=2465369)) over three real graphs ([livej](http://snap.stanford.edu/data/soc-LiveJournal1.html), 
-[wiki](http://haselgrove.id.au/wikipedia.htm),
-and [orkut](http://socialnetworks.mpi-sws.org/data-imc2007.html)). 
+We run four algorithms ([PageRank](http://dl.acm.org/citation.cfm?id=1807184), [SSSP](http://dl.acm.org/citation.cfm?id=1807184), [LPA](http://arxiv.org/pdf/0709.2938.pdf), and [SA](http://dl.acm.org/citation.cfm?id=2465369)) over a  [wiki](http://haselgrove.id.au/wikipedia.htm) graph. 
 The cluster we used consists of 30 computational nodes with one
 additional master node connected by a Gigabit Ethernet switch, where
 each node is equipped with 2 Intel Core CPUs, 6GB RAM and a Hitachi
 disk (500GB, 7,200 RPM).
 In all the testing, each node runs one task,
-to avoid the resource contention.
-
-
-###5.1 Testing runtime over wiki by varying the memroy resource  
+to avoid the resource contention.  
+We test runtime by varying the memroy resource  
 The runtime of push obviously increases when the message buffer
 decreases, since accessing messages on disk is extremely expensive.
 Taking PageRank as an example, the
@@ -149,8 +145,7 @@ However, the performance degenerates
 when the buffer further decreases (such as 0.5 million).
 This is because more vertices are resident on disk,
 then each message received has less probabilities to be computed online.
-b-pull and hybrid perform the best and their runtime is the same since hybrid 
-always chooses b-pull as the optimal solution.
+b-pull and hybrid perform the best.
 Finally, when Bi decreases, the performance of pull 
 drastically degenerates due to frequently accessing vertices on disk
 when pulling messages, which validates the I/O-inefficiency of
@@ -164,7 +159,6 @@ PageRank and SSSP
 LPA and SA  
 <img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" />
 <img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
-
 
 
 ##6. Publications
