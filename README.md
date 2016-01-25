@@ -6,7 +6,7 @@ Billion-scale graphs are rapidly growing in size in many applications. That has 
 Specially, HybridGraph employs a `hybrid` solution to support switching between push and pull adaptively to obtain optimal performance in different scenarios. 
 
 Features of HybridGraph:
-* ___Block-centric pull mechanism (b-pull):___ I/O accesses are shifted from receiver sides where messages are written/read by push to sender sides where graph data are read by pull. Random reads regarding vertices in existing pull-based approaches usually cost more than random writes about messages in push-based approaches. The block-centric technique greatly optimizes the I/O-efficiency of reading vertices and reduces the communication cost caused by sending pull requests.
+* ___Block-centric pull mechanism (b-pull):___ I/O accesses are shifted from receiver sides where messages are written/read by push to sender sides where graph data are read by pull. The cost of random reads regarding vertices in existing pull-based approaches is considerable. Thus, a novel block-centric pull technique is used to optimize the I/O-efficiency, as well as reducing the communication cost caused by sending pull requests.  
 * ___VE-BLOCK storage:___ A disk-resident block-centric graph structure is designed for efficient data accesses in `b-pull`. Graph data are separated into vertices and edges. Vertices are divided into several `VBlocks`. Accordingly, edges are partitioned into multiple `EBlocks`. Messages are pulled in `VBlocks`.    
 * ___Hybrid engine:___ A seamless switching mechanism and a prominent performance prediction method are proposed to guarantee the efficiency when switching between push and `b-pull`.
 
