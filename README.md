@@ -23,7 +23,8 @@ Without loss of generality, suppose that HybridGraph is installed in `~/HybridGr
 ###2.2 Deploying HybridGraph   
 ####downloading files on `master`  
 `cd ~/`  
-`git clone https://github.com/HybridGraph/HybridGraph.git` 
+`git clone https://github.com/HybridGraph/HybridGraph.git`
+`chmod 777 -R HybridGraph/`
 
 ####configuration on `master`  
 First, edit `/etc/profile` by typing `sudo vi /etc/profile` and then add the following information:  
