@@ -145,4 +145,4 @@ when the buffer further decreases (such as 0.5 million). This is because more ve
 If you encounter any problem with HybridGraph, please feel free to contact wangzhiganglab@gmail.com.
 
 <p>
-<a href="/HybridGraph/HybridGraph/blob/master/figures/app_5_b_runtime_sa.jpg" target="_blank"><img src="/HybridGraph/HybridGraph/raw/master/figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" style="max-width:100%;"></a>  </p>
+<img src="/HybridGraph/HybridGraph/raw/master/figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" style="max-width:100%;">  </p>
