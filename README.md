@@ -145,10 +145,6 @@ when the buffer further decreases (such as 0.5 million). This is because more ve
 If you encounter any problem with HybridGraph, please feel free to contact wangzhiganglab@gmail.com.
 
 
-<p>
-</br>
-<center>
 <a href="http://www.clustrmaps.com/map/github.com/HybridGraph/HybridGraph" title="Visitor Map for github.com/HybridGraph/HybridGraph"><img src="//www.clustrmaps.com/map_v2.png?u=UUrs&d=ZDGE_EyrNM9I_T92gumx7FCFy4I7uKAGb_7ZJCb7w8g" /></a>
-</center>
-</br>
-<\p>
+
+<script type="text/javascript" id="clustrmaps" src="//cdn.clustrmaps.com/map_v2.js?u=UUrs&d=ZDGE_EyrNM9I_T92gumx7FCFy4I7uKAGb_7ZJCb7w8g"></script>
