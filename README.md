@@ -20,7 +20,7 @@ The HybridGraph project started at Northeastern University (China) in 2011. Hybr
 This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Hadoop should be installed on the cluster, which is beyond the scope of this document. 
 
 ###2.1 Requirements
-* Apache hadoop-0.20.2
+* Apache hadoop-0.20.2 (distributed storage service)  
 * Sun Java JDK 1.6.x or higher version  
 Without loss of generality, suppose that HybridGraph is installed in `~/HybridGraph` and Java is installed in `/usr/java/jdk1.6.0_23`.
 
@@ -121,7 +121,7 @@ HybridGraph includes some simple graph algorithms to show the usage of its APIs.
 
 ##5. Testing Report
 We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
-and the modified pull-based sytem [GraphLab PowerGraph](https://github.com/HybridGraph/GraphLab-PowerGraph.git).
+and the modified pull-based sytem "[GraphLab PowerGraph](https://github.com/HybridGraph/GraphLab-PowerGraph.git)".
 
 In the following, we assume that:  
 * `push`: the original push approach used in Giraph  
