@@ -13,8 +13,10 @@ The HybridGraph project started at Northeastern University (China) in 2011. Hybr
 * ___Hybrid engine:___ A seamless switching mechanism and a prominent performance prediction method are proposed to guarantee the efficiency when switching between push and `b-pull`.
 
 ###1.2 Team  
-[Yu Gu](http://www.ise.neu.edu.cn/?page_id=1285&tid=7473), Associate Professor, Northeastern University, Email: guyu@mail.neu.edu.cn    
-[Zhigang Wang](https://sites.google.com/site/wzg1210/), Ph.D. student, Northeastern University, Email: wangzhiganglab@gmail.com  
+* [Yu Gu](http://www.ise.neu.edu.cn/?page_id=1285&tid=7473), Associate Professor, Northeastern University, Email: guyu@mail.neu.edu.cn    
+* [Zhigang Wang](https://sites.google.com/site/wzg1210/), Ph.D. student, Northeastern University, Email: wangzhiganglab@gmail.com  
+
+###1.3 Current Work  
 
 ##2. Quick Start
 This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Hadoop should be installed on the cluster, which is beyond the scope of this document. 
