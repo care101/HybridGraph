@@ -16,13 +16,6 @@ The HybridGraph project started at Northeastern University (China) in 2011. Hybr
 * [Yu Gu](http://www.ise.neu.edu.cn/?page_id=1285&tid=7473), Associate Professor, Northeastern University, Email: guyu@mail.neu.edu.cn    
 * [Zhigang Wang](https://sites.google.com/site/wzg1210/), Ph.D. student, Northeastern University, Email: wangzhiganglab@gmail.com  
 
-###1.3 Current Work  
-* Designing an I/O-efficient asynchronous computation model to accelerate the convergence  
-* Developing a lightweight fault-tolerance component  
-* Developing a streaming vertex placement policy to reduce the storage cost of VE-BLOCK  
-* Building a machine learning algorithm library  
-* Exploring how to process the hypergraph on top of our system  
-
 ##2. Quick Start
 This section describes how to configurate, compile and then deploy HybridGraph on a cluster consisting of three physical machines running Red Hat Enterprise Linux 6.4 32/64 bit (one master and two slaves/workers, called `master`, `slave1`, and `slave2`). Before that, Apache Hadoop should be installed on the cluster, which is beyond the scope of this document. 
 
