@@ -143,7 +143,7 @@ when the buffer further decreases (such as 0.5 million). This is because more ve
 
 
 ##6. Publications
-* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing. to appear in SIGMOD 2016.
+* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. [Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing](DOI: http://dx.doi.org/10.1145/2882903.2882938). SIGMOD 2016.
 
 ##7. Contact  
 If you encounter any problem with HybridGraph, please feel free to contact wangzhiganglab@gmail.com.
