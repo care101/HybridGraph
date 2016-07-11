@@ -73,7 +73,8 @@ First, create an input file under input/random_graph on HDFS. Input file should 
 `source_vertex_id \t target_vertex_id_1:target_vertex_id_2:...`  
 An example is given in [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph). You can download it and put it onto your HDFS:  
 `hadoop dfs -mkdir input`  
-`hadoop dfs -put random_graph input/`
+`hadoop dfs -put random_graph input/`  
+Currently, HybridGraph uses Range (a simple variant of [Range](https://apache.googlesource.com/giraph/+/old-move-to-tlp/src/main/java/org/apache/giraph/graph/partition/RangePartitionerFactory.java) used in Giraph) to partition input graph, in order to preserve the locality of raw graph. As a negative result of that, vertex ids must be numbered consecutively.  
 
 Second, submit the SSSP job with different models for the example graph [random_graph](https://github.com/HybridGraph/dataset/blob/master/random_graph):  
 * __SSSP (using b-pull):__  
