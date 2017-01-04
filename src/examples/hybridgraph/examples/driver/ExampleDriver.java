@@ -3,6 +3,7 @@ package hybridgraph.examples.driver;
 import hybridgraph.examples.cc.CCPullDriver;
 import hybridgraph.examples.lpa.LPAPullDriver;
 import hybridgraph.examples.pagerank.PageRankPullDriver;
+import hybridgraph.examples.pagerank.PageRankHybridDriver;
 import hybridgraph.examples.sa.SAHybridDriver;
 import hybridgraph.examples.sa.SAPullDriver;
 import hybridgraph.examples.sssp.SSSPHybridDriver;
@@ -21,6 +22,8 @@ public class ExampleDriver {
 	    	/** PageRank */
 	    	pgd.addClass("pr.pull", PageRankPullDriver.class, 
             	"\tpagerank by pull (10/12/2013)");
+		pgd.addClass("pr.hybrid", PageRankHybridDriver.class, 
+		"\tpagerank by hybrid (01/04/2017)");
 	    	
 	    	/** Connected Components */
 	    	pgd.addClass("cc.pull", CCPullDriver.class, 
