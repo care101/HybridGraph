@@ -27,6 +27,6 @@ public class VersionInfo {
     }
     
     private static String getCompilerDateInfo() {
-        return "12/23/2015";
+        return "March 6, 2017";
     }
 }
