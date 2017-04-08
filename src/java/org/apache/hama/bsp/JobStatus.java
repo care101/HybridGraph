@@ -61,14 +61,25 @@ public class JobStatus implements Writable, Cloneable {
     }
   }
 
+  /** preparing to load graph data */
   public static final int PREP = 1;
+  /** loading graph data */
   public static final int LOAD = 2;
+  /** running iterative computations */
   public static final int RUNNING = 3;
+  /** dumping final results */
   public static final int SAVE = 4;
+  /** done successfully */
   public static final int SUCCEEDED = 5;
+  /** failed after tolerating failures */
   public static final int FAILED = 6;
+  /** killed */
   public static final int KILLED = 7;
-
+  /** restarting new tasks with respect to failed ones */
+  public static final int RESTART = 8;
+  /** recovering failures */
+  public static final int RECOVERY = 9;
+  
   private BSPJobID jobid;
   private float[] progress;  // min & max
   private int[] progressTaskIds; //min & max

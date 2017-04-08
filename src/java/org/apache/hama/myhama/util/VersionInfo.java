@@ -11,7 +11,7 @@ package org.apache.hama.myhama.util;
 public class VersionInfo {
 
     public static String getVersionInfo() {
-        return "beta-0.1";
+        return "beta-0.2";
     }
     
     public static String getSourceCodeInfo() {
@@ -27,6 +27,6 @@ public class VersionInfo {
     }
     
     private static String getCompilerDateInfo() {
-        return "March 6, 2017";
+        return "March 30, 2017";
     }
 }

@@ -9,7 +9,9 @@ import java.util.ArrayList;
 //import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
+import org.apache.hama.Constants.CommandType;
 import org.apache.hama.bsp.BSPJob;
+import org.apache.hama.myhama.comm.SuperStepCommand;
 
 public class JobInformation implements Writable {
 	private BSPJob job;
@@ -24,19 +26,27 @@ public class JobInformation implements Writable {
 	private int blkNumOfJob = 0; //total #VBlocks of this job
 	private int[] blkNumOfTasks;  //#VBlocks of each task
 	private int[] blkLenOfTasks;  //#vertices in one VBlock at each task
-	private int[] headBlkIdxOfTasks; //the beginning global idx of VBlocks at each task
+	/** the beginning global idx of VBlocks at each task */
+	private int[] headBlkIdxOfTasks; 
+	
+	private String ckpJobDir; //checkpoint directory for this job
 	
 	//=====================================
 	// Only available in JobInProgress
 	//=====================================
+	
 	private int[] verNumOfBlks;
 	/** number of responding source vertices of each VBlock */
 	private int[] resVerNumOfBlks;
 	/** dependency relationship among all VBlocks with responding vertices */
 	private boolean[][] resDependMatrix;
 	
-	private ArrayList<Double> iteTime, iteQ;
-	private ArrayList<String> iteCommand;
+	/** commands at previous iterations */
+	private ArrayList<SuperStepCommand> commands;
+	/** commands at recovery iterations */
+	private ArrayList<SuperStepCommand> recoveryCommands;
+	/** the most recent checkpoint version */
+	private int ckpVersion;
 		
 	public JobInformation() {
 		
@@ -56,10 +66,9 @@ public class JobInformation implements Writable {
 		this.blkLenOfTasks = new int[_taskNum];
 		this.headBlkIdxOfTasks = new int[_taskNum];
 		
-		//local variables.
-		iteTime = new ArrayList<Double>();
-		iteCommand = new ArrayList<String>(); 
-		iteQ = new ArrayList<Double>();
+		commands = new ArrayList<SuperStepCommand>(); 
+		recoveryCommands = new ArrayList<SuperStepCommand>();
+		ckpVersion = -1;
 	}
 	
 	/**
@@ -78,14 +87,17 @@ public class JobInformation implements Writable {
 	/**
 	 * Only invoked by {@link JobInProgress} at the Master.
 	 * @param _verNum
+	 * @param _ckpDir
 	 */
-	public void initAftBuildingInfo(int _verNum) {
+	public void initAftBuildingInfo(int _verNum, String _ckpJobDir) {
 		initVerIdAndNums(_verNum);
+		ckpJobDir = _ckpJobDir;
 		
 		for (int i = 0; i < taskNum; i++) {
 			this.blkNumOfTasks[i] = this.job.getNumBucketsPerTask();
 			this.blkLenOfTasks[i] = 
-				(int)Math.ceil((double)(verMaxIds[i]-verMinIds[i]+1)/this.blkNumOfTasks[i]);
+				(int)Math.ceil((double)
+						(verMaxIds[i]-verMinIds[i]+1)/this.blkNumOfTasks[i]);
 			this.blkNumOfJob += this.blkNumOfTasks[i];
 		}
 		
@@ -143,6 +155,33 @@ public class JobInformation implements Writable {
 		this.verMinId = tmpMin[0];
 		this.verMaxId = verMaxIds[tmpId[taskNum-1]];
 		this.verNum = _verNum;
+	}
+	
+	/**
+	 * Get the checkpoint directory for this job.
+	 * Only valid if {@link initAftBuildingInfo} has been invoked.
+	 */
+	public String getCheckPointDirForJob() {
+		return this.ckpJobDir;
+	}
+	
+	/**
+	 * If {@link CommandType} is CHECKPOINT in the finishSuperStep() 
+	 * function at the i-th iteration, the most recent available 
+	 * checkpoint version is set to i.
+	 * @param version
+	 */
+	public void setAvailableCheckPoint(int version) {
+		ckpVersion = version;
+	}
+	
+	/**
+	 * Get the most recent available checkpoint version. 
+	 * -1 indicates that no checkpoint exists.
+	 * @return
+	 */
+	public int getAvailableCheckPoint() {
+		return ckpVersion;
 	}
 	
 	public int getVerNum() {
@@ -221,17 +260,25 @@ public class JobInformation implements Writable {
 		return (this.headBlkIdxOfTasks[_dstTid] + _dstBid);
 	}
 	
-	public void recordIterationInformation(double time, double q, String command) {
-		this.iteTime.add(time);
-		this.iteQ.add(q);
-		this.iteCommand.add(command);
+	public void archiveCommand(SuperStepCommand command) {
+		command.compact();
+		commands.add(command);
+	}
+	
+	public SuperStepCommand getCommand(int curIteNum) {
+		return commands.get(curIteNum-1);
+	}
+	
+	public void archiveRecoveryCommand(SuperStepCommand command) {
+		command.compact();
+		recoveryCommands.add(command);
 	}
 	
 	public Double getQ(int curIteNum) {
 		if (curIteNum < 1) {
 			return 0.0;
 		} else {
-			return this.iteQ.get(curIteNum-1);
+			return commands.get(curIteNum-1).getMetricQ();
 		}
 	}
 	
@@ -249,13 +296,14 @@ public class JobInformation implements Writable {
 	
 	/**
 	 * Return the actual communication route table for the given task. 
-	 * This table will be used to direct the pull operations, 
+	 * This table will be used to guide the pull operations, 
 	 * to avoid sending useless pulling requests.
 	 * Only invoked by {@link JobInProgress} at Master.
 	 * @param _dstTid
 	 * @return
 	 */
-	public ArrayList<Integer>[] getActualCommunicationRouteTable(int _dstTid) {
+	public ArrayList<Integer>[] getActualRouteTable(int _dstTid, 
+			CommandType commandType) {
 		int beginId = this.headBlkIdxOfTasks[_dstTid];
 		int dstBlkIdx = 0;
 		ArrayList<Integer>[] route = new ArrayList[this.blkNumOfTasks[_dstTid]];
@@ -270,8 +318,10 @@ public class JobInformation implements Writable {
 				boolean find = false;
 				for (int j = 0; j < this.blkNumOfTasks[srcTid]; j++) {
 					srcBlkIdx = headBlkIdx + j;
-					if (this.resVerNumOfBlks[srcBlkIdx]>0 
-							&& this.resDependMatrix[srcBlkIdx][dstBlkIdx]) {
+					if ((commandType==CommandType.RECOVER) || 
+							commandType==CommandType.RECOVERED || 
+							(this.resVerNumOfBlks[srcBlkIdx]>0 
+							&& this.resDependMatrix[srcBlkIdx][dstBlkIdx])) {
 						//has updated, && has edges.
 						find = true;
 						break;
@@ -290,12 +340,25 @@ public class JobInformation implements Writable {
 	public String toString() {
 		StringBuffer sb = new StringBuffer("\n");
 		
-		sb.append("\nDetailInfo: iteCounter    command    time    metric_Q");
-		for (int index = 0; index < this.iteCommand.size(); index++) {
+		sb.append("\nDetailInfo: iteration\tcommand\taggregator\tmodel" +
+				"\truntime\tmetric_Q\tfailed");
+		for (int index = 0; index < commands.size(); index++) {
 			sb.append("\n   ite[" + index + "]  ");
-			sb.append(this.iteCommand.get(index)); sb.append("\t");
-			sb.append(this.iteTime.get(index)); sb.append("\t");
-			sb.append(this.iteQ.get(index));
+			sb.append(commands.get(index));
+		}
+		
+		if (recoveryCommands.size() > 0) {
+			sb.append("\n\nRecoveryInfo: iteration\tcommand\taggregator\tmodel" +
+			"\truntime\tmetric_Q\tfailed");
+			double time = 0.0;
+			for (int index = 0; index < recoveryCommands.size(); index++) {
+				sb.append("\n   ite[" + index + "]  ");
+				sb.append(recoveryCommands.get(index));
+				time += recoveryCommands.get(index).getIterationTime();
+			}
+			sb.append("\n   TimeOfRecomputation = ");
+			sb.append(time);
+			sb.append(" sec");
 		}
 		
 		return sb.toString();
@@ -308,6 +371,7 @@ public class JobInformation implements Writable {
 		this.verMinId = in.readInt();
 		this.verMaxId = in.readInt();
 		this.blkNumOfJob = in.readInt();
+		this.ckpJobDir = Text.readString(in);
 		
 		this.taskNum = in.readInt();
 		this.taskIds = new int[taskNum];
@@ -329,6 +393,8 @@ public class JobInformation implements Writable {
 			this.blkLenOfTasks[i] = in.readInt();
 			this.headBlkIdxOfTasks[i] = in.readInt();
 		}
+		
+		this.ckpVersion = in.readInt();
 	}
 
 	@Override
@@ -338,6 +404,7 @@ public class JobInformation implements Writable {
 		out.writeInt(this.verMinId);
 		out.writeInt(this.verMaxId);
 		out.writeInt(this.blkNumOfJob);
+		Text.writeString(out, this.ckpJobDir);
 		
 		out.writeInt(this.taskNum);
 		for (int i = 0; i < taskNum; i++) {
@@ -351,5 +418,7 @@ public class JobInformation implements Writable {
 			out.writeInt(this.blkLenOfTasks[i]);
 			out.writeInt(this.headBlkIdxOfTasks[i]);
 		}
+		
+		out.writeInt(this.ckpVersion);
 	}
 }

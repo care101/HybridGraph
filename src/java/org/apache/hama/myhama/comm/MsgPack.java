@@ -26,15 +26,19 @@ public class MsgPack<V, W, M, I> implements Writable {
 	
 	private boolean over = false;
 	
+	private long loggedBytes = 0L;
+	
 	public MsgPack() {
 		this.io_byte = 0L;
 		this.io_pull_vert = 0L;
+		this.loggedBytes = 0L;
 	}
 	
 	public MsgPack(UserTool<V, W, M, I> _userTool) {
 		this.userTool = _userTool;
 		this.io_byte = 0L;
 		this.io_pull_vert = 0L;
+		this.loggedBytes = 0;
 	}
 	
 	public void setUserTool(UserTool<V, W, M, I> _userTool) {
@@ -70,11 +74,12 @@ public class MsgPack<V, W, M, I> implements Writable {
 	 * @param _msgRecNum
 	 */
 	public void setLocal(MsgRecord<M>[] msgData, int _size,
-			long _msgProNum, long _msgRecNum) {
+			long _msgProNum, long _msgRecNum, long _loggedBytes) {
 		this.msgData = msgData;
 		this.size = _size;
 		this.msg_pro = _msgProNum;
 		this.msg_rec = _msgRecNum;
+		this.loggedBytes = _loggedBytes;
 	}
 	
 	/**
@@ -85,11 +90,12 @@ public class MsgPack<V, W, M, I> implements Writable {
 	 * @param _msgRecNum
 	 */
 	public void setRemote(ByteArrayOutputStream _bos, int _size,
-			long _msgProNum, long _msgRecNum) {
+			long _msgProNum, long _msgRecNum, long _loggedBytes) {
 		this.bos = _bos;
 		this.size = _size;
 		this.msg_pro = _msgProNum;
 		this.msg_rec = _msgRecNum;
+		this.loggedBytes = _loggedBytes;
 	}
 	
 	public MsgRecord<M>[] get() throws IOException {
@@ -110,6 +116,10 @@ public class MsgPack<V, W, M, I> implements Writable {
 	
 	public long getIOByteOfVertInPull() {
 		return this.io_pull_vert;
+	}
+	
+	public long getIOByteOfLoggedMsg() {
+		return this.loggedBytes;
 	}
 	
 	public long getReadEdgeNum() {
@@ -142,6 +152,7 @@ public class MsgPack<V, W, M, I> implements Writable {
 	public void readFields(DataInput in) throws IOException {
 		this.io_byte = in.readLong();
 		this.io_pull_vert = in.readLong();
+		this.loggedBytes = in.readLong();
 		this.edge_read = in.readLong();
 		this.fragment_read = in.readLong();
 		this.msg_pro = in.readLong();
@@ -161,6 +172,7 @@ public class MsgPack<V, W, M, I> implements Writable {
 	public void write(DataOutput out) throws IOException {
 		out.writeLong(this.io_byte);
 		out.writeLong(this.io_pull_vert);
+		out.writeLong(this.loggedBytes);
 		out.writeLong(this.edge_read);
 		out.writeLong(this.fragment_read);
 		out.writeLong(this.msg_pro);

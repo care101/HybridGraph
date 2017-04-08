@@ -31,4 +31,14 @@ public class TextBSPFileOutputFormat extends BSPFileOutputFormat<Text, Text> {
         FSDataOutputStream fileOut = fs.create(file, false);
         return new TextRecordWriter(fileOut);
     }
+    
+    /**
+     * Only used for checkpoint.
+     */
+    public RecordWriter<Text, Text> getRecordWriter(BSPJob job, Path file) 
+    	throws IOException, InterruptedException {
+        FileSystem fs = file.getFileSystem(job.getConf());
+        FSDataOutputStream fileOut = fs.create(file, false);
+        return new TextRecordWriter(fileOut);
+    }
 }

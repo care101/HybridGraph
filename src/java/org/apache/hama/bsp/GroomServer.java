@@ -23,12 +23,13 @@ import java.lang.reflect.Constructor;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.Map.Entry;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -51,6 +52,7 @@ import org.apache.hama.Constants;
 import org.apache.hama.HamaConfiguration;
 import org.apache.hama.ipc.MasterProtocol;
 import org.apache.hama.ipc.WorkerProtocol;
+import org.apache.hama.myhama.util.LocalFileOperation;
 import org.apache.hama.myhama.util.TaskReportContainer;
 import org.apache.log4j.LogManager;
 
@@ -63,14 +65,10 @@ import org.apache.log4j.LogManager;
  * storages. Basically, a groom server and a data node should be run on one
  * physical node.
  */
-public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
-
+public class GroomServer implements Runnable, WorkerProtocol, 
+		BSPTaskTrackerProtocol {
   public static final Log LOG = LogFactory.getLog(GroomServer.class);
-  private BSPPeer bspPeer;
-  static final String SUBDIR = "groomServer";
-
   private volatile static int REPORT_INTERVAL = 1 * 1000;
-
   Configuration conf;
 
   // Constants
@@ -86,6 +84,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   GroomServerStatus status = null;
 
   // Attributes
+  InetSocketAddress peerAddress;
   String groomServerName;
   String localHostname;
   InetSocketAddress bspMasterAddr;
@@ -99,16 +98,9 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   private int maxTaskSlot = 1;
   private int usedTaskSlot=0;
   
-  /** Map from taskId -> TaskInProgress. */
-  Map<TaskAttemptID, TaskInProgress> runningTasks = null;
-  Map<BSPJobID, RunningJob> runningJobs = null;
-  LaunchThread launchT = new LaunchThread();
-  
   //the BSPPeerForJob to JobID
-  public Map<BSPJobID,BSPPeerForJob> runningJobtoBSPPeer=null;
-  
-  BSPJobID jobIdTmp=new BSPJobID("nosuing",0);
-  TaskAttemptID taskIdTmp=new TaskAttemptID();
+  LaunchThread launchT = new LaunchThread();
+  public Map<BSPJobID,LocalJobInProgress> runningJips = null;
   
   Map<BSPJobID, String> GroomRPCForJob=new HashMap<BSPJobID, String>();
 
@@ -118,6 +110,9 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
 
   InetSocketAddress taskReportAddress;
   Server taskReportServer = null;
+  
+  /** generate a port number for every newly assigned task */
+  private AtomicInteger taskCommPortCounter;
   
   public GroomServer(Configuration conf) throws IOException {
     LOG.info("groom start");
@@ -133,6 +128,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   }
 
   public synchronized void initialize() throws IOException {
+	taskCommPortCounter = new AtomicInteger(0);
     if (this.conf.get(Constants.PEER_HOST) != null) {
       this.localHostname = conf.get(Constants.PEER_HOST);
     }
@@ -143,18 +139,18 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
           conf.get("bsp.dns.nameserver", "default"));
     }
     // check local disk
-    checkLocalDirs(conf.getStrings("bsp.local.dir"));
+    checkLocalDir(getLocalDir());
 
     this.maxTaskSlot = conf.getInt(Constants.MAX_TASKS, 1);
     LOG.info("max task slots is : " + this.maxTaskSlot);
     
-    this.runningJobs = new TreeMap<BSPJobID, RunningJob>();
-    this.runningJobtoBSPPeer=new TreeMap<BSPJobID,BSPPeerForJob>();
-    this.runningTasks = new LinkedHashMap<TaskAttemptID, TaskInProgress>();
+    this.runningJips = new TreeMap<BSPJobID,LocalJobInProgress>();
     
     this.conf.set(Constants.PEER_HOST, localHostname);
     this.conf.set(Constants.GROOM_RPC_HOST, localHostname);
-    bspPeer = new BSPPeer(conf);
+    int peerPort = conf
+        .getInt(Constants.PEER_PORT, Constants.DEFAULT_PEER_PORT);
+    peerAddress = new InetSocketAddress(localHostname, peerPort);
 
     int rpcPort = -1;
     String rpcAddr = null;
@@ -194,7 +190,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
         + ":" + taskReportAddress.getPort());
     LOG.info("GroomServer up at: " + this.taskReportAddress);
     
-    this.groomServerName = "groomd_" + bspPeer.getPeerName(jobIdTmp, taskIdTmp).replace(':', '_');
+    this.groomServerName = "groomd_" + getPeerName().replace(':', '_');
     
     LOG.info("Starting groom: " + this.groomServerName);
 
@@ -208,8 +204,8 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
       throw new IllegalArgumentException("Error rpc address " + rpcAddr
           + " port" + rpcPort);
     if (!this.masterClient.register(new GroomServerStatus(groomServerName,
-            bspPeer.getPeerName(jobIdTmp, taskIdTmp), GroomRPCForJob, cloneAndResetRunningTaskStatuses(), 0,
-            maxTaskSlot, usedTaskSlot, 0, this.rpcServer))) {
+            getPeerName(), GroomRPCForJob, cloneAndResetRunningTaskStatuses(), 
+            0, maxTaskSlot, usedTaskSlot, 0, this.rpcServer))) {
           LOG.error("There is a problem in establishing communication"
               + " link with BSPMaster");
           throw new IOException("There is a problem in establishing"
@@ -220,13 +216,25 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
     this.launchT.start();
   }
 
+  /**
+   * @return the string as host:port of this Peer
+   */
+  private String getPeerName() {
+	  if (peerAddress == null) {
+		  return null;
+	  } else {
+		  return peerAddress.getHostName() + ":" + peerAddress.getPort();
+	  }
+  }
+  
   /** Return the port at which the tasktracker bound to */
   public synchronized InetSocketAddress getTaskTrackerReportAddress() {
     return taskReportAddress;
   }
 
   private class LaunchThread extends Thread {
-	  final BlockingQueue<Directive> buffer = new LinkedBlockingQueue<Directive>();
+	  final BlockingQueue<Directive> buffer = 
+		  new LinkedBlockingQueue<Directive>();
 	  
 	  public void put(Directive directive) {
 		  try {
@@ -255,9 +263,10 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
 							  // TODO Use the cleanup thread
 							  // tasksToCleanup.put(action);
 							  KillTaskAction killAction = (KillTaskAction) action;
-							  if (runningTasks.containsKey(killAction.getTaskID())) {
-								  TaskInProgress tip = runningTasks.get(killAction.getTaskID());
-								  LOG.warn(killAction.getTaskID() + " is killed!");
+							  TaskInProgress tip = 
+								  getTaskInProgress(killAction.getTaskID());
+							  if (tip != null) {
+								  //LOG.warn(killAction.getTaskID() + " is killed!");
 								  tip.taskStatus.setRunState(TaskStatus.State.KILLED);
 								  tip.killAndCleanup(true);
 							  }
@@ -276,67 +285,71 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
 	  }
   }
   
+  private TaskInProgress getTaskInProgress(TaskAttemptID tid) {
+	  TaskInProgress tip = null;
+	  for (LocalJobInProgress jip: runningJips.values()) {
+		  if (jip.containTask(tid)) {
+			  tip = jip.getTaskInProgress(tid);
+			  break;
+		  }
+	  }
+	  
+	  return tip;
+  }
+  
+  private List<TaskInProgress> getAllRunningTaskInProgress() {
+	  List<TaskInProgress> result = new ArrayList<TaskInProgress>();
+	  for (LocalJobInProgress jip: runningJips.values()) {
+		  result.addAll(jip.getAllTaskInProgress());
+	  }
+	  return result;
+  }
+  
   @Override
   public void dispatch(BSPJobID jobId, Directive directive) throws IOException {
 	  this.launchT.put(directive);
   }
 
-  private static void checkLocalDirs(String[] localDirs)
+  private static void checkLocalDir(String localDir)
       throws DiskErrorException {
     boolean writable = false;
+    LOG.info(localDir);
 
-    LOG.info(localDirs);
-
-    if (localDirs != null) {
-      for (int i = 0; i < localDirs.length; i++) {
-        try {
-          LOG.info(localDirs[i]);
-          DiskChecker.checkDir(new File(localDirs[i]));
-          writable = true;
-        } catch (DiskErrorException e) {
-          LOG.warn("BSP Processor local " + e.getMessage());
-        }
-      }
+    if (localDir != null) {
+    	try {
+            DiskChecker.checkDir(new File(localDir));
+            writable = true;
+    	} catch (DiskErrorException e) {
+    		LOG.warn("BSP Processor local " + e.getMessage());
+    	}
     }
 
     if (!writable)
-      throw new DiskErrorException("all local directories are not writable");
+      throw new DiskErrorException("local directory is not writable");
   }
-
-  public String getLocalDir() {
+  
+  private String getLocalDir() {
     return conf.get("bsp.local.dir");
   }
-
-	public void deleteLocalFiles() {
-		try {
-			File rootDir = new File(getLocalDir());
-			File[] localDirs = rootDir.listFiles();
-			for (int i = 0; i < localDirs.length; i++) {
-				deleteLocalDir(localDirs[i]);
-			}
-		} catch (Exception e) {
-			LOG.error("[deleteLocalFiles]", e);
-		}
-	}
-
-	public void deleteLocalDir(File dir) {
-		if (dir == null || !dir.exists() || !dir.isDirectory()) {
-			return;
-		}
-		  
-		for (File file : dir.listFiles()) {
-			if (file.isFile()) {
-				file.delete(); // delete the file
-			} else if (file.isDirectory()) {
-				deleteLocalDir(file); // recursive delete the subdir
-			}
-		}
-		
-		dir.delete();// delete the root dir
-	}
-
-  public void cleanupStorage() throws IOException {
-	  deleteLocalFiles();
+  
+  /**
+   * Delete all files in the given directory. 
+   * The given directory will be preserved.
+   * @param dir
+   */
+  private void emptyDir(String dir) {
+	  try {
+		  File rootDir = new File(dir);
+		  if (rootDir.exists()) {
+			  LocalFileOperation localFileOpt = new LocalFileOperation();
+			  File[] localDirs = rootDir.listFiles();
+			  for (int i = 0; i < localDirs.length; i++) {
+				  localFileOpt.deleteDir(localDirs[i]);
+			  }
+		  }
+	  } catch (Exception e) {
+		  LOG.error("[deleteLocalFiles]", e);
+	  }
   }
 
   private void startCleanupThreads() throws IOException {
@@ -344,61 +357,67 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   }
   
   private void clearTask(TaskInProgress tip) throws Exception {
-	  if (!this.runningJobs.containsKey(tip.getJobId())) return;
-	  
-	  RunningJob runJob = this.runningJobs.get(tip.getJobId());
-	  if (runJob.tasks.containsKey(tip.getStatus().getTaskId())) {
-		  runJob.tasks.remove(tip.getStatus().getTaskId());
-		  if (runJob.tasks.size() == 0) {
-			  this.runningJobs.remove(tip.getJobId());
-			  this.runningJobtoBSPPeer.get(tip.getJobId()).close();
-			  this.runningJobtoBSPPeer.remove(tip.getJobId());
+	  BSPJobID jobId = tip.getJobId();
+	  TaskAttemptID taskId = tip.getStatus().getTaskId();
+	  if (!runningJips.containsKey(jobId)) {
+		  return;
+	  } else {
+		  boolean jobIsDone = 
+			  runningJips.get(jobId).removeTaskInProgress(taskId);
+		  if (jobIsDone) {
+			  runningJips.get(jobId).close();
+			  runningJips.remove(jobId);
 		  }
 	  }
 	  
-	  runningTasks.remove(tip.getStatus().getTaskId());
 	  usedTaskSlot--;
   }
 
   public State offerService() throws Exception {
 	  while (running && !shuttingDown) {
 		  try {
-	    	  List<TaskAttemptID> list_id=new ArrayList<TaskAttemptID>(runningTasks.keySet());
-	    	  List<TaskInProgress> list_tip=new ArrayList<TaskInProgress>(runningTasks.values());
-	    	  List<TaskStatus> tlist = new ArrayList<TaskStatus>();
-	    	  int count = list_id.size();
+	    	  List<TaskInProgress> runningList = getAllRunningTaskInProgress();
+	    	  List<TaskStatus> reportList = new ArrayList<TaskStatus>();
+	    	  int count = runningList.size();
 	    	  for (int i = 0; i < count; i++) {
-	    		  TaskInProgress tip = list_tip.get(i);
+	    		  TaskInProgress tip = runningList.get(i);
 	    		  TaskStatus taskStatus = tip.getStatus();
 	    		  
+	    		  /** 
+	    		   * Only tasks with UNASSIGNED/RUNNING will be repeatedly 
+	    		   * reported. Tasks with other statuses are reported only 
+	    		   * once and then deleted. 
+	    		   * */
 	    		  switch(taskStatus.getRunState()) {
 	    		  case UNASSIGNED: break;
 	    		  case RUNNING: 
 	    			  if (!tip.runner.isAlive()) {
-		    			  tip.setRunState(new Exception("thread is dead"));
-		    			  LOG.error(taskStatus.getTaskId()+" is removed due to \"dead\"");
+		    			  tip.runtimeError();
+		    			  LOG.error(taskStatus.getTaskId()+" is dead (failed task)");
 		    			  clearTask(tip);
 		    		  }
 	    			  break;
 	    		  case SUCCEEDED: 
-	    			  LOG.info(taskStatus.getTaskId()+" is removed due to \"successful\"");
+	    			  LOG.info(taskStatus.getTaskId()+" is done");
 	    			  clearTask(tip);
 	    			  break;
 	    		  case FAILED: 
-	    			  LOG.error(taskStatus.getTaskId()+" is removed due to \"failed\"");
+	    			  LOG.error(taskStatus.getTaskId()+" fails");
+	    			  if (tip.runner.isAlive()) {
+	    					tip.killAndCleanup(true);
+	    			  }
 	    			  clearTask(tip);
 	    			  break;
 	    		  case KILLED: 
-	    			  LOG.warn(taskStatus.getTaskId()+" is removed due to \"killed\"");
+	    			  LOG.warn(taskStatus.getTaskId()+" is killed by TaskTracker");
 	    			  clearTask(tip);
 	    			  break;
 	    		  }
 	    		  
-	    		  tlist.add(taskStatus);
+	    		  reportList.add(taskStatus);
 	    	  }
-	    	  
 	    	  GroomServerStatus gss = new GroomServerStatus(groomServerName, 
-	    			  bspPeer.getPeerName(jobIdTmp, taskIdTmp), GroomRPCForJob, tlist, 0,
+	    			  getPeerName(), GroomRPCForJob, reportList, 0,
 	    			  maxTaskSlot, usedTaskSlot, 0, this.rpcServer);
 	    	  try {
 	    		  boolean ret = masterClient.report(new Directive(gss));
@@ -453,122 +472,84 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
     try {
       localizeJob(tip, directive);
     } catch (Throwable e) {
-      String msg = ("Error initializing " + tip.getTask().getTaskID() + ":\n" + StringUtils
-          .stringifyException(e));
+      String msg = ("Error initializing " + tip.getTask().getTaskID() 
+    		  + ":\n" + StringUtils.stringifyException(e));
       LOG.warn(msg);
     }
   }
 
-  private void localizeJob(TaskInProgress tip, Directive directive) throws IOException {
-    Task task = tip.getTask();
-    conf.addResource(task.getJobFile());
-    BSPJob defaultJobConf = new BSPJob((HamaConfiguration) conf);
-    Path localJobFile = defaultJobConf.getLocalPath(SUBDIR + "/"
-        + task.getTaskID() + "/" + "job.xml");
-
-    RunningJob rjob = addTaskToJob(task.getJobID(), localJobFile, tip, directive);
-    BSPJob jobConf = null;
+  private void localizeJob(TaskInProgress tip, Directive directive) 
+  		throws IOException {
+	  Task task = tip.getTask();
+	  conf.addResource(task.getJobFile());
+	  String dir = getLocalTaskDir(task.getJobID(), task.getTaskID());
     
-    Path localJarFile = defaultJobConf.getLocalPath(SUBDIR + "/"
-            + task.getTaskID() + "/" + "job.jar");
-        systemFS.copyToLocalFile(new Path(task.getJobFile()), localJobFile);
+	  Path localJobFile = new Path(dir + "/job.xml");
 
-        HamaConfiguration conf = new HamaConfiguration();
-        conf.addResource(localJobFile);
-        jobConf = new BSPJob(conf, task.getJobID().toString());
+	  addJob(task.getJobID(), localJobFile, tip, directive);
+	  BSPJob jobConf = null;
+    
+	  Path localJarFile = new Path(dir + "/job.jar");
+	  systemFS.copyToLocalFile(new Path(task.getJobFile()), localJobFile);
 
-        Path jarFile = new Path(jobConf.getJar());
-        jobConf.setJar(localJarFile.toString());
+	  HamaConfiguration conf = new HamaConfiguration();
+	  conf.addResource(localJobFile);
+	  jobConf = new BSPJob(conf, task.getJobID().toString());
 
-        if (jarFile != null) {
-          systemFS.copyToLocalFile(jarFile, localJarFile);
+	  Path jarFile = new Path(jobConf.getJar());
+	  jobConf.setJar(localJarFile.toString());
+
+	  if (jarFile != null) {
+		  systemFS.copyToLocalFile(jarFile, localJarFile);
 
           // also unjar the job.jar files in workdir
           File workDir = new File(
               new File(localJobFile.toString()).getParent(), "work");
           if (!workDir.mkdirs()) {
-            if (!workDir.isDirectory()) {
-              throw new IOException("Mkdirs failed to create "
-                  + workDir.toString());
-            }
+        	  if (!workDir.isDirectory()) {
+        		  throw new IOException("Mkdirs failed to create "
+        				  + workDir.toString());
+        	  }
           }
           RunJar.unJar(new File(localJarFile.toString()), workDir);
-        }
-        rjob.localized = true;
-        launchTaskForJob(tip, jobConf);
+	  }
+	  launchTaskForJob(tip, jobConf);
   }
 
   private void launchTaskForJob(TaskInProgress tip, BSPJob jobConf) {
-    try {
-      tip.setJobConf(jobConf);
-      tip.launchTask();
-    } catch (Throwable ie) {
-      tip.taskStatus.setRunState(TaskStatus.State.FAILED);
-      String error = StringUtils.stringifyException(ie);
-      LOG.info(error);
-    }
+	  try {
+		  tip.setJobConf(jobConf);
+		  tip.launchTask();
+	  } catch (Throwable ie) {
+		  tip.taskStatus.setRunState(TaskStatus.State.FAILED);
+		  String error = StringUtils.stringifyException(ie);
+		  LOG.info(error);
+	  }
   }
 
-  private RunningJob addTaskToJob(BSPJobID jobId, Path localJobFile,
+  private void addJob(BSPJobID jobId, Path localJobFile,
       TaskInProgress tip, Directive directive) {
-    synchronized (runningJobs) {
-      RunningJob rJob = null;
-      if (!runningJobs.containsKey(jobId)) {
-        rJob = new RunningJob(jobId, localJobFile);
-        rJob.localized = false;
-        rJob.tasks = new HashMap<TaskAttemptID, TaskInProgress>();
-        rJob.jobFile = localJobFile;
-        runningJobs.put(jobId, rJob);
-        
+    synchronized (runningJips) {
+      if (!runningJips.containsKey(jobId)) {
         //create a new BSPPeerForJob for a new job
         try{
-        	BSPPeerForJob bspPeerForJob=new BSPPeerForJob(conf,jobId,tip.getJobConf());
-        	runningJobtoBSPPeer.put(jobId, bspPeerForJob);
+        	LocalJobInProgress jip = 
+        		new LocalJobInProgress(jobId, GroomServer.this);
+        	runningJips.put(jobId, jip);
         	
         	GroomRPCForJob.put(jobId, "no-used");      	
         }catch(IOException e){
-        	LOG.error("Failed to create a BSPPeerForJob for a new job"+jobId.toString());
+        	LOG.error("Failed to create a BSPPeerForJob for a new job" 
+        			+ jobId.toString());
         }
         
-      } else {
-        rJob = runningJobs.get(jobId);
       }
-      rJob.tasks.put(tip.getStatus().getTaskId(), tip);
-      return rJob;
-    }
-  }
-
-  /**
-   * The datastructure for initializing a job
-   */
-  static class RunningJob{
-    private BSPJobID jobid;
-    private Path jobFile;
-    // keep this for later use
-    HashMap<TaskAttemptID, TaskInProgress> tasks;
-    boolean localized;
-    boolean keepJobFiles;
-
-    RunningJob(BSPJobID jobid, Path jobFile) {
-      this.jobid = jobid;
-      localized = false;
-      tasks = new HashMap<TaskAttemptID, TaskInProgress>();
-      this.jobFile = jobFile;
-      keepJobFiles = false;
-    }
-
-    Path getJobFile() {
-      return jobFile;
-    }
-
-    BSPJobID getJobId() {
-      return jobid;
     }
   }
 
   private synchronized List<TaskStatus> cloneAndResetRunningTaskStatuses() {
-    List<TaskStatus> result = new ArrayList<TaskStatus>(runningTasks.size());
-    for (TaskInProgress tip : runningTasks.values()) {
+    List<TaskStatus> result = new ArrayList<TaskStatus>();
+    for (TaskInProgress tip : getAllRunningTaskInProgress()) {
       TaskStatus status = tip.getStatus();
       result.add((TaskStatus) status.clone());
     }
@@ -628,20 +609,13 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   public synchronized void close() throws IOException {
 	  this.running = false;
 	  this.initialized = false;
-	  bspPeer.close();
 	  this.launchT.stop();
 	  
-	  for (TaskInProgress tip: this.runningTasks.values()) {
-		  if (tip.runner.isAlive()) {
-              tip.killAndCleanup(true);
-              LOG.info(tip.getStatus().getTaskId() + " is killed by system");
-          }
-	  }
-	  for (Map.Entry<BSPJobID,BSPPeerForJob> e : runningJobtoBSPPeer.entrySet()){
+	  for (Entry<BSPJobID,LocalJobInProgress> e : runningJips.entrySet()){
 		  e.getValue().close();
 	  }
 	  
-	  cleanupStorage();
+	  emptyDir(getLocalDir());
 	  this.workerServer.stop();
 	  RPC.stopProxy(masterClient);
 	  if (taskReportServer != null) {
@@ -687,10 +661,9 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
     }
 
     private void localizeTask(Task task) throws IOException {
-      Path localJobFile = this.jobConf.getLocalPath(SUBDIR + "/"
-          + task.getTaskID() + "/job.xml");
-      Path localJarFile = this.jobConf.getLocalPath(SUBDIR + "/"
-          + task.getTaskID() + "/job.jar");
+      String dir = getLocalTaskDir(task.getJobID(), task.getTaskID());
+      Path localJobFile = new Path(dir + "/job.xml");
+      Path localJarFile = new Path(dir + "/job.jar");
 
       String jobFile = task.getJobFile();
       systemFS.copyToLocalFile(new Path(jobFile), localJobFile);
@@ -725,14 +698,11 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
       localizeTask(task);
       taskStatus.setRunState(TaskStatus.State.RUNNING);
       jobId=localJobConf.getJobID();
-      runningJobtoBSPPeer.get(jobId).addRunningTaskStatuses(task.getTaskAttemptId(), taskStatus);
-      runningJobtoBSPPeer.get(jobId).setJobConf(jobConf);
       
       this.runner = task.createRunner(GroomServer.this);
       this.runner.start();
-      //LOG.info(task.getTaskAttemptId().toString() + " is: " + this.runner.isAlive());
       synchronized (this) {
-          runningTasks.put(task.getTaskAttemptId(), this);
+          runningJips.get(jobId).addTaskInProgress(task.getTaskAttemptId(), this);
           usedTaskSlot++;
       }
     }
@@ -751,24 +721,24 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
       return task;
     }
 
-    public void setReportContainer(TaskReportContainer taskReportContainer) {
+    public void updateProgress(TaskReportContainer report) {
     	//LOG.info(taskReportContainer.getCurrentProgress());
-    	taskStatus.setProgress(taskReportContainer.getCurrentProgress());
-    	taskStatus.setUsedMemory(taskReportContainer.getUsedMemory());
-    	taskStatus.setTotalMemory(taskReportContainer.getTotalMemory());
+    	taskStatus.setProgress(report.getCurrentProgress());
+    	taskStatus.setUsedMemory(report.getUsedMemory());
+    	taskStatus.setTotalMemory(report.getTotalMemory());
+    	
+    	if (report.isDone() && 
+    			taskStatus.getRunState()!=TaskStatus.State.FAILED) {
+    		taskStatus.setRunState(TaskStatus.State.SUCCEEDED);
+    	}
     }
     
-    public void setRunState(Exception e) throws IOException {
-    	if (e == null) {
-    		LOG.info(task.getTaskAttemptId() + " is successful!");
-    		taskStatus.setRunState(TaskStatus.State.SUCCEEDED);
-    	} else {
-    		LOG.error(task.getTaskAttemptId() + " is failed!");
-    		taskStatus.setRunState(TaskStatus.State.FAILED);
-    		if (this.runner.isAlive()) {
-    			killAndCleanup(true);
-    		}
-    	}
+    public void runtimeError() throws IOException {
+    	LOG.error(task.getTaskAttemptId() + " throws exception");
+		taskStatus.setRunState(TaskStatus.State.FAILED);
+		/*if (this.runner.isAlive()) {
+			killAndCleanup(true);
+		}*/
     }
     
     /**
@@ -821,22 +791,11 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
       throws IOException {
     if (protocol.equals(WorkerProtocol.class.getName())) {
       return WorkerProtocol.versionID;
-    } else if (protocol.equals(BSPPeerProtocol.class.getName())) {
-      return BSPPeerProtocol.versionID;
+    } else if (protocol.equals(BSPTaskTrackerProtocol.class.getName())) {
+      return BSPTaskTrackerProtocol.versionID;
     } else {
       throw new IOException("Unknown protocol to GroomServer: " + protocol);
     }
-  }
-
-  /**
-   * GroomServer address information.
-   * 
-   * @return bsp peer information in the form of "address:port".
-   */
-  public String getBspPeerName() {
-    if (null != bspPeer)
-      return bspPeer.getPeerName(jobIdTmp, taskIdTmp);
-    return null;
   }
 
   /**
@@ -845,7 +804,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
   public static class Child{
 
 	public static void main(String[] args) throws Throwable {
-      LOG.info("Child starting");
+      //LOG.info("Child starting");
 
       HamaConfiguration defaultConf = new HamaConfiguration();
       // report address
@@ -855,8 +814,8 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
       TaskAttemptID taskid = TaskAttemptID.forName(args[2]);
 
       // //////////////////
-      BSPPeerProtocol umbilical = (BSPPeerProtocol) RPC.getProxy(
-          BSPPeerProtocol.class, BSPPeerProtocol.versionID, address,
+      BSPTaskTrackerProtocol umbilical = (BSPTaskTrackerProtocol) RPC.getProxy(
+          BSPTaskTrackerProtocol.class, BSPTaskTrackerProtocol.versionID, address,
           defaultConf);
 
       Task task = umbilical.getTask(taskid);
@@ -871,7 +830,7 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
         task.run(job, task, umbilical, args[3]); // run the task
       } catch (Exception e) {
     	  LOG.error("task.run()", e);
-    	  umbilical.reportException(job.getJobID(), task.taskId, e);
+    	  umbilical.runtimeError(job.getJobID(), task.taskId);
       } finally {
         RPC.stopProxy(umbilical);
         MetricsContext metricsContext = MetricsUtil.getContext("mapred");
@@ -886,67 +845,60 @@ public class GroomServer implements Runnable, WorkerProtocol, BSPPeerProtocol {
 
   @Override
   public Task getTask(TaskAttemptID taskid) throws IOException {
-    TaskInProgress tip = runningTasks.get(taskid);
+    TaskInProgress tip = getTaskInProgress(taskid);
     if (tip != null) {
       return tip.getTask();
     } else {
       return null;
     }
   }
-
-  @Override
-  public boolean ping(TaskAttemptID taskid) throws IOException {
-    // TODO Auto-generated method stub
-    return false;
-  }
-
-  @Override
-  public void done(TaskAttemptID taskid, boolean shouldBePromoted)
-      throws IOException {
-    // TODO Auto-generated method stub
-
-  }
-
-  @Override
-  public void fsError(TaskAttemptID taskId, String message) throws IOException {
-    // TODO Auto-generated method stub
-
-  }
   
   @Override
-  public long getSuperstepCount(BSPJobID jobId, TaskAttemptID taskId) {
-    return runningJobtoBSPPeer.get(jobId).getSuperstepCount(jobId, taskId);
-  }
-  
-  @Override
-  public void clear(BSPJobID jobId, TaskAttemptID taskId) {
-	  runningJobtoBSPPeer.get(jobId).clear(jobId, taskId);
-  }
-  
-  public boolean increaseSuperStep(BSPJobID jobId, TaskAttemptID taskId){
-	  return runningJobtoBSPPeer.get(jobId).increaseSuperStep(jobId, taskId);
-  } 
-  
   public String getHostName() {
-	  return this.conf.get(Constants.PEER_HOST,
-			          Constants.DEFAULT_PEER_HOST);
+	  return this.conf.get(Constants.PEER_HOST, Constants.DEFAULT_PEER_HOST);
   }
   
+  @Override
   public int getLocalTaskNumber(BSPJobID jobId) {
-	  return runningJobtoBSPPeer.get(jobId).getLocalTaskNumber(jobId);
+	  return runningJips.get(jobId).getLocalTaskNumber();
   }
 
   @Override
-  public void reportProgress(BSPJobID jobId, TaskAttemptID taskId, TaskReportContainer taskReportContainer) {
-	  this.runningTasks.get(taskId).setReportContainer(taskReportContainer);
+  public void ping(BSPJobID jobId, TaskAttemptID taskId, 
+		  TaskReportContainer report) {
+	  //LOG.info(taskId + " enter ping");
+	  runningJips.get(jobId).updateProgress(taskId, report);
+	  //LOG.info(taskId + " leave ping");
   }
   
   @Override
-  public void reportException(BSPJobID jobId, TaskAttemptID taskId, Exception e) {
+  public void runtimeError(BSPJobID jobId, TaskAttemptID taskId) {
 	  try {
-		  this.runningTasks.get(taskId).setRunState(e);
+		  //LOG.info("runtimeError of " + taskId);
+		  runningJips.get(jobId).runtimeError(taskId);
 	  } catch (Exception e1) {
-		  LOG.error("update failed!", e1);
+		  LOG.error("fail to report error!", e1);
 	  }
   }
+  
+	@Override
+	public String getLocalJobDir(BSPJobID jobId) throws IOException {
+		Path path = 
+			new BSPJob(new HamaConfiguration()).getLocalPath(jobId.toString());
+		return path.toString();
+	}
+	
+	@Override
+	public String getLocalTaskDir(BSPJobID jobId, TaskAttemptID taskId) 
+		throws IOException {
+		Path path = 
+			new BSPJob(new HamaConfiguration()).getLocalPath(
+					jobId.toString() + "/" + taskId);
+		return path.toString();
+	}
+	
+	@Override
+	public int getPort() {
+		return taskCommPortCounter.incrementAndGet();
+	}
 }

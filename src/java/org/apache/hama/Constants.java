@@ -72,7 +72,10 @@ public interface Constants {
   public static final String Graph_Dir = "graph";
   public static final String Graph_Ver_Dir = "vertex";
   public static final String Graph_Edge_Dir = "edge";
-  public static final String Graph_Msg_Dir = "message";
+  
+  public static final String Msg_Dir = "message";
+  public static final String Msg_Arch_Dir = "archived";
+  public static final String Msg_Rec_Dir = "received";
   
   public static final String Hash_Bucket_Num = "hash.bucket.num";
   
@@ -132,10 +135,52 @@ public interface Constants {
   }
   
   public static enum CommandType {
-	  START, CHECKPOINT, RECOVERY, STOP
+	  /** start a normal iteration */
+	  START, 
+	  /** archive a checkpoint */
+	  ARCHIVE, 
+	  /** recover failures */
+	  RECOVER, 
+	  /** re-run the iteration where failures happened */
+	  RECOVERED, 
+	  /** termite computations */
+	  TERMITE
   }
 
   // Other constants
+  
+  public static class CheckPoint {
+	  public static final String JobDir = "bsp.checkpoint.job.dir";
+	  public static final String TaskFile = "bsp.checkpoint.task.file";
+	  public static enum Policy {
+		  /** 
+		   * No data is archived. Upon failures, a job immediately fails 
+		   * and needs to be manually re-submitted. 
+		   * */
+		  None,
+		  /** 
+		   * Vertex values and metadata are periodically archived onto HDFS 
+		   * (checkpoint). Failures can be recovered by rolling back computations 
+		   * on all tasks to the most recent available checkpoint. Currently, 
+		   * this is simulated by setting all tasks failed (re-scheduling overheads 
+		   * can be ignored).
+		   * */
+		  CompleteRecovery,
+		  /**
+		   * Recovery is confined to failed tasks only since outgoing messages for 
+		   * these tasks have been logged onto local disks of surviving tasks. 
+		   * Checkpoint is still required to avoid recomputing from scratch for 
+		   * failed tasks. 
+		   */
+		  ConfinedRecoveryLogMsg,
+		  /**
+		   * Confined recovery is performed but no message is logged. Instead, 
+		   * vertex values are logged to reduce the I/O costs. The required 
+		   * outgoing messages can be re-generated based on logged vertices.
+		   */
+		  ConfinedRecoveryLogVert
+	  }
+  }
 
   /**
    * An empty instance.

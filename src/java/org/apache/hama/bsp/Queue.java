@@ -53,7 +53,13 @@ public interface Queue<T>{
    * Get a job
    * @return job that is removed from the queue.
    */
-  T removeJob () throws Exception;
+  T removeJob ();
+  
+  /**
+   * Number of jobs in this queue.
+   * @return
+   */
+  int size();
 
   /**
    * Return all data stored in this queue.

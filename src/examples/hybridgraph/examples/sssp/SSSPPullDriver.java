@@ -23,24 +23,33 @@ import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 public class SSSPPullDriver {
 	
 	public static void main(String[] args) throws Exception {
-		// check the input parameters
-		if (args.length != 8) {
+		//check parameters
+		if (args.length < 7) {
 			StringBuffer sb = 
-				new StringBuffer("the sssp job must be given arguments(8):");; 
-			sb.append("\n  [1] input directory on HDFS"); 
-			sb.append("\n  [2] output directory on HDFS"); 
-			sb.append("\n  [3] #task(int)");
-			sb.append("\n  [4] #iteration(int)");
-			sb.append("\n  [5] #vertex(int)");
-			sb.append("\n  [6] #buckets(int)");
-			sb.append("\n  [7] msg_pack for style.Pull(int, 10^4 default)");
-			sb.append("\n  [8] source vertex id(int)");
+				new StringBuffer("Usage of PULL-based Shortest Distance:");; 
+			sb.append("\n  (1)input directory on HDFS"); 
+			sb.append("\n  (2)output directory on HDFS"); 
+			sb.append("\n  (3)#tasks(int)");
+			sb.append("\n  (4)#iterations(int)");
+			sb.append("\n  (5)#vertices(int)");
+			sb.append("\n  (6)#buckets(int)");
+			sb.append("\n  (7)source vertex id(int)");
+			
+			sb.append("\n  [8]msg_pack for style.Pull(int, 10^4 default)");
+			sb.append("\n  [9]checkpoint policy:");
+			sb.append("\n       0 => NONE, default");
+			sb.append("\n       1 => CompleteRecovery");
+			sb.append("\n       2 => ConfinedRecoveryLogMsg");
+			sb.append("\n       3 => ConfinedRecoveryLogVert");
+			sb.append("\n  [10]checkpoint interval (int, -1 default)");
+			sb.append("\n  [11]failure iteration (int, -1 default)");
+			sb.append("\n  [12]#failed tasks (int, 0 default)");
 			
 			System.out.println(sb.toString());
 			System.exit(-1);
 		}
 
-		// set the job configuration
+		//configurate the job
 		HamaConfiguration conf = new HamaConfiguration();
 		BSPJob bsp = new BSPJob(conf, SSSPPullDriver.class);
 		bsp.setJobName("single source shortest path");
@@ -59,14 +68,37 @@ public class SSSPPullDriver {
 		bsp.setNumBucketsPerTask(Integer.valueOf(args[5]));
 		
 		bsp.setBspStyle(Constants.STYLE.Pull);
-		  bsp.setMsgPackSize(Integer.valueOf(args[6]));
-		
-		// set the source vertex id
-		bsp.setInt(SPBSP.SOURCE, Integer.valueOf(args[7]));
-		
 		bsp.setGraphDataOnDisk(true);
 		
-		// submit the job
+		//set the source vertex id
+		bsp.setInt(SPBSP.SOURCE, Integer.valueOf(args[6]));
+		
+		
+		//=======================//
+		//  optional parameters  //
+		//=======================//
+		if (args.length >= 8) {
+			bsp.setMsgPackSize(Integer.valueOf(args[7]));
+		}
+		
+		if (args.length >= 9) {
+			bsp.setCheckPointPolicy(
+					Constants.CheckPoint.Policy.values()[Integer.valueOf(args[8])]);
+		}
+		
+		if (args.length >= 10) {
+			bsp.setCheckPointInterval(Integer.valueOf(args[9]));
+		}
+		if (args.length >= 11) {
+			bsp.setFailedIteration(Integer.valueOf(args[10]));
+		}
+		if (args.length >= 12) {
+			bsp.setNumOfFailedTasks(Integer.valueOf(args[11]));
+		}
+		  
+		bsp.setGraphDataOnDisk(true);
+		
+		//submit the job
 		bsp.waitForCompletion(true);
 	}
 }

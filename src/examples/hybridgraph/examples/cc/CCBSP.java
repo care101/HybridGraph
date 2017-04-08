@@ -34,8 +34,7 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	
 	@Override
 	public void update(
-			Context<Integer, Integer, Integer, Integer> context) 
-				throws Exception {
+			Context<Integer, Integer, Integer, Integer> context) {
 		GraphRecord<Integer, Integer, Integer, Integer> graph = 
 			context.getGraphRecord();
 		MsgRecord<Integer> msg = context.getReceivedMsgRecord();
@@ -56,8 +55,7 @@ public class CCBSP extends BSP<Integer, Integer, Integer, Integer> {
 	
 	@Override
 	public MsgRecord<Integer>[] getMessages(
-			Context<Integer, Integer, Integer, Integer> context) 
-				throws Exception {
+			Context<Integer, Integer, Integer, Integer> context) {
 		GraphRecord<Integer, Integer, Integer, Integer> graph = 
 			context.getGraphRecord();
 		CCMsgRecord[] result = new CCMsgRecord[graph.getEdgeNum()];

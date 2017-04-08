@@ -60,6 +60,11 @@ public class SPUserTool extends UserTool<Double, Double, Double, Integer> {
 				throws EOFException, IOException {
 			this.verValue = vIn.getDouble();
 		}
+		
+	    @Override
+	    public void parseVerValue(String valData) {
+	    	this.verValue = Double.parseDouble(valData);
+	    }
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 

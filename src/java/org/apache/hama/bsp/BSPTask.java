@@ -46,59 +46,73 @@ import org.apache.hama.myhama.util.TaskReportContainer;
 public class BSPTask<V, W, M, I> extends Task {
 	private static final Log LOG = LogFactory.getLog(BSPTask.class);
 	
-	private String rootDir;
 	private BytesWritable rawSplit = new BytesWritable();
 	private String rawSplitClass;
 	
-	private MasterProtocol reportServer;
+	/** 
+	 * Establish network connection with {@link JobInProgress}, 
+	 * in order to perform barriers (sending information).
+	 * */
+	private MasterProtocol jobServer;
+	/**
+	 * Establish network connection with {@link JobInProgress} 
+	 * and other {@link BSPTask}, to perform barriers (receiving 
+	 * information from {@link JobInProgress}), and send/receive 
+	 * {@link MsgRecord}s among {@link BSPTask}s.
+	 */
 	private CommunicationServer<V, W, M, I> commServer;
+	/** Manage graph data {@link GraphRecord}s (memory/disk) */
 	private GraphDataServer<V, W, M, I> graphDataServer;
+	/** Manage message data {@link MsgRecord}s (memory/disk) */
 	private MsgDataServer<V, W, M, I> msgDataServer;
 	
 	private int iteNum = 0;
-	private boolean conExe;
+	private boolean termination;
 	private BSP<V, W, M, I> bsp;
-	private SuperStepCommand ssc;
 	private TaskInformation taskInfo;
 	private float jobAgg = 0.0f; //the global aggregator
 	private float taskAgg = 0.0f; //the local aggregator
 	
-	private Counters counters; //count some variables
-	private int fulLoad = 0; //its value is equal with #local buckets
-	private int hasPro = 0; //its value is equal with #processed buckets
-	//java estimated, just accurately at the sampling point.
-	private float totalMem, usedMem; 
-	//self-computed in bytes. maximum value. 
-	//record the memUsage of previous iteration.
-	private long memUsage; 
-	private float last, cur;
-	private TaskReportTimer trt;
-	/** General Style of BSP, Push, Pull, or Hybrid, 
-	 * static during iterations*/
+	/** Runtime statistics collected after completing an iteration */
+	private Counters counters;
+	/** Runtime statistics collected within an iteration */
+	TaskReportContainer report; 
+	/** Periodically send {@link TaskReportContainer} to {@link BSPMaster}. */
+	private TaskReportTimer reportTimer;
+	
+	/** 
+	 * Memory space (bytes) required in the previous 
+	 * iteration, accurately computed by {@link GraphDataServer}
+	 * */
+	private long memUsage = 0L;
+
+	/** Style of this job (PUSH, PULL, or HYBRID) */
 	private int bspStyle;
-	/** Style of each iteration when bspStyle=Hybrid, 
-	 * updated at each iteration */
-	private int preIteStyle; //previous ite
-	private int curIteStyle; //current ite, at 1st iteration, they are equal.
+	/** Style of each iteration, updated per iteration when bspStyle=HYBRID */
+	private int preIteStyle, curIteStyle; //pre=cur at the 1st iteration
+	/** Need to estimate the I/O cost (bytes) of PULL? */
 	private boolean estimatePullByte;
+	/** Skip local computations or not, during failure recovery? */
+	private boolean skipLocalComputation;
 	
 	public BSPTask() {
 		
 	}
 	
-	public BSPTask(BSPJobID jobId, String jobFile, TaskAttemptID taskid,
-			int parId, String splitClass, BytesWritable split) {
+	public BSPTask(BSPJobID jobId, String jobFile, TaskAttemptID taskid, 
+			int parId, String splitClass, BytesWritable split, boolean _restart) {
 		this.jobId = jobId;
 		this.jobFile = jobFile;
 		this.taskId = taskid;
 		this.parId = parId;
 		this.rawSplitClass = splitClass;
 		this.rawSplit = split;
+		this.restart = _restart;
 	}
 
 	@Override
 	public BSPTaskRunner createRunner(GroomServer groom) {
-		return new BSPTaskRunner(this, groom, this.job);
+		return new BSPTaskRunner(this, groom, job);
 	}
 	
 	/**
@@ -107,14 +121,18 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * @throws Exception
 	 */
 	public TaskReportContainer getProgress() throws Exception {
-		this.cur = iteNum==0? 
-				graphDataServer.getProgress():(float)hasPro/fulLoad;
-		if (last != cur) { 
-			//update and send current progress only when the progress is changed
-			TaskReportContainer taskRepCon = 
-				new TaskReportContainer(cur, usedMem, totalMem);
-			last = cur;
-			return taskRepCon;
+		if (iteNum == 0) {
+			//progress of loading graph
+			report.updateCurrentProgress(graphDataServer.getProgress());
+		} else {
+			//progress of the current iteration
+			report.updateCurrentProgress();
+		}
+		
+		if (report.isProgressUpdated()) { 
+			//send current progress only when the progress is updated
+			report.finalizeCurrentProgress();
+			return report;
 		} else {
 			return null;
 		}
@@ -128,8 +146,9 @@ public class BSPTask<V, W, M, I> extends Task {
 	private void updateMemInfo() {
 		MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
         MemoryUsage memoryUsage = memoryMXBean.getHeapMemoryUsage();
-        this.totalMem = (float)memoryUsage.getMax() / (1024 * 1024);
-        this.usedMem = (float)memoryUsage.getUsed() / (1024 * 1024);
+        float totalMem = (float)memoryUsage.getMax() / (1024 * 1024);
+        float usedMem = (float)memoryUsage.getUsed() / (1024 * 1024);
+        report.updateMemoryInfo(usedMem, totalMem);
 	}
 
 	/**
@@ -137,22 +156,25 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * @param job
 	 * @param host
 	 */
-	private void initialize(BSPJob job, String hostName) throws Exception {
-		this.job = job;
-		this.job.set("host", hostName);
-		this.bspStyle = this.job.getBspStyle();
-		this.preIteStyle = this.job.getStartIteStyle();
-		this.curIteStyle = this.preIteStyle;
-		this.estimatePullByte = false;
-		switch(this.bspStyle) {
+	private void initialize(BSPJob _job, String _hostName, 
+			BSPTaskTrackerProtocol umbilical) throws Exception {
+		job = _job;
+		job.set("host", _hostName);
+		bspStyle = job.getBspStyle();
+		preIteStyle = job.getStartIteStyle();
+		curIteStyle = preIteStyle;
+		estimatePullByte = false;
+		switch(bspStyle) {
 		case Constants.STYLE.Push:
-			LOG.info("initialize BspStyle = STYLE.Push, IteStyle = STYLE.Push");
+			LOG.info("initialize BspStyle = STYLE.Push, " +
+					"IteStyle = STYLE.Push");
 			break;
 		case Constants.STYLE.Pull:
-			LOG.info("initialize BspStyle = STYLE.Pull, IteStyle = STYLE.Pull");
+			LOG.info("initialize BspStyle = STYLE.Pull, " +
+					"IteStyle = STYLE.Pull");
 			break;
 		case Constants.STYLE.Hybrid:
-			if (this.preIteStyle == Constants.STYLE.Push) {
+			if (preIteStyle == Constants.STYLE.Push) {
 				LOG.info("initialize BspStyle = STYLE.Hybrid," +
 						" IteStyle = STYLE.Push");
 			} else {
@@ -161,35 +183,36 @@ public class BSPTask<V, W, M, I> extends Task {
 			}
 			break;
 		default:
-			throw new Exception("invalid bspStyle=" + this.bspStyle);
+			throw new Exception("invalid bspStyle=" + bspStyle);
 		}
 		
-		this.rootDir = this.job.get("bsp.local.dir") + "/" + this.jobId.toString()
-				+ "/task-" + this.parId;
-		if (this.job.isGraphDataOnDisk()) {
-			this.graphDataServer = 
-				new GraphDataServerDisk<V, W, M, I>(this.parId, this.job, 
-					this.rootDir+"/"+Constants.Graph_Dir);
+		if (job.isGraphDataOnDisk()) {
+			graphDataServer = 
+				new GraphDataServerDisk<V, W, M, I>(parId, job, 
+					getRootDir(umbilical)+"/"+Constants.Graph_Dir);
 		} else {
-			this.graphDataServer = 
-				new GraphDataServerMem<V, W, M, I>(this.parId, this.job, 
-					this.rootDir+"/"+Constants.Graph_Dir);
+			graphDataServer = 
+				new GraphDataServerMem<V, W, M, I>(parId, job, 
+					getRootDir(umbilical)+"/"+Constants.Graph_Dir);
 		}
 		
-		this.msgDataServer = new MsgDataServer<V, W, M, I>();
-		this.commServer = 
-			new CommunicationServer<V, W, M, I>(this.job, this.parId, this.taskId);
-		this.reportServer = (MasterProtocol) RPC.waitForProxy(
+		msgDataServer = new MsgDataServer<V, W, M, I>();
+		commServer = 
+			new CommunicationServer<V, W, M, I>(job, parId, taskId, 
+					umbilical.getPort());
+		jobServer = (MasterProtocol) RPC.waitForProxy(
 				MasterProtocol.class, MasterProtocol.versionID,
-				BSPMaster.getAddress(this.job.getConf()), this.job.getConf());
+				BSPMaster.getAddress(job.getConf()), job.getConf());
 		
-		this.counters = new Counters();
-		this.iteNum = 0;
-		this.conExe = true;
-		this.bsp = (BSP<V, W, M, I>) 
-			ReflectionUtils.newInstance(this.job.getConf().getClass(
-				"bsp.work.class", BSP.class), this.job.getConf());
-		this.trt = new TaskReportTimer(this.jobId, this.taskId, this, 3000);
+		counters = new Counters();
+		iteNum = 0;
+		termination = false;
+		bsp = (BSP<V, W, M, I>) 
+			ReflectionUtils.newInstance(job.getConf().getClass(
+				"bsp.work.class", BSP.class), job.getConf());
+		
+		report = new TaskReportContainer();
+		reportTimer = new TaskReportTimer(jobId, taskId, this, 3000);
 	}
 	
 	/**
@@ -202,23 +225,24 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * This function should be invoked before load().
 	 * @throws Exception
 	 */
-	private void buildRouteTable(BSPPeerProtocol umbilical) throws Exception {
-		int verMinId = this.graphDataServer.getVerMinId(this.rawSplit, 
-				this.rawSplitClass);
-		this.taskInfo = new TaskInformation(this.parId, verMinId, 
-				this.commServer.getPort(), this.commServer.getAddress(), 
-				this.graphDataServer.getByteOfOneMessage(), 
-				this.graphDataServer.isAccumulated());
+	private void buildRouteTable(BSPTaskTrackerProtocol umbilical) 
+			throws Exception {
+		int verMinId = graphDataServer.getVerMinId(rawSplit, rawSplitClass);
+		taskInfo = new TaskInformation(parId, verMinId, 
+				commServer.getPort(), commServer.getAddress(), 
+				graphDataServer.getByteOfOneMessage(), 
+				graphDataServer.isAccumulated());
 		
-		LOG.info("task enter the buildRouteTable() barrier");
-		this.reportServer.buildRouteTable(this.jobId, this.taskInfo);
-		this.commServer.barrier();
-		LOG.info("task leave the buildRouteTable() barrier");
+		LOG.info("enter the buildRouteTable() barrier");
+		jobServer.buildRouteTable(jobId, taskInfo);
+		commServer.suspend();
+		LOG.info("leave the buildRouteTable() barrier");
 		
-		this.taskInfo.init(this.commServer.getJobInformation());
-		this.fulLoad = this.taskInfo.getBlkNum();
-		this.trt.setAgent(umbilical);
-		this.trt.start();
+		taskInfo.init(commServer.getJobInformation());
+		
+		report.setFullWorkload(taskInfo.getBlkNum());
+		reportTimer.setAgent(umbilical);
+		reportTimer.start();
 	}
 	
 	/**
@@ -229,23 +253,51 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * The report information includes: #edges, 
 	 * the relationship among virtual buckets.
 	 */
-	private void loadData() throws Exception {
-		this.graphDataServer.initialize(this.taskInfo, 
-				this.commServer.getCommRouteTable());
-		this.graphDataServer.initMemOrDiskMetaData();
-		this.graphDataServer.loadGraphData(taskInfo, this.rawSplit, 
-				this.rawSplitClass);
+	private void loadData(BSPTaskTrackerProtocol umbilical) 
+			throws Exception {
+		graphDataServer.initialize(taskInfo, 
+				commServer.getCommRouteTable(), taskId);
+		graphDataServer.initMemOrDiskMetaData();
+		graphDataServer.loadGraphData(taskInfo, rawSplit, rawSplitClass);
 		
-		this.msgDataServer.init(job, taskInfo.getBlkLen(), taskInfo.getBlkNum(), 
-				this.graphDataServer.getLocBucMinIds(), 
-				this.parId, this.rootDir + "/" + Constants.Graph_Dir);
-		this.commServer.bindMsgDataServer(msgDataServer);
-		this.commServer.bindGraphData(graphDataServer, this.taskInfo.getBlkNum());
+		msgDataServer.init(job, taskInfo.getBlkLen(), taskInfo.getBlkNum(), 
+				graphDataServer.getLocBucMinIds(), parId, getRootDir(umbilical));
+		graphDataServer.bindMsgDataServer(msgDataServer);
+		commServer.bindMsgDataServer(msgDataServer);
+		commServer.bindGraphData(graphDataServer, taskInfo.getBlkNum());
 		
-		LOG.info("task enter the registerTask() barrier");
-		this.reportServer.registerTask(this.jobId, this.taskInfo);
-		this.commServer.barrier();
-		LOG.info("task leave the registerTask() barrier");
+		LOG.info("enter the registerTask() barrier");
+		jobServer.registerTask(jobId, taskInfo);
+		commServer.suspend();
+		LOG.info("leave the registerTask() barrier");
+	}
+	
+	/**
+	 * Initialization for a restart task. 
+	 * This function should be invoked right after loadData().
+	 * @throws Exception
+	 */
+	private void recoveryInitialize() throws Exception {
+		// Get the command from JobInProgress.
+		SuperStepCommand ssc = commServer.getNextSuperStepCommand();
+		jobAgg = ssc.getJobAgg();
+		
+		//this.preIteStyle = this.curIteStyle;
+		preIteStyle = ssc.getPreIteStyle();
+		curIteStyle = ssc.getCurIteStyle();
+		iteNum = ssc.getIteNum();
+		estimatePullByte = ssc.isEstimatePullByte();
+		iteNum++;
+		graphDataServer.loadCheckPoint(iteNum, 
+				ssc.getAvailableCheckPointVersion());
+		int flagOpt = -1;
+		if ((job.getCheckPointPolicy()==
+			Constants.CheckPoint.Policy.ConfinedRecoveryLogVert)
+			|| (job.getCheckPointPolicy()==
+				Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg)) {
+			flagOpt = 1; //log flags
+		}
+		graphDataServer.clearAftIte(iteNum-1, flagOpt); //re-execute, log flags
 	}
 	
 	/**
@@ -253,29 +305,60 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * Do not report or get any information.
 	 */
 	private void beginIteration() throws Exception {
-		LOG.info("==================== Begin SuperStep-" + this.iteNum 
-			  + " ====================");
+		LOG.info(print("=", 14) + " begin superstep-" + iteNum 
+			  + " " + print("=", 14));
 		
-		this.counters.clearValues();
-		this.taskAgg = 0.0f; //clear the local aggregator
-		this.hasPro = 0; // clear load
-		this.memUsage = this.graphDataServer.getAndClearMemUsage();
-		this.memUsage += this.msgDataServer.getAndClearMemUsage();
+		counters.clearValues();
+		taskAgg = 0.0f; //clear the local aggregator
+		report.clearBefIte();
+		memUsage = graphDataServer.getAndClearMemUsage()
+						+ msgDataServer.getAndClearMemUsage();
 		
-		this.graphDataServer.clearBefIte(iteNum, this.preIteStyle, this.curIteStyle, 
-				this.estimatePullByte);
-		this.graphDataServer.clearBefIteMemOrDisk(iteNum);
-		this.commServer.clearBefIte(iteNum, this.curIteStyle);
-		this.msgDataServer.clearBefIte(iteNum, this.preIteStyle, this.curIteStyle);
-		this.taskInfo.clear();
+		graphDataServer.clearBefIte(iteNum, preIteStyle, 
+				curIteStyle, estimatePullByte);
+		graphDataServer.clearBefIteMemOrDisk(iteNum);
+		commServer.clearBefIte(iteNum, curIteStyle);
+		msgDataServer.clearBefIte(iteNum, preIteStyle, curIteStyle);
+		taskInfo.clear();
+		setSkipLocalComputation(false);
 		if (iteNum%2 == 0) {
 			updateMemInfo();
 		}
 		
-		LOG.info("task enter the beginSuperStep() barrier");
-		this.reportServer.beginSuperStep(this.jobId, this.parId);
-		this.commServer.barrier();
-		LOG.info("task leave the beginSuperStep() barrier");
+		if (iteNum > 1) {
+			SuperStepCommand ssc = commServer.getNextSuperStepCommand();
+			LOG.info("superstep command: \n" + ssc.toString());
+			termination = false;
+			switch (ssc.getCommandType()) {
+			case RECOVERED:
+		  	case START:
+		  		graphDataServer.setUncompletedIteration(-1); //disable
+		  		break;
+		  	case ARCHIVE:
+		  		graphDataServer.archiveCheckPoint(iteNum, iteNum);
+		  		graphDataServer.setUncompletedIteration(-1); //disable
+		  		break;
+		  	case RECOVER:
+		  		if (isRestart()) {
+		  			LOG.info("i am a restart task");
+		  		} else {
+		  			LOG.info("i am a surviving task");
+		  			setSkipLocalComputation(true);
+		  		}
+		  		break;
+		  	case TERMITE:
+		  		termination = true;
+		  		break;
+		  	default:
+		  		throw new Exception("[Invalid Command Type] " 
+		  				+ ssc.getCommandType());
+			}
+		}
+		
+		LOG.info("enter the beginSuperStep() barrier");
+		jobServer.beginSuperStep(jobId, parId);
+		commServer.suspend();
+		LOG.info("leave the beginSuperStep() barrier");
 	}
 	
 	/**
@@ -286,48 +369,49 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * {@link JobInProgress} for the next SuperStep.
 	 */
 	private void finishIteration() throws Exception {
-		this.graphDataServer.clearAftIte(iteNum);
 		SuperStepReport ssr = new SuperStepReport(); //collect local information
-		
 		ssr.setCounters(this.counters);
 		ssr.setTaskAgg(this.taskAgg);
 		ssr.setActVerNumBucs(this.taskInfo.getRespondVerNumBlks());
-		LOG.info("the local information is as follows:\n" + ssr.toString());
+		//LOG.info("local information is as follows:\n" + ssr.toString());
 		
-		LOG.info("task enter the finishSuperStep() barrier");
-		this.reportServer.finishSuperStep(this.jobId, this.parId, ssr);
-		this.commServer.barrier();
-		LOG.info("task leave the finishSuperStep() barrier");
+		LOG.info("enter the finishSuperStep() barrier");
+		this.jobServer.finishSuperStep(this.jobId, this.parId, ssr);
+		this.commServer.suspend();
+		LOG.info("leave the finishSuperStep() barrier");
 		
 		// Get the command from JobInProgress.
-		this.ssc = this.commServer.getNextSuperStepCommand();
-		this.jobAgg = this.ssc.getJobAgg();
+		SuperStepCommand ssc = this.commServer.getNextSuperStepCommand();
+		this.jobAgg = ssc.getJobAgg();
 		
-		this.preIteStyle = this.curIteStyle;
-		this.curIteStyle = this.ssc.getIteStyle();
-		this.estimatePullByte = this.ssc.isEstimatePullByte();
+		//this.preIteStyle = this.curIteStyle;
+		this.preIteStyle = ssc.getPreIteStyle();
+		this.curIteStyle = ssc.getCurIteStyle();
+		this.iteNum = ssc.getIteNum();
+		int flagOpt = -1; //do nothing
+		if ((job.getCheckPointPolicy()==
+			Constants.CheckPoint.Policy.ConfinedRecoveryLogVert) 
+			|| (job.getCheckPointPolicy()==
+				Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg)) {
+			flagOpt = 1; //log flags
+			//surviving tasks will not log flags during failure recovery 
+			//since they have been logged in previous iterations.
+			if (!isRestart()) {
+				if ((ssc.getCommandType()==Constants.CommandType.RECOVER) 
+						|| (ssc.getCommandType()==Constants.CommandType.RECOVERED))
+				flagOpt = 2; //load flags
+			}
+		}
+		
+		this.graphDataServer.clearAftIte(iteNum, flagOpt);
+		this.estimatePullByte = ssc.isEstimatePullByte();
 		if (this.curIteStyle!=Constants.STYLE.Push &&
 				this.curIteStyle!=Constants.STYLE.Pull) {
 			throw new Exception("invalid curIteStyle=" + this.curIteStyle);
 		}
-		switch (this.ssc.getCommandType()) {
-	  	case START:
-	  	case CHECKPOINT:
-	  	case RECOVERY:
-	  		this.conExe = true;
-	  		break;
-	  	case STOP:
-	  		this.conExe = false;
-	  		break;
-	  	default:
-	  		throw new Exception("[Invalid Command Type] " 
-	  				+ this.ssc.getCommandType());
-		}
 		
-		LOG.info("the command information of superstep-" + (iteNum+1) 
-				+ "\n" + this.ssc.toString());
-		LOG.info("==================== End SuperStep-" + iteNum
-				+ " ====================\n");
+		LOG.info(print("=", 15) + " end superstep-" + iteNum
+			  + " " + print("=", 15) + "\n");
 	}
 	
 	/**
@@ -336,9 +420,9 @@ public class BSPTask<V, W, M, I> extends Task {
 	 */
 	private void saveResult() throws Exception {
 		int num = this.graphDataServer.saveAll(taskId, iteNum);
-        LOG.info("task enter the saveResultOver() barrier");
-		this.reportServer.saveResultOver(jobId, parId, num);
-		LOG.info("task leave the saveResultOver() barrier");
+        LOG.info("enter the saveResultOver() barrier");
+		this.jobServer.dumpResult(jobId, parId, num);
+		LOG.info("leave the saveResultOver() barrier");
 	}
 	
 	/**
@@ -350,6 +434,9 @@ public class BSPTask<V, W, M, I> extends Task {
 	private boolean isUpdateVBlock(VBlockUpdateRule rule, long msgNum) 
 			throws Exception {
 		boolean update = false;
+		if (isSkipLocalComputation()) {
+			return update;
+		}
 		
 		switch (rule) {
 		case UPDATE:
@@ -409,7 +496,7 @@ public class BSPTask<V, W, M, I> extends Task {
 					if (this.preIteStyle==Constants.STYLE.Push && 
 							this.curIteStyle==Constants.STYLE.Push) {
 						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-						this.commServer.pushMsgData(msgs, iteNum);
+						this.commServer.pushMsgData(msgs);
 					}
 				}
 			} else {
@@ -455,31 +542,38 @@ public class BSPTask<V, W, M, I> extends Task {
 					this.commServer.getCommRouteTable());
 		int bucNum = this.taskInfo.getBlkNum();
 		
-		this.trt.force();
+		this.reportTimer.force();
 		this.bsp.superstepSetup(context);
 		
 		hbInfo.setLength(0);
-		hbInfo.append("begin the calculation of superstep-" + iteNum);
+		hbInfo.append("begin local computations");
 		iteStaTime = System.currentTimeMillis();
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
 			hbInfo.append("\nVBlockId=" + bucketId); //loop real buckets
 			this.msgDataServer.clearBefBucket(); //prepare to collect msgs
 			msgTime = 0L;
-			switch(this.bspStyle) {
-			case Constants.STYLE.Push: 
-				msgTime += this.msgDataServer.pullMsgFromLocal(bucketId, iteNum);
-				break;
-			case Constants.STYLE.Pull:
-				msgTime += this.commServer.pullMsgFromSource(parId, bucketId, iteNum);
-				break;
-			case Constants.STYLE.Hybrid:
-				if (this.preIteStyle == Constants.STYLE.Push) {
-					msgTime += this.msgDataServer.pullMsgFromLocal(bucketId, iteNum);
-				} else if (this.preIteStyle == Constants.STYLE.Pull) {
-					msgTime += this.commServer.pullMsgFromSource(parId, bucketId, iteNum);
-				} else {
-					throw new Exception("invalid preIteStyle=" + this.preIteStyle);
+			if (!isSkipLocalComputation()) {
+				switch(bspStyle) {
+				case Constants.STYLE.Push: 
+					msgTime += msgDataServer.pullMsgFromLocal(bucketId, iteNum);
+					break;
+				case Constants.STYLE.Pull:
+					msgTime += commServer.pullMsgFromSource(bucketId, iteNum);
+					break;
+				case Constants.STYLE.Hybrid:
+					if (preIteStyle == Constants.STYLE.Push) {
+						msgTime += msgDataServer.pullMsgFromLocal(bucketId, iteNum);
+					} else if (preIteStyle == Constants.STYLE.Pull) {
+						msgTime += commServer.pullMsgFromSource(bucketId, iteNum);
+					} else {
+						throw new Exception("invalid preIteStyle=" + preIteStyle);
+					}
+					break;
 				}
+			}
+			
+			if (commServer.findConnectionError()) {
+				graphDataServer.setUncompletedIteration(iteNum);
 				break;
 			}
 			
@@ -497,9 +591,9 @@ public class BSPTask<V, W, M, I> extends Task {
 				hbInfo.append("\tType=Skip\tcompTime=0ms");
 				this.graphDataServer.skipBucket(parId, bucketId, iteNum);
 			}
-			this.hasPro++;
-			this.msgDataServer.clearAftBucket();
-			this.bsp.vBlockCleanup(context);
+			report.completeWorkload();
+			msgDataServer.clearAftBucket();
+			bsp.vBlockCleanup(context);
 		}
 		
 		this.taskInfo.setRespondVerNumBlks(this.graphDataServer.getRespondVerNumOfBlks());
@@ -507,13 +601,13 @@ public class BSPTask<V, W, M, I> extends Task {
 		/** switch from Pull to Push in auto-version: first pull, and then push */
 		if (this.preIteStyle==Constants.STYLE.Pull &&
 				this.curIteStyle==Constants.STYLE.Push) {
-			this.reportServer.sync(jobId, parId);
-			this.commServer.barrier(); //ensure all tasks complete Pull
+			this.jobServer.sync(jobId, parId);
+			this.commServer.suspend(); //ensure all tasks complete Pull
 			this.runIterationOnlyForPush();
 		}
 		
 		if (this.curIteStyle == Constants.STYLE.Push) {
-			this.commServer.pushFlushMsgData(iteNum);
+			this.commServer.pushFlushMsgData();
 		}
 		
 		iteEndTime = System.currentTimeMillis();
@@ -521,7 +615,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.counters.addCounter(COUNTER.Time_Ite, (iteEndTime-iteStaTime));
 		this.bsp.superstepCleanup(context);
 		LOG.info(hbInfo.toString());
-		LOG.info("complete the calculation of superstep-" + iteNum);
+		LOG.info("complete local computations");
 	}
 	
 	/**
@@ -535,7 +629,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		int bucNum = this.taskInfo.getBlkNum();
 		
 		int nextIteNum = iteNum + 1; //simulate the pull process of next superstep.
-		this.graphDataServer.clearAftIte(iteNum);
+		this.graphDataServer.clearAftIte(iteNum, -1);
 		this.graphDataServer.clearOnlyForPush(nextIteNum);
 		
 		GraphRecord<V, W, M, I> graph = null;
@@ -557,7 +651,7 @@ public class BSPTask<V, W, M, I> extends Task {
 						context.reset();
 						context.initialize(graph, null, this.jobAgg, true);
 						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-						this.commServer.pushMsgData(msgs, iteNum);
+						this.commServer.pushMsgData(msgs);
 					}
 				}
 				
@@ -571,56 +665,100 @@ public class BSPTask<V, W, M, I> extends Task {
 	 * Run and control all work of this task.
 	 */
 	@Override
-	public void run(BSPJob job, Task task, BSPPeerProtocol umbilical, String host) {
+	public void run(BSPJob job, Task task, BSPTaskTrackerProtocol umbilical, 
+			String host) {
+		LOG.info("\n" + print("=*", 55));
+		if (isRestart()) {
+			LOG.info(this.taskId + " restarts");
+		} else {
+			LOG.info(this.taskId + " starts");
+		}
 		Exception exception = null;
 		try {
-			initialize(job, host);
+			initialize(job, host, umbilical);
 			buildRouteTable(umbilical); //get the locMinVerId of each task
-			loadData();
+			loadData(umbilical);
+			if (isRestart()) {
+				//iteNum will be reset by the recoveryInitialize() function
+				recoveryInitialize();
+			} else {
+				this.iteNum = 1;
+			}
 			
 			GraphContext<V, W, M, I> context = 
 				new GraphContext<V, W, M, I>(this.parId, job, -1, -1, 
 						this.commServer.getCommRouteTable());
 			this.bsp.taskSetup(context);
-			this.iteNum = 1; //#iteration starts from 1, not 0.
 			
 			/** run the job iteration by iteration */
-			while (this.conExe) {
+			while (true) {
 				beginIteration(); //preprocess before starting one iteration
+				if (termination) {
+					break;
+				}
+				
+				/** Simulate an exception: only once. */
+				if (job.getFailedIteration()==iteNum 
+						&& parId>=(job.getNumBspTask()-job.getNumOfFailedTasks()) 
+						&& !isRestart()) {
+					throw new Exception("a simulated exception");
+				}
 				runIteration(); //run one iteration
 				
 				updateCounters();
-				umbilical.increaseSuperStep(jobId, taskId);
-				finishIteration(); //syn, report counters and get the next command
+				finishIteration(); //report counters and get the next command
 				iteNum++;
 			}
 			
-			saveResult(); //save results and prepare to end
-			umbilical.clear(this.jobId, this.taskId);
-			LOG.info("task is completed successfully!");
+			saveResult(); //save results
+			LOG.info("task is done");
 		} catch (Exception e) {
 			exception = e;
-			LOG.error("task is failed!", e);
+			LOG.error("task fails", e);
 		} finally {
+			LOG.info("shutdown in progress...");
 			GraphContext<V, W, M, I> context = 
 				new GraphContext<V, W, M, I>(this.parId, job, -1, -1, 
 						this.commServer.getCommRouteTable());
 			this.bsp.taskCleanup(context);
-			//umbilical.clear(this.jobId, this.taskId);
+			
 			try {
 				clear();
-				done(umbilical);
 			} catch (Exception e) {
-				//do nothing
+				LOG.error("clear()", e);
 			}
-			umbilical.reportException(jobId, taskId, exception);
+			
+			if (exception != null) {
+				umbilical.runtimeError(jobId, taskId);
+			} 
+			
+			report.setDone(true);
+			umbilical.ping(jobId, taskId, report); //termination
+			LOG.info("goodbye\n" + print("=*", 55) + "=\n");
 		}
+	}
+	
+	/**
+	 * Print the given flag x times.
+	 * @param flag
+	 * @param x
+	 * @return
+	 */
+	private String print(String flag, int x) {
+		StringBuffer sb = new StringBuffer();
+		for (int i = 0; i < x; i++) {
+			sb.append(flag);
+		}
+		return sb.toString();
 	}
 	
 	private void updateCounters() throws Exception {
 		/** actual I/O bytes */
 		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.commServer.getIOByte());
+		this.counters.addCounter(COUNTER.Byte_LOG, 
+				this.commServer.getIOByteOfLoggedMsg());
+		//LOG.info("bytes of logging messages are: " + this.commServer.getIOByteOfLoggedMsg());
 		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.graphDataServer.getLocVerIOByte());
 		this.counters.addCounter(COUNTER.Byte_Actual, 
@@ -692,7 +830,20 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.graphDataServer.close();
 		this.msgDataServer.close();
 		this.commServer.close();
-		this.trt.stop();
+		this.reportTimer.stop();
+	}
+	
+	private String getRootDir(BSPTaskTrackerProtocol umbilical) 
+			throws IOException {
+		return umbilical.getLocalTaskDir(jobId, taskId);
+	}
+	
+	private void setSkipLocalComputation(boolean flag) {
+		skipLocalComputation = flag;
+	}
+	
+	private boolean isSkipLocalComputation() {
+		return skipLocalComputation;
 	}
 	
 	@Override

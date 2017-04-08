@@ -45,8 +45,7 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	
 	@Override
 	public void update(
-			Context<Double, Integer, Double, Integer> context) 
-				throws Exception {
+			Context<Double, Integer, Double, Integer> context) {
 		GraphRecord<Double, Integer, Double, Integer> graph = 
 			context.getGraphRecord();
 		MsgRecord<Double> msg = context.getReceivedMsgRecord();
@@ -71,8 +70,7 @@ public class PageRankBSP extends BSP<Double, Integer, Double, Integer> {
 	
 	@Override
 	public MsgRecord<Double>[] getMessages(
-			Context<Double, Integer, Double, Integer> context) 
-				throws Exception {
+			Context<Double, Integer, Double, Integer> context) {
 		GraphRecord<Double, Integer, Double, Integer> graph = 
 			context.getGraphRecord();
 		PRMsgRecord[] result = new PRMsgRecord[graph.getEdgeNum()];

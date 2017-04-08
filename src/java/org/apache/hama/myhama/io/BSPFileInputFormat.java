@@ -208,6 +208,97 @@ public abstract class BSPFileInputFormat<K, V> extends InputFormat<K, V> {
         }
         return splits;
     }
+    
+    /**
+     * Used when loading checkpoint file.
+     * @param job
+     * @return
+     * @throws IOException
+     */
+    public InputSplit getSplit(BSPJob job) throws IOException {
+    	InputSplit split = null;
+        for (FileStatus file : listCheckpointStatus(job)) {
+            Path path = file.getPath();
+            FileSystem fs = path.getFileSystem(job.getConf());
+            long length = file.getLen();
+            BlockLocation[] blkLocations = 
+            	fs.getFileBlockLocations(file, 0, length);
+            if (length != 0) {
+            	split = new FileSplit(path, 0, length, 
+            			blkLocations[0].getHosts());
+            	break;
+            } else {
+            	LOG.error("find an empty file with length-zero:" + path.toString());
+            }
+        }
+        return split;
+    }
+    
+    /**
+     * only used for testing checkpoint
+     * @param job
+     * @return
+     * @throws IOException
+     */
+    protected List<FileStatus> listCheckpointStatus(BSPJob job) throws IOException {
+        List<FileStatus> result = new ArrayList<FileStatus>();
+        Path[] dirs = getCheckpointInputPaths(job);
+        if (dirs.length == 0) {
+            throw new IOException("No input paths specified in job");
+        }
+        List<IOException> errors = new ArrayList<IOException>();
+
+        // creates a MultiPathFilter with the hiddenFileFilter and the
+        // user provided one (if any).
+        List<PathFilter> filters = new ArrayList<PathFilter>();
+        filters.add(hiddenFileFilter);
+        PathFilter inputFilter = new MultiPathFilter(filters);
+
+        for (int i = 0; i < dirs.length; ++i) {
+            Path p = dirs[i];
+            FileSystem fs = p.getFileSystem(job.getConf());
+            FileStatus[] matches = fs.globStatus(p, inputFilter);
+            if (matches == null) {
+                errors.add(new IOException("Input path does not exist: " + p));
+            } else if (matches.length == 0) {
+                errors.add(new IOException("Input Pattern " + p
+                        + " matches 0 files"));
+            } else {
+                for (FileStatus globStat : matches) {
+                    if (globStat.isDir()) {
+                        for (FileStatus stat : fs.listStatus(
+                                globStat.getPath(), inputFilter)) {
+                            result.add(stat);
+                        }
+                    } else {
+                        result.add(globStat);
+                    }
+                }
+            }
+        }
+
+        if (!errors.isEmpty()) {
+            throw new InvalidInputException(errors);
+        }
+        LOG.info("number of checkpoint input files: " + result.size());
+        return result;
+    }
+    
+    /**
+     * only used for testing checkpoint
+     * @param job
+     * @return
+     */
+    public Path[] getCheckpointInputPaths(BSPJob job) {
+        String dirs = job.getConf()
+                .get(Constants.CheckPoint.TaskFile, "");
+        String[] list = StringUtils.split(dirs);
+        Path[] result = new Path[list.length];
+        for (int i = 0; i < list.length; i++) {
+            result[i] = new Path(StringUtils.unEscapeString(list[i]));
+        }
+        return result;
+    }
 
     /**
      * List input directories. Subclasses may override to, e.g., select only
@@ -300,6 +391,22 @@ public abstract class BSPFileInputFormat<K, V> extends InputFormat<K, V> {
         String dirStr = StringUtils.escapeString(path.toString());
         String dirs = conf.get(Constants.USER_JOB_INPUT_DIR);
         conf.set(Constants.USER_JOB_INPUT_DIR, dirs == null ? dirStr
+                : dirs + "," + dirStr);
+    }
+    
+    /**
+     * only used for testing checkpoint
+     * @param job
+     * @param path
+     * @throws IOException
+     */
+    public void addCheckpointInputPath(BSPJob job, Path path) throws IOException {
+        Configuration conf = job.getConf();
+        FileSystem fs = FileSystem.get(conf);
+        path = path.makeQualified(fs);
+        String dirStr = StringUtils.escapeString(path.toString());
+        String dirs = conf.get(Constants.CheckPoint.TaskFile);
+        conf.set(Constants.CheckPoint.TaskFile, dirs == null ? dirStr
                 : dirs + "," + dirStr);
     }
 

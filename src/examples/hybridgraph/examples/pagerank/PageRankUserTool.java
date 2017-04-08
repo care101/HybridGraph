@@ -60,6 +60,11 @@ public class PageRankUserTool
 				throws EOFException, IOException {
 			this.verValue = vIn.getDouble();
 		}
+		
+	    @Override
+	    public void parseVerValue(String valData) {
+	    	this.verValue = Double.parseDouble(valData);
+	    }
 
 		@Override
 		public void serGrapnInfo(ByteBuffer eOut) 

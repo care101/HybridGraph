@@ -43,6 +43,9 @@ public abstract class Task implements Writable {
   protected int parId=0;
 
   protected LocalDirAllocator lDirAlloc;
+  
+  /** Is restarting task? */
+  protected boolean restart = false;
 
   public Task() {
     jobId = new BSPJobID();
@@ -93,6 +96,10 @@ public abstract class Task implements Writable {
   public int getPartitionID() {
     return parId;
   }
+  
+  public boolean isRestart() {
+	  return restart;
+  }
 
   @Override
   public String toString() {
@@ -108,6 +115,7 @@ public abstract class Task implements Writable {
     Text.writeString(out, jobFile);
     taskId.write(out);
     out.writeInt(parId);
+    out.writeBoolean(restart);
   }
 
   @Override
@@ -116,6 +124,7 @@ public abstract class Task implements Writable {
     jobFile = Text.readString(in);
     taskId.readFields(in);
     parId = in.readInt();
+    restart = in.readBoolean();
   }
   
   public abstract void setBSPJob(BSPJob job);
@@ -128,11 +137,9 @@ public abstract class Task implements Writable {
  * @throws ClassNotFoundException 
  * @throws InterruptedException 
    */
-  public abstract void run(BSPJob job, Task task,BSPPeerProtocol umbilical, String host);
+  public abstract void run(BSPJob job, Task task, 
+		  BSPTaskTrackerProtocol umbilical, 
+		  String host);
 
   public abstract BSPTaskRunner createRunner(GroomServer groom);
-
-  public void done(BSPPeerProtocol umbilical) throws IOException {
-    umbilical.done(getTaskID(), true);
-  } 
 }

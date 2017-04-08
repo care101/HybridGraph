@@ -53,8 +53,7 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	
 	@Override
 	public void update(
-			Context<Double, Double, Double, Integer> context) 
-				throws Exception {
+			Context<Double, Double, Double, Integer> context) {
 		GraphRecord<Double, Double, Double, Integer> graph = 
 			context.getGraphRecord();
 		MsgRecord<Double> msg = context.getReceivedMsgRecord();
@@ -81,8 +80,7 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 	
 	@Override
 	public MsgRecord<Double>[] getMessages(
-			Context<Double, Double, Double, Integer> context) 
-				throws Exception {
+			Context<Double, Double, Double, Integer> context) {
 		GraphRecord<Double, Double, Double, Integer> graph = 
 			context.getGraphRecord();
 		SPMsgRecord[] result = new SPMsgRecord[graph.getEdgeNum()];
@@ -91,7 +89,7 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 		for (int eid: graph.getEdgeIds()) {
 			result[idx] = new SPMsgRecord();
 			result[idx].initialize(graph.getVerId(), eid, 
-					graph.getVerValue()+rd.nextDouble());
+					graph.getVerValue()+0.1/*rd.nextDouble()*/);
 			idx++;
 		}
 		return result;

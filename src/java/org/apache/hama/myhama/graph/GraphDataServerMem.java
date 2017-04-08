@@ -2,6 +2,7 @@ package org.apache.hama.myhama.graph;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -286,20 +287,19 @@ public class GraphDataServerMem<V, W, M, I>
 		}
 		
 		long endTime = System.currentTimeMillis();
-		LOG.info("load graph from HDFS, costTime=" 
+		LOG.info("load graph, " 
 				+ (endTime-startTime)/1000.0 + " seconds");
 	}
 	
 	@Override
-	public MsgPack<V, W, M, I> getMsg(int _tid, int _bid, int _iteNum) 
-			throws Exception {
+	public MsgPack<V, W, M, I> getMsg(int _tid, int _bid, int _iteNum) {
 		if (this.proMsgOver[_tid]) {
 			MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool);
 			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
 			
 			if (this.msgBuf[_tid].size() > 0) {
 				msgPack.setRemote(this.msgBuf[_tid].remove(0), 
-						this.msgBufLen[_tid].remove(0), 0L, 0L);
+						this.msgBufLen[_tid].remove(0), 0L, 0L, 0L);
 			}
 			
 			if (this.msgBuf[_tid].size() == 0) {
@@ -322,24 +322,27 @@ public class GraphDataServerMem<V, W, M, I>
 			(MsgRecord<M>[]) new MsgRecord[dstVerMaxId-dstVerMinId+1];
 		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
 		long[] statis = new long[7];
-		for (int resBid = 0; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
-			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(resBid);
-			if (!vHbb.isRespond(type) || (vHbb.getFragmentNum(_tid, _bid)==0)) {
-				continue; //skip the whole hash bucket
+		
+		try {
+			for (int resBid = 0; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
+				VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(resBid);
+				if (!vHbb.isRespond(type) || (vHbb.getFragmentNum(_tid, _bid)==0)) {
+					continue; //skip the whole hash bucket
+				}
+				
+				//cache: pass-by-reference
+				this.getMsgFromOneVBlock(statis, resBid, 
+						type, _tid, _bid, _iteNum, cache, dstVerMinId);
 			}
 			
-			//cache: pass-by-reference
-			this.getMsgFromOneVBlock(statis, resBid, 
-					type, _tid, _bid, _iteNum, cache, dstVerMinId);
+			return packMsg(_tid, cache, statis);
+		} catch (IOException ioe) {
+			return null;
 		}
-		
-		MsgPack<V, W, M, I> msgPack = packMsg(_tid, cache, statis);
-		
-		return msgPack;
 	}
 	
 	private MsgPack<V, W, M, I> packMsg(int reqTid, MsgRecord<M>[] cache, long[] _statis) 
-		throws Exception{
+		throws IOException {
 		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool); //message pack
 		msgPack.setEdgeInfo(_statis[0], _statis[6], _statis[1], _statis[2]);
 		long memUsage = 0L;
@@ -358,7 +361,7 @@ public class GraphDataServerMem<V, W, M, I>
 				}
 				cache = null;
 				//now, we use #dstVert as #recMsg
-				msgPack.setLocal(tmp, vCounter, _statis[3], _statis[5]);
+				msgPack.setLocal(tmp, vCounter, _statis[3], _statis[5], 0L);
 				this.proMsgOver[reqTid] = true;
 				msgPack.setOver();
 				this.proMsgOver[reqTid] = false; //pull local msgs only once!
@@ -402,7 +405,7 @@ public class GraphDataServerMem<V, W, M, I>
 				if (this.msgBuf[reqTid].size() > 0) {
 					//now, we use #dstVert as #recMsg
 					msgPack.setRemote(this.msgBuf[reqTid].remove(0), 
-							this.msgBufLen[reqTid].remove(0), _statis[3], _statis[5]);
+							this.msgBufLen[reqTid].remove(0), _statis[3], _statis[5], 0L);
 					if (this.msgBuf[reqTid].size() == 0) {
 						msgPack.setOver();
 						this.proMsgOver[reqTid] = false; //prepare for the next bucket
@@ -432,7 +435,7 @@ public class GraphDataServerMem<V, W, M, I>
 	 */
 	private void getMsgFromOneVBlock(long[] statis, int resBid, 
 			int type, int _tid, int _bid, int _iteNum, 
-			MsgRecord<M>[] cache, int dstVerMinId) throws Exception {
+			MsgRecord<M>[] cache, int dstVerMinId) throws IOException {
 		int dstBucIdx = 
 			this.commRT.getJobInformation().getGlobalBlkIdx(_tid, _bid);
 		int verMinId = this.verBlkMgr.getVerMinId();

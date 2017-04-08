@@ -56,6 +56,11 @@ public class LPAUserTool
 				throws EOFException, IOException {
 			this.verValue = vIn.getInt();
 		}
+		
+	    @Override
+	    public void parseVerValue(String valData) {
+	    	this.verValue = Integer.parseInt(valData);
+	    }
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 
