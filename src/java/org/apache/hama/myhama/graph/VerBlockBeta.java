@@ -2,6 +2,8 @@ package org.apache.hama.myhama.graph;
 
 import java.util.Arrays;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hama.Constants;
 
 /**
@@ -9,6 +11,8 @@ import org.apache.hama.Constants;
  * @author root
  */
 public class VerBlockBeta {
+	private static final Log LOG = LogFactory.getLog(VerBlockBeta.class);
+	
 	private int bid;
 	private int bspStyle;
 	private int granularity = 0; //#tasks * #blocks per task
@@ -23,8 +27,15 @@ public class VerBlockBeta {
 	private long[][] eFragLen;
 	private int[][] fragNum; //number of fragments in (dstTid, dstBid) file
 	private int totalFragNum;
-	/** true: vertices need to respond pull requests, false: no */
+	/** true: some/all vertices need to respond pull requests, false: none */
 	private boolean[] respond; //type, exchange between superstep t and t+1.
+	/** true: all vertices need to respond pull requests, false: none */
+	private boolean[] respondOfAllVerts; //all vertices or not?
+	/** true: some/all vertices are active, false: none */
+	private boolean active;
+	/** true: all vertices are active, false: none */
+	private boolean activeOfAllVerts;
+	private int actVerNum = 0;
 	
 	public VerBlockBeta(int _bid, int _verMinId, int _verMaxId, int _verNum, 
 			int _taskNum, int[] _blkNumTask, 
@@ -35,7 +46,11 @@ public class VerBlockBeta {
 		vMaxId = _verMaxId;
 		vNum = _verNum;
 		respond = new boolean[2]; 
+		respondOfAllVerts = new boolean[2];
 		Arrays.fill(this.respond, false);
+		Arrays.fill(this.respondOfAllVerts, false);
+		active = false;
+		activeOfAllVerts = false;
 		granularity = 0;
 		totalFragNum = 0;
 		
@@ -138,18 +153,41 @@ public class VerBlockBeta {
 		return this.totalFragNum;
 	}
 	
+	public void setActive(boolean flag) {
+		active = flag;
+	}
+	
+	public boolean isActive() {
+		return active;
+	}
+	
+	public boolean isAllActive() {
+		return activeOfAllVerts;
+	}
+	
+	public void incActiveVerNum() {
+		actVerNum++;
+	}
+	
 	public void setRespond(int type, boolean flag) {
 		this.respond[type] = flag;
 	}
 	
 	/**
-	 * Weather source vertices in this VBlock are eager to 
-	 * send messages to their target vertices, or not, 
-	 * i.e., responding pull requests from target vertices.
+	 * Is there any vertex eager to respond pull requests?
 	 * @return
 	 */
 	public boolean isRespond(int type) {
 		return this.respond[type];
+	}
+	
+	/**
+	 * Is every vertex eager to respond pull requests?
+	 * @param type
+	 * @return
+	 */
+	public boolean isAllRespond(int type) {
+		return this.respondOfAllVerts[type];
 	}
 	
 	public void incRespondVerNum() {
@@ -168,12 +206,21 @@ public class VerBlockBeta {
 	
 	public void clearBefIte(int _iteNum) {
 		hasReadVerNum = 0;
-		this.resVerNum = 0;
-		this.respond[(_iteNum+1)%2] = false;		
+		resVerNum = 0;
+		respond[(_iteNum+1)%2] = false;
+		respondOfAllVerts[(_iteNum+1)%2] = false;
+		
+		actVerNum = 0;
+		active = false;
+		activeOfAllVerts = false;
 	}
 	
-	public void clearAftIte(int _iteNum) {
-		
+	public void clearAftIte(int _iteNum, int flagOpt) {
+		if (flagOpt == 1) { //true, log flags
+			respondOfAllVerts[(_iteNum+1)%2] = 
+				(resVerNum==vNum);
+			activeOfAllVerts = (actVerNum==vNum);
+		}
 	}
 	
 	/**
@@ -219,10 +266,9 @@ public class VerBlockBeta {
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer();
-		sb.append("bucId=" + bid);
-		sb.append(" vId=[" + vMinId + " " + vMaxId + "]");
-		sb.append(" num=[" + vNum + "]");
-		sb.append("\n");
+		sb.append("blkId=" + bid);
+		sb.append(" verMinMaxId=[" + vMinId + ", " + vMaxId + "]");
+		sb.append(" verNum=" + vNum);
 		return sb.toString();
 	}
 }

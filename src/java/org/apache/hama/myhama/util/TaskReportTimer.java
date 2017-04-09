@@ -3,7 +3,7 @@ package org.apache.hama.myhama.util;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hama.bsp.BSPJobID;
-import org.apache.hama.bsp.BSPPeerProtocol;
+import org.apache.hama.bsp.BSPTaskTrackerProtocol;
 import org.apache.hama.bsp.BSPTask;
 import org.apache.hama.bsp.TaskAttemptID;
 
@@ -20,7 +20,7 @@ public class TaskReportTimer extends Thread {
 	private BSPJobID jobId;
 	private TaskAttemptID taskId;
 	private BSPTask task;
-	private BSPPeerProtocol workerAgent;
+	private BSPTaskTrackerProtocol workerAgent;
 	private float progress = 0.0f;
 	private int interval;
 	
@@ -32,14 +32,14 @@ public class TaskReportTimer extends Thread {
 		this.interval = _interval;
 	}
 	
-	public void setAgent(BSPPeerProtocol _workerAgent) {
+	public void setAgent(BSPTaskTrackerProtocol _workerAgent) {
 		this.workerAgent = _workerAgent;
 	}
 	
 	private void report() throws Exception {
 		TaskReportContainer trc = this.task.getProgress();
 		if ((trc != null) && (progress != trc.getCurrentProgress())) {
-			this.workerAgent.reportProgress(this.jobId, this.taskId, trc);
+			this.workerAgent.ping(this.jobId, this.taskId, trc);
 		}
 	}
 	

@@ -110,7 +110,7 @@ public class ClusterStatus implements Writable {
    * 
    * @return the number of currently running tasks in the cluster.
    */
-  public int getCurrentClusterTasks() {
+  public int getNumOfRunningTasks() {
     return currentClusterTasks;
   }
   
@@ -119,7 +119,7 @@ public class ClusterStatus implements Writable {
    * 
    * @return the maximum capacity for running tasks in the cluster.
    */
-  public int getMaxClusterTasks() {
+  public int getNumOfTaskSlots() {
     return maxClusterTasks;
   }
   

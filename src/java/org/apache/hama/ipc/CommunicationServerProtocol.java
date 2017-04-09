@@ -24,53 +24,57 @@ public interface CommunicationServerProtocol<V, W, M, I>
 	public int parId = 0;
 	
 	/**
-	 * Build RouteTable.
-	 */
-	public void buildRouteTable(JobInformation global);
-	
-	/**
-	 * Set the preparation information.
-	 */
-	public void setPreparation(JobInformation local);
-	
-	/**
 	 * Receive messages from source vertices.
 	 * Used in style.Push.
 	 * 
 	 * @param srcParId
-	 * @param iteNum
 	 * @param pack
 	 * @return #messagesOnDisk for push
 	 * @throws Exception
 	 */
-	public long recMsgData(int srcParId, int iteNum, 
-			MsgPack<V, W, M, I> pack) throws Exception;
+	public long recMsgData(int srcParId, MsgPack<V, W, M, I> pack);
 	
 	/**
 	 * Obtain {@link MsgRecord} from tasks which contain edges.
 	 * These messages will be put into {@link MsgDataServer}.
-	 * @param _srcParId
-	 * @param _bid
+	 * @param _toTaskId id of task to which messages are sent
+	 * @param _toBlkId local id of {@link VBlock} to which messages are sent 
 	 * @param _iteNum
 	 * @return
 	 */
-	public MsgPack<V, W, M, I> obtainMsgData(int _srcParId, int _bid, int _iteNum) 
-			throws Exception;
+	public MsgPack<V, W, M, I> obtainMsgData(int _toTaskId, int _toBlkId, int _iteNum);
 	
 	/**
-	 * Set the command for the next SuperStep.
+	 * Set route table information and then quit the synchronization barrier 
+	 * initiated by {@link MasterProtocol}.buildRouteTable().
+	 * @param jobInfo
+	 */
+	public void setRouteTable(JobInformation jobInfo);
+	
+	/**
+	 * Update route table information kept on surviving tasks when launching 
+	 * new tasks to replace failed tasks.
+	 * @param jobInfo
+	 */
+	public void updateRouteTable(JobInformation jobInfo);
+	
+	/**
+	 * Set {@link JobInformation} and then quit the synchronization barrier 
+	 * initiated by {@link MasterProtocol}.registerTask().
+	 * @param jobInfo
+	 */
+	public void setRegisterInfo(JobInformation jobInfo);
+	
+	/**
+	 * Set command for the next superstep and then quit the synchronization barrier 
+	 * initiated by {@link MasterProtocol}.finishSuperStep().
 	 * @param SuperStepCommand ssc
 	 */
 	public void setNextSuperStepCommand(SuperStepCommand ssc);
-
-	/**
-	 * If all tasks have completed the preparation work, 
-	 * then tell all tasks start the next SuperStep.
-	 */
-	public void startNextSuperStep();
 	
 	/**
-	 * Exit the synchronize signaled by sync().
+	 * Quit a synchronization barrier initiated by 
+	 * {@link MasterProtocol}.sync() or .beginSuperStep().
 	 */
-	public void quitSync();
+	public void quit();
 }

@@ -70,13 +70,15 @@ class TaskInProgress {
 
   // Map from task Id -> GroomServer Id, contains tasks that are
   // currently runnings
-  private TreeMap<TaskAttemptID, String> activeTasks = new TreeMap<TaskAttemptID, String>();
+  private TreeMap<TaskAttemptID, String> activeTasks = 
+	  new TreeMap<TaskAttemptID, String>();
   // All attempt Ids of this TIP
   // private TreeSet<TaskAttemptID> tasks = new TreeSet<TaskAttemptID>();
   /**
    * Map from taskId -> TaskStatus
    */
-  private TreeMap<TaskAttemptID, TaskStatus> taskStatuses = new TreeMap<TaskAttemptID, TaskStatus>();
+  private TreeMap<TaskAttemptID, TaskStatus> taskStatuses = 
+	  new TreeMap<TaskAttemptID, TaskStatus>();
 
   private BSPJobID jobId;
 
@@ -113,7 +115,8 @@ class TaskInProgress {
   /**
    * Return a Task that can be sent to a GroomServer for execution.
    */
-  public Task getTaskToRun(GroomServerStatus status) throws IOException {
+  public Task getTaskToRun(GroomServerStatus status, boolean restart) 
+  		throws IOException {
     Task t = null;
     this.gss=status;
     TaskAttemptID taskid = null;
@@ -121,7 +124,7 @@ class TaskInProgress {
       int attemptId = 0 * NUM_ATTEMPTS_PER_RESTART
           + nextTaskId;
       taskid = new TaskAttemptID(id, attemptId);
-      ++nextTaskId;
+      //++nextTaskId; //disabling the increase of attemptId
     } else {
       LOG.warn("Exceeded limit of " + (MAX_TASK_EXECS + maxTaskAttempts)
           + " attempts for the tip '" + getTIPId() + "'");
@@ -129,8 +132,9 @@ class TaskInProgress {
     }
 
   //change in version-0.2.3 add the info. of split
-    t = new BSPTask(jobId, jobFile, taskid, partition, rawSplit.getClassName(), rawSplit.getBytes());
-    //LOG.info("the TaskInProgress split info is : "+rawSplit.getClassName()+" and "+rawSplit.getBytes());
+    t = 
+    	new BSPTask(jobId, jobFile, taskid, partition, rawSplit.getClassName(), 
+    			rawSplit.getBytes(), restart);
     activeTasks.put(taskid, status.getGroomName());
 
     return t;
@@ -211,19 +215,6 @@ class TaskInProgress {
   public boolean isComplete(TaskAttemptID taskid) {
     return (completes > 0 && taskid.equals(getSuccessfulTaskid()));
   }
-
-/*  private TreeSet<TaskAttemptID> tasksReportedClosed = new TreeSet<TaskAttemptID>();
-
-  public boolean shouldCloseForClosedJob(TaskAttemptID taskid) {
-    TaskStatus ts = (TaskStatus) taskStatuses.get(taskid);
-    if ((ts != null) && (!tasksReportedClosed.contains(taskid))
-        && (job.getStatus().getRunState() != JobStatus.RUNNING)) {
-      tasksReportedClosed.add(taskid);
-      return true;
-    } else {
-      return false;
-    }
-  }*/
 
   public void completed(TaskAttemptID taskid) {
     //LOG.info("Task '" + taskid.getTaskID().toString() + "' has completed.");

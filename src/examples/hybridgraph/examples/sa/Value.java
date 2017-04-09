@@ -55,4 +55,10 @@ public class Value {
     	sb.append(Integer.toString(this.aNum));
     	return sb.toString();
     }
+    
+    public void parseValue(String e) {
+    	String[] strs = e.split(" ");
+    	this.aId = Integer.parseInt(strs[0]);
+    	this.aNum = Integer.parseInt(strs[1]);
+    } 
 }

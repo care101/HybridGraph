@@ -60,9 +60,9 @@ public class GroomServerStatus implements Writable {
   
   //change in version-0.2.4 new variable: using in TaskScheduler
   Map<BSPJobID, String> peerNameReports;// BSPJobID--BSPPeerForJob_peerName in this GroomServer
-  private int maxTasksCount;
-  private int currentTasksCount;
-  private int finishedTasksCount;
+  private int taskSlots;
+  private int runningTasks;
+  private int finishedTasks;
 
   volatile long lastSeen;
 
@@ -86,9 +86,9 @@ public class GroomServerStatus implements Writable {
     this.taskReports = new ArrayList<TaskStatus>(taskReports);
     this.failures = failures;
     this.peerNameReports=new TreeMap<BSPJobID, String>(peerNameReports);
-    this.maxTasksCount = maxTasksCount;
-    this.currentTasksCount=currentTasksCount;
-    this.finishedTasksCount=finishedTasksCount;
+    this.taskSlots = maxTasksCount;
+    this.runningTasks = currentTasksCount;
+    this.finishedTasks = finishedTasksCount;
     this.rpcServer = rpc;
   }
 
@@ -128,12 +128,12 @@ public class GroomServerStatus implements Writable {
     return lastSeen;
   }
 
-  public void setLastSeen(long lastSeen) {
-    this.lastSeen = lastSeen;
+  public void setLastSeen(long _lastSeen) {
+    lastSeen = _lastSeen;
   }
 
-  public int getMaxTasksCount() {
-    return maxTasksCount;
+  public int getNumOfTaskSlots() {
+    return taskSlots;
   }
   
   //change in version-0.2.4 new function:get the new variable
@@ -141,16 +141,16 @@ public class GroomServerStatus implements Writable {
 	  return peerNameReports;
   }
   
-  public void setCurrentTasksCount(int currentTasksCount){
-	  this.currentTasksCount=currentTasksCount;
+  public void setNumOfRunningTasks(int _num) {
+	  runningTasks = _num;
   }
   
-  public int getCurrentTasksCount() {
-	return currentTasksCount;
+  public int getNumOfRunningTasks() {
+	return runningTasks;
   }
   
-  public int getFinishedTasksCount() {
-	return finishedTasksCount;
+  public int getNumOfFinishedTasks() {
+	return finishedTasks;
   }
   
   /**
@@ -224,10 +224,9 @@ public class GroomServerStatus implements Writable {
     this.rpcServer = Text.readString(in);
     this.failures = in.readInt();
     //NEU change in version-0.2.4
-    this.maxTasksCount = in.readInt();
-    this.currentTasksCount=in.readInt();
-    this.finishedTasksCount=in.readInt();
-    
+    this.taskSlots = in.readInt();
+    this.runningTasks = in.readInt();
+    this.finishedTasks = in.readInt();
     peerNameReports.clear();
     int numPeers=in.readInt();
     BSPJobID jobid;
@@ -236,10 +235,8 @@ public class GroomServerStatus implements Writable {
     	jobid.readFields(in);
     	peerNameReports.put(jobid, Text.readString(in));
     }
-    
     taskReports.clear();
     int numTasks = in.readInt();
-
     TaskStatus status;
     for (int i = 0; i < numTasks; i++) {
       status = new TaskStatus();
@@ -259,16 +256,14 @@ public class GroomServerStatus implements Writable {
     Text.writeString(out, rpcServer);
     out.writeInt(failures);
     //change in version-0.2.4
-    out.writeInt(maxTasksCount);
-    out.writeInt(currentTasksCount);
-    out.writeInt(finishedTasksCount);
-    
+    out.writeInt(taskSlots);
+    out.writeInt(runningTasks);
+    out.writeInt(finishedTasks);
     out.writeInt(peerNameReports.size());
     for(Entry<BSPJobID, String> e:peerNameReports.entrySet()){
     	e.getKey().write(out);
     	Text.writeString(out, e.getValue());
     }  
-    
     out.writeInt(taskReports.size());
     for (TaskStatus taskStatus : taskReports) {
       taskStatus.write(out);

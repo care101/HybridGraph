@@ -25,6 +25,8 @@ public class CommRouteTable<V, W, M, I> {
 			comms = new HashMap<InetSocketAddress, 
 					CommunicationServerProtocol<V, W, M, I>>();
 	
+	private String ckpJobDir;
+	
 	public CommRouteTable(BSPJob _job, int parId) {
 		this.parId = parId;
 		job = _job;
@@ -56,10 +58,25 @@ public class CommRouteTable<V, W, M, I> {
 		
 		resortRouteTable();
 		maxLen = findMaxLength();
+		
+		this.ckpJobDir = jobInfo.getCheckPointDirForJob();
 	}
 	
 	public void resetJobInformation(JobInformation _jobInfo) {
 		jobInfo = _jobInfo;
+	}
+	
+	/**
+	 * Get checkpoint directory.
+	 * Only valid after invoking buildRouteTable() in {@link BSPTask}.  
+	 * @return
+	 */
+	public String getCheckPointDirForJob() {
+		return this.ckpJobDir;
+	}
+	
+	public int getAvailableCheckPoint() {
+		return this.jobInfo.getAvailableCheckPoint();
 	}
 	
 	public int getTaskNum() {

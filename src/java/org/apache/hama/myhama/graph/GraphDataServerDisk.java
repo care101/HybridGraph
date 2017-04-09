@@ -27,47 +27,69 @@ import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.io.OutputFormat;
+import org.apache.hama.myhama.io.RecordReader;
 import org.apache.hama.myhama.io.RecordWriter;
 import org.apache.hama.myhama.util.GraphContext;
 
 /**
- * GraphDataDisk manages graph data on local disks.
+ * GraphDataServerDisk.java manages graph data on local disks.
  * 
- * VBlocks: variables in one VBlock are stored in two files 
- * for values (file "value") and graphInfos (file "info"). 
- * File "vale" is read-write, but "info" is read-only.
- *              rootDir           (rootDir:jobId/taskId/graph)
+ * ====================<<<<<<<<<< VBlocks >>>>>>>>>>====================
+ * VBlocks: variables in one VBlock are stored in three separate files: 
+ * values (file "value"), graph information (file "info"), and responding 
+ * flags (file "res"). Among of the three read-only files, new "value" 
+ * and "res" files will be created per superstep.
+ * 
+ *              rootDir            (rootDir:jobId/taskId/graph)
  *                 |
- *               verDir           (verDir:rootDir/vertex)
+ *             vertexDir           (vertexDir:rootDir/vertex)
  *            /    |    \
- *       lbd1     lbd2    lbd3    (lbdx:one VBlock dir x, name:locbuc-1)
- *      /  |  \    ...   /  |  \
- * value info [edge]              (file name: value, info, [edge])
+ *     srcBktDir-1 ...  ...        (source VBlock dir x, name:srcbkt-1)
+ *     /   |   |  \    
+ * value info res [edge]           (file name: value, info, res, [edge])
+ * 
  * In addition, if bspStyle={@link Constants}.STYLE.Push or Hybrid, 
- * edges should be stored in the adjacency list.   
- *    
+ * edges should be stored in the adjacency list.
  * 
- * EBlocks: edges linking to target vertices in one VBlock of a task 
- * are stored into one disk file.
- * In one disk file, edges of the same source vertices 
- * are clustered in a fragment.
- * Edge files are read-only.
- * The storage hierarchy is as follows:
- *             rootDir         (rootDir:jobId/taskId/graph)
+ * "res" is used by the fault-tolerance component (March, 2017).
+ * Usually, the file is named after "res-x", where "x" is the superstep 
+ * counter. In particular, if {@link resFlags} of all source vertices 
+ * are marked as TRUE, a special suffix "all" is added, i.e., "res-x-all", 
+ * and then a flag specific to each source vertex is ignored to reduce the 
+ * disk storage space and hence I/O costs. In contrast, in the "all-false" 
+ * case, the file will not be created. During failure recovery, if "res-x" 
+ * does not exist, nothing is done in {@link getMsgFromOneVBlock}. 
+ * Otherwise, {@link getMsgFromOneVBlock} returns messages by reading the 
+ * "value-y" file with the smallest y that is greater than or equal to x 
+ * in "res-x". 
+ *  
+ * 
+ * ====================<<<<<<<<<< EBlocks >>>>>>>>>>====================
+ * EBlocks: edges linking to target vertices in one VBlock on some task 
+ * are stored into a single disk file. Further, in a disk file, edges 
+ * with the same source vertices are clustered in a fragment.
+ * All edge files are read-only.
+ *             rootDir           (rootDir:jobId/taskId/graph)
  *                |
- *             edgeDir         (edgeDir:rootDir/edge)
+ *             edgeDir           (edgeDir:rootDir/edge)
  *            /   |   \
- *         td1   td2   td3     (td1:taskdir-1, name:task-1)
+ *         td1   td2   td3       (td1:taskdir-1, name:task-1)
  *         / \   / \   / \
- *      bf1  bf2 ...  bf1 bf2  (bf1:bucketfile-1, name:buc-1)
+ *     tbf1  tbf2 ... tbf1 tbf2  (tbf1:targetbucketfile-1, name:tarbkt-1)
  * 
- * The storage format of each bucket file is:
+ * Data in each bucket file (tarbkt-x) is formatted as follows:
  * <code>source vertex id</code><code>#edges</code>
  * <code>the list of edge ids and weights</code>
  * For example, "2->{(3,0.2),(4,0.6)}" should be writen as "2230.240.6".
+ * Note that "x" in "tarbkt-x" indicates the index of a target vertex bucket 
+ * kept on some target task, instead of local source vertex bucket index. 
+ * Further, for each "tarbkt-x" file, the offset of edges associated with a 
+ * local source vertex bucket is kept in metadata. In this way, if source 
+ * vertices in some local bucket do not need to respond pull requests, their 
+ * outgoing edges in "tarbkt-x" can be skipped when generating messages. 
  * 
  * @author 
- * @version 0.1
+ * @version 0.1 
  * 
  * @param <V> vertex value
  * @param <W> edge weight
@@ -78,12 +100,15 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	private static final Log LOG = LogFactory.getLog(GraphDataServerDisk.class);
 	
 	public static int VERTEX_ID_BYTE = 4, Buf_Size = 5000;
-	private static String Ver_Dir_Buc_Pre = "locbuc-";
-	private static String Ver_File_Value = "value-";
-	private static String Ver_File_Info = "info";
-	private static String Ver_File_Adj = "edge_adj"; //edges in adjacency list used by Push.
-	private static String Edge_Dir_Task_Pre = "task-"; //edges in fragments usecd by Pull
-	private static String Edge_File_Buc_Pre = "buc-";
+	private static String Vert_Dir_Bkt_Prefix = "srcbkt-"; //local source vert bucket
+	private static String Vert_File_Value_Prefix = "value-";
+	private static String Vert_File_Info = "info";
+	private static String Vert_File_ActFlag_Prefix = "act-";
+	private static String Vert_File_ResFlag_Prefix = "res-";
+	private static String Vert_File_Flag_Suffix = "-alltrue";
+	private static String Vert_File_Adj = "edge_adj"; //edges in adjacency list (Push)
+	private static String Edge_Dir_Task_Prefix = "task-"; //edges in fragments (Pull)
+	private static String Edge_File_Bkt_Prefix = "tarbkt-"; //target vert bucket
 	
 	/** directory and managers for graph data */
 	private File verDir, edgeDir;
@@ -103,6 +128,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	private Future<Boolean> spillEdgeThRe;
 	private long loadByte = 0L;
 	
+	private BitBytes bitBytes;
+	private long rwResTime = 0L;
+	
 	/** used to read or write graph data during iteration computation */
 	private class VBlockFileHandler {
 		private RandomAccessFile raf_v_r, raf_v_w, raf_info, raf_adj;
@@ -111,7 +139,24 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				
 		public VBlockFileHandler() { }
 		
-		public void openVerReadHandler(File f_v_r) throws Exception {
+		public void clearBefIte() throws IOException {
+			clear(fc_v_r, raf_v_r);
+			clear(fc_v_w, raf_v_w);
+			clear(fc_info, raf_info);
+			clear(fc_adj, raf_adj);
+		}
+		
+		public void clearAftIte() throws IOException {
+		}
+		
+		private void clear(FileChannel fc, RandomAccessFile raf) 
+				throws IOException {
+			if (fc!=null && fc.isOpen()) {
+				fc.close(); raf.close();
+			}
+		}
+		
+		public void openVerReadHandler(File f_v_r) throws IOException {
 			raf_v_r = new RandomAccessFile(f_v_r, "r");
 			fc_v_r = raf_v_r.getChannel();
 			mbb_v_r = fc_v_r.map(FileChannel.MapMode.READ_ONLY, 0L, 
@@ -122,26 +167,35 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			return mbb_v_r;
 		}
 		
-		public void closeVerReadHandler() throws Exception {
+		public void closeVerReadHandler() throws IOException {
 			fc_v_r.close(); raf_v_r.close();
 		}
 		
-		public void openVerWriteHandler(File f_v_w) throws Exception {
+		public void openVerWriteHandler(File f_v_w) throws IOException {
+			if (f_v_w.exists()) {
+				f_v_w.delete();
+			}
 			raf_v_w = new RandomAccessFile(f_v_w, "rw");
 			fc_v_w = raf_v_w.getChannel();
 			mbb_v_w = fc_v_w.map(FileChannel.MapMode.READ_WRITE, 0, 
 					fc_v_r.size());
 		}
 		
+		public void openVerWriteHandler(File f_v_w, long bytes) throws IOException {
+			raf_v_w = new RandomAccessFile(f_v_w, "rw");
+			fc_v_w = raf_v_w.getChannel();
+			mbb_v_w = fc_v_w.map(FileChannel.MapMode.READ_WRITE, 0, bytes);
+		}
+		
 		public MappedByteBuffer getVerWriteHandler() {
 			return mbb_v_w;
 		}
 		
-		public void closeVerWriteHandler() throws Exception {
+		public void closeVerWriteHandler() throws IOException {
 			fc_v_w.close(); raf_v_w.close();
 		}
 		
-		public void openInfoReadHandler(File f_info) throws Exception {
+		public void openInfoReadHandler(File f_info) throws IOException {
 			raf_info = new RandomAccessFile(f_info, "r");
 			fc_info = raf_info.getChannel();
 			mbb_info = fc_info.map(FileChannel.MapMode.READ_ONLY, 0L, 
@@ -152,11 +206,11 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			return mbb_info;
 		}
 		
-		public void closeInfoReadHandler() throws Exception {
+		public void closeInfoReadHandler() throws IOException {
 			fc_info.close(); raf_info.close();
 		}
 		
-		public void openAdjReadHandler(File f_adj) throws Exception {
+		public void openAdjReadHandler(File f_adj) throws IOException {
 			raf_adj = new RandomAccessFile(f_adj, "r");
 			fc_adj = raf_adj.getChannel();
 			mbb_adj = fc_adj.map(FileChannel.MapMode.READ_ONLY, 0L, 
@@ -167,15 +221,18 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			return mbb_adj;
 		}
 		
-		public void closeAdjReadHandler() throws Exception {
+		public void closeAdjReadHandler() throws IOException {
 			fc_adj.close(); raf_adj.close();
 		}
 	}
 	private VBlockFileHandler vbFile;
 	
-	/** used to read VBlockFile and EBlockFile during responding pulling requests */
+	/** 
+	 * Used to read VBlockFile and EBlockFile when responding pull requests.
+	 * */
 	private class VEBlockFileHandler<V, W, M, I> {
-		private int tid, reqBid, resBid; //requested task_id, block_id; respond block_id
+		//requested task_id and block_id; respond block_id
+		private int tid, reqBid, resBid; 
 		private RandomAccessFile raf_e, raf_v;
 		private FileChannel fc_e, fc_v;
 		private MappedByteBuffer mbb_e, mbb_v;
@@ -188,6 +245,27 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			reqBid = -1;
 			resBid = -1;
 			resetCheckPoint();
+		}
+		
+		public void clearBefIte() throws IOException {
+			//channel can only be safely closed before an iteration
+			clear(fc_e, raf_e);
+			clear(fc_v, raf_v);
+			reqBid = -1;
+			resBid = -1;
+			resetCheckPoint();
+		}
+		
+		public void clearAftIte() throws IOException {
+			//do not close any file channel because the channel may be 
+			//used by other tasks.
+		}
+		
+		private void clear(FileChannel fc, RandomAccessFile raf) 
+				throws IOException {
+			if (fc!=null && fc.isOpen()) {
+				fc.close(); raf.close();
+			}
 		}
 		
 		private boolean hasOpenEdgeFile(int _bid) {
@@ -208,7 +286,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 		}
 		
-		public void openEdgeHandler(int _bid) throws Exception {
+		public void openEdgeHandler(int _bid) throws IOException {
 			if (hasOpenEdgeFile(_bid)) { return; }
 			
 			File file = getEdgeFile(getEdgeDir(tid), reqBid);
@@ -219,25 +297,41 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 		public MappedByteBuffer getEdgeHandler() { return mbb_e; }
 		
-		public void closeEdgeHandler() throws Exception { 
+		public void closeEdgeHandler() throws IOException { 
 			fc_e.close(); raf_e.close(); 
 			reqBid = -1;
 			resBid = -1;
 			resetCheckPoint();
 		}
 		
-		public void openVerHandler(int _bid, int _iteNum) throws Exception {
-			if (hasOpenVerFile(_bid)) { return; }
+		/**
+		 * Open a channel to read the given vertex value file.
+		 * @param _bid
+		 * @param _iteNum
+		 * @return true if successful, false otherwise (file does not exist)
+		 * @throws IOException
+		 */
+		public boolean openVerHandler(int _bid, int _iteNum) throws IOException {
+			File file = 
+				new File(getVerDir(_bid), Vert_File_Value_Prefix + _iteNum);
+			//LOG.warn(file);
+			if (!file.exists()) {
+				return false;
+			}
 			
-			File file = new File(getVerDir(resBid), Ver_File_Value + _iteNum);
+			if (hasOpenVerFile(_bid)) { return true; }
+			
+			file = 
+				new File(getVerDir(resBid), Vert_File_Value_Prefix + _iteNum);
 			raf_v = new RandomAccessFile(file, "r");
 			fc_v = raf_v.getChannel();
 			mbb_v = fc_v.map(FileChannel.MapMode.READ_ONLY, 0, fc_v.size());
+			return true;
 		}
 		
 		public MappedByteBuffer getVerHandler() { return mbb_v; }
 		
-		public void closeVerHandler() throws Exception {
+		public void closeVerHandler() throws IOException {
 			fc_v.close(); raf_v.close();
 		}
 		
@@ -270,8 +364,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			return resBid<0? 0:resBid;
 		}
 	}
-	private VEBlockFileHandler<V, W, M, I>[] vebFile; //per requested task
-	private boolean[][] hitFlag; //used to estimate #fragments in pull when running push
+	private VEBlockFileHandler<V, W, M, I>[] vebFile;//per requested task
+	/** used to estimate #fragments in pull when running push */
+	private boolean[][] hitFlag; 
 	private long fragNumOfPull = 0L;
 	
 	/**
@@ -303,7 +398,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		@Override
 		public Boolean call() throws IOException {
 			File dir = getVerDir(this.bid);
-			File f_v = new File(dir, Ver_File_Value + "1");
+			File f_v = new File(dir, Vert_File_Value_Prefix + "1");
 			RandomAccessFile raf_v = new RandomAccessFile(f_v, "rw");
 			FileChannel fc_v = raf_v.getChannel();
 			MappedByteBuffer mbb_v = 
@@ -323,7 +418,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			boolean storeAdjEdge = job.isStoreAdjEdge();
 			
 			if (useGraphInfo) {
-				f_info = new File(dir, Ver_File_Info);
+				f_info = new File(dir, Vert_File_Info);
 				raf_info = new RandomAccessFile(f_info, "rw");
 				fc_info = raf_info.getChannel();
 				mbb_info = 
@@ -332,7 +427,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 			
 			if (storeAdjEdge) {
-				f_adj = new File(dir, Ver_File_Adj);
+				f_adj = new File(dir, Vert_File_Adj);
 				raf_adj = new RandomAccessFile(f_adj, "rw");
 				fc_adj = raf_adj.getChannel();
 				mbb_adj = 
@@ -417,12 +512,17 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	public GraphDataServerDisk(int _parId, BSPJob _job, String _rootDir) {
 		super(_parId, _job);
 		StringBuffer sb = new StringBuffer();
-		sb.append("\n initialize graph data server in disk version;");
-		sb.append("\n   storeAdjEdge="); sb.append(_job.isStoreAdjEdge());
-		sb.append("\n   useAdjEdgeInUpdate="); sb.append(_job.isUseAdjEdgeInUpdate());
-		sb.append("\n   useGraphInfoInUpdate="); sb.append(_job.isUseGraphInfoInUpdate());
+		sb.append("\ninitialize graph data server (disk version)");
+		sb.append("\n  1) store edges in the adjacency list: "); 
+		sb.append(_job.isStoreAdjEdge());
+		sb.append("\n  2) use adjacency-based edges in update(): "); 
+		sb.append(_job.isUseAdjEdgeInUpdate());
+		sb.append("\n  3) use graph information in update(): "); 
+		sb.append(_job.isUseGraphInfoInUpdate());
 		LOG.info(sb.toString());
 	    createDir(_rootDir);
+	    
+	    bitBytes = new BitBytes();
 	}
 	
 	private void createDir(String _rootDir) {
@@ -528,7 +628,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	private File getEdgeDir(int _tid) {
 		File dir = 
-			new File(this.edgeDir, Edge_Dir_Task_Pre+Integer.toString(_tid));
+			new File(this.edgeDir, Edge_Dir_Task_Prefix+Integer.toString(_tid));
 		if (!dir.exists()) {
 			dir.mkdirs();
 		}
@@ -536,7 +636,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	}
 	
 	private File getEdgeFile(File dir, int _bid) {
-		return new File(dir, Edge_File_Buc_Pre+Integer.toString(_bid));
+		return new File(dir, Edge_File_Bkt_Prefix+Integer.toString(_bid));
 	}
 	
 	private void clearEdgeBuf() throws Exception {
@@ -552,7 +652,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 					
 					this.spillEdgeThRe = 
 						this.spillEdgeTh.submit(new SpillEdgeThread(i, j, 
-								edgeBufLen[i][j], edgeBufByte[i][j], edgeBuf[i][j]));
+								edgeBufLen[i][j], edgeBufByte[i][j], 
+								edgeBuf[i][j]));
 					this.spillEdgeThRe.get();
 				}
 			}
@@ -591,7 +692,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	}
 	
 	private File getVerDir(int _bid) {
-		File dir = new File(this.verDir, Ver_Dir_Buc_Pre+Integer.toString(_bid));
+		File dir = 
+			new File(this.verDir, Vert_Dir_Bkt_Prefix+Integer.toString(_bid));
 		if (!dir.exists()) {
 			dir.mkdirs();
 		}
@@ -686,13 +788,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		}
 		
 		long endTime = System.currentTimeMillis();
-		LOG.info("load graph from HDFS, costTime=" 
+		LOG.info("load graph, " 
 				+ (endTime-startTime)/1000.0 + " seconds");
 	}
 	
 	@Override
 	public long getEstimatedPullBytes(int iteNum) throws Exception {
-		int type = iteNum % 2; //not (iteNum+1)%2, should be equal with "type" in getMsg();
+		//not (iteNum+1)%2, should be equal with "type" in getMsg();
+		int type = iteNum % 2; 
 		long bytes = 0L;
 		
 		if (this.estimatePullByteFlag) {
@@ -726,154 +829,87 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	}
 	
 	@Override
-	public MsgPack<V, W, M, I> getMsg(int _tid, int _bid, int _iteNum) 
-			throws Exception {
-		if (this.proMsgOver[_tid]) {
+	public MsgPack<V, W, M, I> getMsg(int _toTaskId, int _toBlkId, int _iteNum) {
+		if (this.proMsgOver[_toTaskId]) {
 			MsgPack<V, W, M, I> msgPack = 
 				new MsgPack<V, W, M, I>(userTool);
 			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
 			
-			if (this.msgBuf[_tid].size() > 0) {
-				msgPack.setRemote(this.msgBuf[_tid].remove(0), 
-						this.msgBufLen[_tid].remove(0), 0L, 0L);
+			if (this.msgBuf[_toTaskId].size() > 0) {
+				msgPack.setRemote(this.msgBuf[_toTaskId].remove(0), 
+						this.msgBufLen[_toTaskId].remove(0), 0L, 0L, 0L);
 			}
 			
-			if (this.msgBuf[_tid].size() == 0) {
+			if (this.msgBuf[_toTaskId].size() == 0) {
 				msgPack.setOver();
-				this.proMsgOver[_tid] = false;
+				this.proMsgOver[_toTaskId] = false;
 			}
 			
 			return msgPack;
 		}
 		
-		int dstVerMinId = this.edgeBlkMgr.getBucEdgeMinId(_tid, _bid);
-		int dstVerMaxId = this.edgeBlkMgr.getBucEdgeMaxId(_tid, _bid);
-		int srcVerNum = this.edgeBlkMgr.getBucVerNum(_tid, _bid);
-		int type = _iteNum % 2; //compute the type to read upFlag and upFlagBuc
-		if (srcVerNum == 0) {
-			return new MsgPack<V, W, M, I>(this.userTool); 
-			//there is no edge target to _tid
-		}
-		/** create cache whose capacity = the number of destination vertices */
-		MsgRecord<M>[] cache = 
-			(MsgRecord<M>[]) new MsgRecord[dstVerMaxId-dstVerMinId+1];
-		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
-		long[] statis = new long[7];
-		int resBid = this.vebFile[_tid].getResBid();
-		this.vebFile[_tid].openEdgeHandler(_bid);
-		for (; resBid < this.verBlkMgr.getBlkNum(); resBid++) {
-			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(resBid);			
-			if (!vHbb.isRespond(type) || (vHbb.getFragmentNum(_tid, _bid)==0)) {
-				continue; //skip the whole hash bucket
+		try {
+			if ((job.getCheckPointPolicy()
+					==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) 
+					&& (getUncompletedIteration()!=-1)) {
+				return packMsg(_toTaskId, _toBlkId);
 			}
 			
-			this.vebFile[_tid].openVerHandler(resBid, _iteNum);
-			//cache: pass-by-reference
-			this.getMsgFromOneVBlock(statis, resBid, 
-					this.vebFile[_tid].getVerHandler(), 
-					this.vebFile[_tid].getEdgeHandler(), 
-					type, _tid, _bid, _iteNum, cache, dstVerMinId);
-			if (this.vebFile[_tid].hasCheckPoint()) {
-				break;
+			int toVerMinId = this.edgeBlkMgr.getBucEdgeMinId(_toTaskId, _toBlkId);
+			int toVerMaxId = this.edgeBlkMgr.getBucEdgeMaxId(_toTaskId, _toBlkId);
+			int fromVerNum = this.edgeBlkMgr.getBucVerNum(_toTaskId, _toBlkId);
+			int type = _iteNum % 2; //compute the type to read upFlag and upFlagBuc
+			if (fromVerNum == 0) {
+				MsgPack pack = new MsgPack<V, W, M, I>(this.userTool); 
+				pack.setOver();
+				return pack;
+				//there is no edge target to _tid
 			}
-			this.vebFile[_tid].closeVerHandler();
-		}
-		if (!this.vebFile[_tid].hasCheckPoint()) {
-			this.vebFile[_tid].closeEdgeHandler();
-		}
-		
-		MsgPack<V, W, M, I> msgPack = packMsg(_tid, cache, statis);
-		
-		return msgPack;
-	}
-	
-	private MsgPack<V, W, M, I> packMsg(int reqTid, MsgRecord<M>[] cache, long[] _statis) 
-		throws Exception{
-		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool); //message pack
-		msgPack.setEdgeInfo(_statis[0], _statis[6], _statis[1], _statis[2]);
-		long memUsage = 0L;
-		
-		if (_statis[5] > 0) {
-			/** msg for local task, send all messages by one pack. */
-			if (reqTid == this.taskId) {
-				MsgRecord<M>[] tmp = 
-					(MsgRecord<M>[]) new MsgRecord[(int)_statis[5]];
-				int vCounter = 0;
-				for (MsgRecord<M> msg: cache) {
-					if (msg != null) {
-						tmp[vCounter++] = msg;
-						memUsage += msg.getMsgByte();
-						msg = null;
-					}
-				}
-				cache = null;
-				msgPack.setLocal(tmp, vCounter, _statis[3], _statis[5]); //now, we use #dstVert as #recMsg
-				if (!this.vebFile[reqTid].hasCheckPoint()) {
-					this.proMsgOver[reqTid] = true;
-					msgPack.setOver();
-					this.proMsgOver[reqTid] = false; //pull local msgs only once!
-				}
-			} else {
-				/** msg for remote task, send them by several packs. */
-				int vCounter = 0, mCounter = 0, packSize = this.job.getMsgPackSize();
-				if (this.vebFile[reqTid].hasCheckPoint()) {
-					packSize = Integer.MAX_VALUE;
-				}
-				ByteArrayOutputStream bytes = 
-					new ByteArrayOutputStream(this.job.getMsgPackSize());
-				DataOutputStream stream = new DataOutputStream(bytes);
-				for (MsgRecord<M> msg: cache) {
-					if (msg == null) continue;
-					
-					msg.serialize(stream);
-					vCounter++;
-					mCounter += msg.getNumOfMsgValues(); //mCounter >= vCounter
-					msg = null;
-					
-					if (mCounter == packSize) {
-						stream.close();	bytes.close();
-						this.msgBuf[reqTid].add(bytes);
-						this.msgBufLen[reqTid].add(vCounter);
-						vCounter = 0; mCounter = 0;
-						memUsage += stream.size();
-						
-						bytes = 
-							new ByteArrayOutputStream(this.job.getMsgPackSize());
-						stream = new DataOutputStream(bytes);
-					} //pack
-				} //loop all messages
-				cache = null;
-				
-				if (vCounter > 0) {
-					stream.close();
-					bytes.close();
-					this.msgBuf[reqTid].add(bytes);
-					this.msgBufLen[reqTid].add(vCounter);
-					memUsage += stream.size();
+			//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+			long[] statis = new long[7];
+			/** create cache whose capacity = the number of destination vertices */
+			MsgRecord<M>[] cache = 
+				(MsgRecord<M>[]) new MsgRecord[toVerMaxId-toVerMinId+1];
+			int fromBlkId = this.vebFile[_toTaskId].getResBid();
+			this.vebFile[_toTaskId].openEdgeHandler(_toBlkId);
+			for (; fromBlkId < this.verBlkMgr.getBlkNum(); fromBlkId++) {
+				VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(fromBlkId);
+				if (!vHbb.isRespond(type) 
+						|| (vHbb.getFragmentNum(_toTaskId, _toBlkId)==0)) {
+					continue; //skip the whole hash bucket
 				}
 				
-				if (!this.vebFile[reqTid].hasCheckPoint()) {
-					this.proMsgOver[reqTid] = true;
-				}
-				if (this.msgBuf[reqTid].size() > 0) {
-					msgPack.setRemote(this.msgBuf[reqTid].remove(0), 
-							this.msgBufLen[reqTid].remove(0), _statis[3], _statis[5]); 
-					//now, we use #dstVert as #recMsg
-					if (this.msgBuf[reqTid].size()==0 
-							&& !this.vebFile[reqTid].hasCheckPoint()) {
-						msgPack.setOver();
-						this.proMsgOver[reqTid] = false; //prepare for the next bucket
+				int attemptedIteNum = _iteNum;
+				while (!this.vebFile[_toTaskId].openVerHandler(fromBlkId, attemptedIteNum)) {
+					attemptedIteNum++;
+					//LOG.warn("iteNum=" + _iteNum + ", attemptedIteNum=" + attemptedIteNum);
+					if (attemptedIteNum > getUncompletedIteration()) {
+						File f = 
+							new File(getVerDir(fromBlkId), Vert_File_Value_Prefix + _iteNum);
+						throw new Exception("Fail to find file:\n" + f.toString() 
+								+ ", attemptedIteNum=" + attemptedIteNum);
 					}
 				}
 				
+				//cache: pass-by-reference
+				this.getMsgFromOneVBlock(statis, fromBlkId, 
+						this.vebFile[_toTaskId].getVerHandler(), 
+						this.vebFile[_toTaskId].getEdgeHandler(), 
+						type, _toTaskId, _toBlkId, _iteNum, cache, toVerMinId);
+				if (this.vebFile[_toTaskId].hasCheckPoint()) {
+					break;
+				}
+				this.vebFile[_toTaskId].closeVerHandler();
 			}
-		} else {
-			msgPack.setOver();
+			if (!this.vebFile[_toTaskId].hasCheckPoint()) {
+				this.vebFile[_toTaskId].closeEdgeHandler();
+			}
+			
+			return packMsg(_toTaskId, _toBlkId, cache, statis);
+		} catch (Exception e) {
+			LOG.error("getMsg", e);
+			return null;
 		}
-		
-		this.memUsedByMsgPull[reqTid] = Math.max(this.memUsedByMsgPull[reqTid], memUsage);
-		
-		return msgPack;
 	}
 	
 	/**
@@ -892,7 +928,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	private void getMsgFromOneVBlock(long[] statis, int resBid, 
 			MappedByteBuffer mbb_v, MappedByteBuffer mbb_e, 
 			int type, int _tid, int _bid, int _iteNum, 
-			MsgRecord<M>[] cache, int dstVerMinId) throws Exception {
+			MsgRecord<M>[] cache, int dstVerMinId) throws IOException {
 		int curLocVerId = 0, counter = 0; 
 		int skip = 0, curLocVerPos = 0;
 		int verMinId = this.verBlkMgr.getVerMinId();
@@ -941,9 +977,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			} else {
 				curLocVerId++;
 			}
-				
+			
 			graph.deserVerValue(mbb_v); //deserialize value
-			statis[0] += graph.getVerByte(); //io for value.
+			statis[0] += graph.getVerByte(); //io for value
 			statis[6] += graph.getVerByte(); 
 			context.reset();
 			context.initialize(graph, null, 0.0f, true);
@@ -971,31 +1007,374 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		}
 	}
 	
+	/**
+	 * For confined recovery with logged messages, directly read messages.
+	 * @param toTaskId
+	 * @param toBlkId
+	 * @return
+	 * @throws IOException
+	 */
+	private MsgPack<V, W, M, I> packMsg(int toTaskId, int toBlkId) 
+			throws IOException {
+		//load logged outgoing messages
+		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool);
+		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+		long[] statis = new long[7];
+		
+		int toGlobalBlkIdx = 
+			this.commRT.getJobInformation().getGlobalBlkIdx(toTaskId, toBlkId);
+		int numOfLoggedPacks = msgDataServer.getNumberOfMsgPacks(toGlobalBlkIdx);
+		if (numOfLoggedPacks == 0) {
+			msgPack.setOver();
+		} else {
+			for (int version = 0; version < numOfLoggedPacks; version++) {
+				ByteArrayOutputStream messages = 
+					new ByteArrayOutputStream(this.job.getMsgPackSize());
+				int vCounter = 
+					msgDataServer.loadOutgoingMsg(messages, toGlobalBlkIdx, version, statis);
+				this.msgBuf[toTaskId].add(messages);
+				this.msgBufLen[toTaskId].add(vCounter);
+			}  
+		}
+		proMsgOver[toTaskId] = true;
+		msgPack.setEdgeInfo(statis[0], statis[6], statis[1], statis[2]);
+		
+		if (this.msgBuf[toTaskId].size() > 0) {
+			msgPack.setRemote(this.msgBuf[toTaskId].remove(0), 
+				this.msgBufLen[toTaskId].remove(0), statis[3], statis[5], 0L); 
+			//now, we use #dstVert as #recMsg
+			if (this.msgBuf[toTaskId].size() == 0) {
+				msgPack.setOver();
+				this.proMsgOver[toTaskId] = false; //prepare for the next bucket
+			}
+		}
+		
+		return msgPack;
+	}
+	
+	private MsgPack<V, W, M, I> packMsg(int toTaskId, int toBlkId, 
+			MsgRecord<M>[] cache, long[] _statis) throws IOException {
+		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool); //message pack
+		msgPack.setEdgeInfo(_statis[0], _statis[6], _statis[1], _statis[2]);
+		long memUsage = 0L;
+		long loggedBytes = 0L;
+		int toGlobalBlkIdx = 
+			this.commRT.getJobInformation().getGlobalBlkIdx(toTaskId, toBlkId);
+	
+		if (_statis[5] > 0) {
+			/** msg for local task, send all messages by one pack. */
+			if (toTaskId == this.taskId) {
+				MsgRecord<M>[] tmp = 
+					(MsgRecord<M>[]) new MsgRecord[(int)_statis[5]];
+				int vCounter = 0;
+				
+				for (MsgRecord<M> msg: cache) {
+					if (msg != null) {
+						tmp[vCounter++] = msg;
+						memUsage += msg.getMsgByte();
+						msg = null;
+					}
+				}
+				
+				if ((job.getCheckPointPolicy()
+						==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) 
+						&& (getUncompletedIteration()==-1)) {
+					//log outgoing messages
+					ByteArrayOutputStream bytes = 
+						new ByteArrayOutputStream(this.job.getMsgPackSize());
+					DataOutputStream stream = new DataOutputStream(bytes);
+					for (MsgRecord<M> msg: tmp) {
+						msg.serialize(stream);
+					}
+					stream.close();	bytes.close();
+					this.packageVersion[toGlobalBlkIdx]++;
+					int version = packageVersion[toGlobalBlkIdx] - 1;//starting from zero
+					loggedBytes += msgDataServer.logOutgoingMsg(bytes, toGlobalBlkIdx, 
+							version, _statis, vCounter);
+				}
+				
+				cache = null;
+				//now, we use #dstVert as #recMsg
+				msgPack.setLocal(tmp, vCounter, _statis[3], _statis[5], loggedBytes); 
+				if (!this.vebFile[toTaskId].hasCheckPoint()) {
+					this.proMsgOver[toTaskId] = true;
+					msgPack.setOver();
+					this.proMsgOver[toTaskId] = false; //pull local msgs only once!
+				}
+			} else {
+				/** msg for remote task, send them by several packs. */
+				int vCounter = 0, mCounter = 0, packSize = this.job.getMsgPackSize();
+				if (this.vebFile[toTaskId].hasCheckPoint()) {
+					packSize = Integer.MAX_VALUE;
+				}
+				ByteArrayOutputStream bytes = 
+					new ByteArrayOutputStream(this.job.getMsgPackSize());
+				DataOutputStream stream = new DataOutputStream(bytes);
+				for (MsgRecord<M> msg: cache) {
+					if (msg == null) continue;
+				
+					msg.serialize(stream);
+					vCounter++;
+					mCounter += msg.getNumOfMsgValues(); //mCounter >= vCounter
+					msg = null;
+				
+					if (mCounter == packSize) {
+						stream.close();	bytes.close();
+						this.msgBuf[toTaskId].add(bytes);
+						this.msgBufLen[toTaskId].add(vCounter);
+						this.packageVersion[toGlobalBlkIdx]++;
+						memUsage += stream.size();
+						
+						if ((job.getCheckPointPolicy()
+								==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) 
+								&& (getUncompletedIteration()==-1)) {
+							//log outgoing messages
+							int version = packageVersion[toGlobalBlkIdx] - 1;//starting from zero
+							loggedBytes += msgDataServer.logOutgoingMsg(bytes, toGlobalBlkIdx, 
+									version, _statis, vCounter);
+						}
+						
+						vCounter = 0; mCounter = 0;
+						bytes = 
+							new ByteArrayOutputStream(this.job.getMsgPackSize());
+						stream = new DataOutputStream(bytes);
+					} //pack
+				} //loop all messages
+				cache = null;
+			
+				if (vCounter > 0) {
+					stream.close();
+					bytes.close();
+					this.msgBuf[toTaskId].add(bytes);
+					this.msgBufLen[toTaskId].add(vCounter);
+					this.packageVersion[toGlobalBlkIdx]++;
+					memUsage += stream.size();
+					
+					if ((job.getCheckPointPolicy()
+							==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg)
+							&& (getUncompletedIteration()==-1)) {
+						//log outgoing messages
+						int version = packageVersion[toGlobalBlkIdx] - 1;//starting from zero
+						loggedBytes += msgDataServer.logOutgoingMsg(bytes, toGlobalBlkIdx, 
+								version, _statis, vCounter);
+					}
+				}
+			
+				if (!this.vebFile[toTaskId].hasCheckPoint()) {
+					this.proMsgOver[toTaskId] = true;
+				}
+				if (this.msgBuf[toTaskId].size() > 0) {
+					msgPack.setRemote(this.msgBuf[toTaskId].remove(0), 
+						this.msgBufLen[toTaskId].remove(0), _statis[3], _statis[5], loggedBytes); 
+					//now, we use #dstVert as #recMsg
+					if (this.msgBuf[toTaskId].size()==0 
+							&& !this.vebFile[toTaskId].hasCheckPoint()) {
+						msgPack.setOver();
+						this.proMsgOver[toTaskId] = false; //prepare for the next bucket
+					}
+				}
+			}
+		} else {
+			msgPack.setOver();
+		}
+	
+		this.memUsedByMsgPull[toTaskId] = 
+			Math.max(this.memUsedByMsgPull[toTaskId], memUsage);
+	
+		return msgPack;
+	}
+	
 	@Override
-	public void clearBefIteMemOrDisk(int _iteNum) {
+	public void clearBefIteMemOrDisk(int _iteNum) throws Exception {
+		vbFile.clearBefIte();
+		for (VEBlockFileHandler veb: vebFile) {
+			veb.clearBefIte();
+		}
 		int type = _iteNum % 2;
 		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
 			File dir = getVerDir(bid);
 			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
-			/** if it is updated, new file (_iteNum) should exist, 
-			 * then the old one (_iteNum-1) is useless. 
-			 * So, we delete it right now to save the disk space */
+			/** 
+			 * If this block was updated, a new file (_iteNum) would have been created. 
+			 * Thus, the old file created at the (_iteNum-1)-th iteration is useless 
+			 * during normal computations. Deleting these useless files can save disk 
+			 * space, but here, they are preserved to provide fast fault-tolerance service. 
+			 * */
 			if (vHbb.isRespond(type)) {
-				File f = new File(dir, Ver_File_Value + (_iteNum-1));
-				f.delete();
+				//File valFile = new File(dir, Vert_File_Value_Prefix + (_iteNum-1));
+				//valFile.delete();
 			} else {
 				/**
-				 * if it is not updated in the previous iteration, 
-				 * we should change its name from (_iteNum-1) to _iteNum.
+				 * Otherwise, the old file name is directly changed from xx-(_iteNum-1) 
+				 * to xx-(_iteNum).
 				 * 
-				 * this process must be done here, instead of @skipBucket, 
-				 * otherwise, some @getMsg in (_iteNum-1) can not find 
-				 * the related value-file
+				 * Note that the renaming process must be performed here, instead of 
+				 * @skipBucket. Otherwise, @getMsg called at the (_iteNum-1)-th iteration 
+				 * may throw the "File not exist" exception.
+				 * 
+				 * No responding flag file is created.
+				 * 
+				 * When re-running the iteration where failures happen, the value file 
+				 * at the (_iteNum-1) iteration may not exist because it has been renamed 
+				 * by the function clearBefIteMemOrDisk() before failures happen.
 				 */
-				File f_v_r = new File(dir, Ver_File_Value + (_iteNum-1));
-				File f_v_w = new File(dir, Ver_File_Value + _iteNum);
-				f_v_r.renameTo(f_v_w);
+				File f_v_r = new File(dir, Vert_File_Value_Prefix + (_iteNum-1));
+				File f_v_w = new File(dir, Vert_File_Value_Prefix + _iteNum);
+				if (f_v_r.exists()) {
+					f_v_r.renameTo(f_v_w);
+					//LOG.info(f_v_r + " to " + f_v_w);
+				}
 			}
+		}
+	}
+	
+	@Override
+	public void clearAftIte(int _iteNum, int flagOpt) throws Exception {
+		super.clearAftIte(_iteNum, flagOpt);
+		vbFile.clearAftIte();
+		for (VEBlockFileHandler veb: vebFile) {
+			veb.clearAftIte();
+		}
+		
+		if (flagOpt == 1) { 
+			//log flags used at the next iteration,
+			//if Constants.CheckPoint.Policy is ConfinedRecovery 
+			//(LogVert or LogMsg)
+			long start = System.currentTimeMillis();
+			logFlags(_iteNum+1);
+			rwResTime += (System.currentTimeMillis()-start);
+		} else if (flagOpt == 2) {
+			//confined recovery: load flags used at the next iteration
+			long start = System.currentTimeMillis();
+			loadFlags(_iteNum+1);
+			rwResTime += (System.currentTimeMillis()-start);
+		}
+	}
+	
+	/**
+	 * Log active and responding flags onto local disks. 
+	 * Logged data can be used to perform confined recovery. 
+	 * @param _iteNum
+	 * @throws Exception
+	 */
+	private void logFlags(int _iteNum) throws Exception {
+		int type = _iteNum % 2;
+		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
+			File dir = getVerDir(bid);
+			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
+			int fromIdx = 
+				vHbb.getVerMinId() - this.verBlkMgr.getVerMinId(); //inclusive
+			int toIdx = vHbb.getVerNum() + fromIdx; //exclusive
+			
+			if (vHbb.isActive()) {
+				String fstr = Vert_File_ActFlag_Prefix + _iteNum;
+				serializeFlags(dir, fstr, vHbb.isAllActive(), 
+						fromIdx, toIdx, actFlag);
+			}
+			
+			if (vHbb.isRespond(type)) {
+				String fstr = Vert_File_ResFlag_Prefix + _iteNum;
+				serializeFlags(dir, fstr, vHbb.isAllRespond(type), 
+						fromIdx, toIdx, resFlag[type]);
+			}
+		}
+	}
+	
+	/**
+	 * Serialize a flag array with the given beginindex (inclusive) and 
+	 * endindex (exclusive).
+	 * @param dir
+	 * @param filename
+	 * @param allTrue
+	 * @param fromIdx
+	 * @param toIdx
+	 * @param flags
+	 * @throws Exception
+	 */
+	private void serializeFlags(File dir, String filename, boolean allTrue, 
+			int fromIdx, int toIdx, boolean[] flags) throws Exception {
+		File flagFile = null;
+		
+		if (allTrue) {
+			//marked by adding the suffix name
+			flagFile = new File(dir, filename + Vert_File_Flag_Suffix);
+			if (flagFile.exists()) {
+				flagFile.delete();
+			}
+			if (!flagFile.createNewFile()) {
+				LOG.error("fail to create flag file: " + flagFile.toString());
+			}
+		} else {
+			//save the responding flag per vertex
+			flagFile = new File(dir, filename);
+			if (flagFile.exists()) {
+				flagFile.delete();
+			}
+			bitBytes.serialize(flags, fromIdx, toIdx, flagFile, 
+					this.verBlkMgr.getVerMinId());
+		}
+	}
+	
+	private void loadFlags(int _iteNum) throws Exception {
+		if (_iteNum <= 1) {
+			return;
+		}
+		
+		//simulate computations at the current iteration
+		int type = _iteNum % 2;
+		verBlkMgr.clearBefIte(_iteNum-1);
+		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
+			File dir = getVerDir(bid);
+			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
+			int fromIdx = 
+				vHbb.getVerMinId() - this.verBlkMgr.getVerMinId(); //inclusive
+			int toIdx = vHbb.getVerNum() + fromIdx; //exclusive
+			
+			String fstr = Vert_File_ActFlag_Prefix + _iteNum;
+			deserialize(dir, fstr, fromIdx, toIdx, actFlag);
+			
+			fstr = Vert_File_ResFlag_Prefix + _iteNum;
+			deserialize(dir, fstr, fromIdx, toIdx, resFlag[type]);
+			
+			for (int flagIdx = fromIdx; flagIdx < toIdx; flagIdx++) {
+				if (actFlag[flagIdx]) {
+					verBlkMgr.setBlkActive(bid, actFlag[flagIdx]);
+					verBlkMgr.incActiveVerNum(bid);
+				}
+				if (resFlag[type][flagIdx]) {
+					verBlkMgr.setBlkRespond(type, bid, resFlag[type][flagIdx]);
+					verBlkMgr.incRespondVerNum(bid);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Deserialize a flag array with the given beginindex (inclusive) and 
+	 * endindex (exclusive).
+	 * @param dir
+	 * @param filename
+	 * @param fromIdx
+	 * @param toIdx
+	 * @param flags
+	 * @throws Exception
+	 */
+	private void deserialize(File dir, String filename, 
+			int fromIdx, int toIdx, boolean[] flags) throws Exception {
+		File f = new File(dir, filename);
+		if (!f.exists()) {
+			File ftrue = new File(dir, filename+Vert_File_Flag_Suffix);
+			if (ftrue.exists()) {
+				/** All flags should be set to true. */
+				Arrays.fill(flags, fromIdx, toIdx, true);
+			} else {
+				/** None of flags is true. */
+				Arrays.fill(flags, fromIdx, toIdx, false);
+			}
+		} else {
+			/** Deserializing flags one by one. */
+			bitBytes.deserialize(flags, fromIdx, toIdx, f, 
+					this.verBlkMgr.getVerMinId());
 		}
 	}
 	
@@ -1003,10 +1382,10 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	public void openGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
 			throws Exception {
 		File dir = getVerDir(_bid);
-		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
+		File f_v_r = new File(dir, Vert_File_Value_Prefix + _iteNum);
 		this.vbFile.openVerReadHandler(f_v_r);
 		
-		File f_adj = new File(dir, Ver_File_Adj);
+		File f_adj = new File(dir, Vert_File_Adj);
 		this.vbFile.openAdjReadHandler(f_adj);
 		this.io_byte_adj += f_adj.length();
 	}
@@ -1035,38 +1414,38 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	public void openGraphDataStream(int _parId, int _bid, int _iteNum) 
 			throws Exception {
 		File dir = getVerDir(_bid);
-		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
-		this.vbFile.openVerReadHandler(f_v_r);
+		File fvr = new File(dir, Vert_File_Value_Prefix + _iteNum);
+		this.vbFile.openVerReadHandler(fvr);
 		
-		File f_info = new File(dir, Ver_File_Info);
+		File finfo = new File(dir, Vert_File_Info);
 		if (this.loadGraphInfo) {
 			//curIteStyle=Pull and graphInfo is required
-			this.vbFile.openInfoReadHandler(f_info);
-			io_byte_info += f_info.length();
+			this.vbFile.openInfoReadHandler(finfo);
+			io_byte_info += finfo.length();
 		}
 		
-		File f_adj = new File(dir, Ver_File_Adj);
+		File fadj = new File(dir, Vert_File_Adj);
 		if (this.loadAdjEdge) {
-			this.vbFile.openAdjReadHandler(f_adj);
-			this.io_byte_adj += f_adj.length();
+			this.vbFile.openAdjReadHandler(fadj);
+			this.io_byte_adj += fadj.length();
 		}
 		
-		File f_v_w = new File(dir, Ver_File_Value + (_iteNum+1));
-		this.vbFile.openVerWriteHandler(f_v_w);
+		File fvw = new File(dir, Vert_File_Value_Prefix + (_iteNum+1));
+		this.vbFile.openVerWriteHandler(fvw);
 		
 		if (this.estimatePullByteFlag) {
 			//curIteStyle=Push
 			if (this.job.isUseGraphInfoInUpdate()) {
 				//if graphInfo is required by Pull
-				this.estimatePullByte += f_info.length();
+				this.estimatePullByte += finfo.length();
 			}
 			if (this.job.isUseAdjEdgeInUpdate()) {
 				//if adj is required by Pull
-				this.estimatePullByte += f_adj.length();
+				this.estimatePullByte += fadj.length();
 			}
 		} else {
 			//curIteStyle=Pull, adj must be read by Push.
-			this.estimatePushByte += f_adj.length();
+			this.estimatePushByte += fadj.length();
 		}
 	}
 	
@@ -1107,6 +1486,12 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		int type = (_iteNum+1)%2;
 		actFlag[index] = _acFlag;
 		resFlag[type][index] = _resFlag;
+		
+		if (_acFlag) {
+			this.verBlkMgr.setBlkActive(_bid, _acFlag);
+			this.verBlkMgr.incActiveVerNum(_bid);
+		}
+		
 		if (_resFlag) {
 			this.verBlkMgr.setBlkRespond(type, _bid, _resFlag);
 			this.verBlkMgr.incRespondVerNum(_bid);
@@ -1122,8 +1507,6 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	
 	@Override
 	public int saveAll(TaskAttemptID taskId, int _iteNum) throws Exception {
-		clearBefIteMemOrDisk(_iteNum);
-		
 		OutputFormat outputformat = 
         	(OutputFormat) ReflectionUtils.newInstance(job.getOutputFormatClass(), 
         		job.getConf());
@@ -1131,45 +1514,186 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
         RecordWriter output = outputformat.getRecordWriter(job, taskId);
         int saveNum = 0;
         
-        for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
+        for (int bid = 0; bid < verBlkMgr.getBlkNum(); bid++) {
         	File dir = getVerDir(bid);
-    		File f_v_r = new File(dir, Ver_File_Value + _iteNum);
-    		this.vbFile.openVerReadHandler(f_v_r);
+    		File f_v_r = new File(dir, Vert_File_Value_Prefix + _iteNum);
+    		vbFile.openVerReadHandler(f_v_r);
     		
-    		if (this.job.isUseGraphInfoInUpdate()) {
-    			File f_info = new File(dir, Ver_File_Info);
-        		this.vbFile.openInfoReadHandler(f_info);
+    		if (job.isUseGraphInfoInUpdate()) {
+    			File f_info = new File(dir, Vert_File_Info);
+        		vbFile.openInfoReadHandler(f_info);
     		}
-    		if (this.job.isUseAdjEdgeInUpdate()) {
-    			File f_adj = new File(dir, Ver_File_Adj);
-    			this.vbFile.openAdjReadHandler(f_adj);
+    		if (job.isUseAdjEdgeInUpdate()) {
+    			File f_adj = new File(dir, Vert_File_Adj);
+    			vbFile.openAdjReadHandler(f_adj);
     		}
         	
-    		int bucVerNum = this.verBlkMgr.getVerBlkBeta(bid).getVerNum();
-    		int min = this.verBlkMgr.getVerBlkBeta(bid).getVerMinId();
+    		int blkVertNum = verBlkMgr.getVerBlkBeta(bid).getVerNum();
+    		int blkMinId = verBlkMgr.getVerBlkBeta(bid).getVerMinId();
             
-    		for (int idx = 0; idx < bucVerNum; idx++) {
-    			graph_rw.deserVerValue(this.vbFile.getVerReadHandler());
-    			if (this.job.isUseGraphInfoInUpdate()) {
-    				graph_rw.deserGraphInfo(this.vbFile.getInfoReadHandler());
+    		for (int idx = 0; idx < blkVertNum; idx++) {
+    			graph_rw.deserVerValue(vbFile.getVerReadHandler());
+    			if (job.isUseGraphInfoInUpdate()) {
+    				graph_rw.deserGraphInfo(vbFile.getInfoReadHandler());
     			}
-    			if (this.job.isUseAdjEdgeInUpdate()) {
-    				graph_rw.deserEdges(this.vbFile.getAdjReadHandler());
+    			if (job.isUseAdjEdgeInUpdate()) {
+    				graph_rw.deserEdges(vbFile.getAdjReadHandler());
     			}
-    			output.write(new Text(Integer.toString(min+idx)), 
+    			output.write(new Text(Integer.toString(blkMinId+idx)), 
     					new Text(graph_rw.getFinalValue().toString()));
     		}
-    		this.vbFile.closeVerReadHandler();
-    		if (this.job.isUseGraphInfoInUpdate()) {
-    			this.vbFile.closeInfoReadHandler();
+    		vbFile.closeVerReadHandler();
+    		if (job.isUseGraphInfoInUpdate()) {
+    			vbFile.closeInfoReadHandler();
     		}
-    		if (this.job.isUseAdjEdgeInUpdate()) {
-    			this.vbFile.closeAdjReadHandler();
+    		if (job.isUseAdjEdgeInUpdate()) {
+    			vbFile.closeAdjReadHandler();
     		}
-    		saveNum += bucVerNum;
+    		saveNum += blkVertNum;
         }
         
 		output.close(job);
 		return saveNum;
+	}
+	
+	@Override
+	public int archiveCheckPoint(int _version, int _iteNum) throws Exception {
+		long startTime = System.currentTimeMillis();
+
+		this.ckpMgr.befArchive(_version);
+		int ckpNum = 0;        
+		int type = _iteNum % 2;
+		int flagIdx = 0;
+		int taskMinId = verBlkMgr.getVerMinId();
+		StringBuffer sb = new StringBuffer();
+		
+        for (int bid = 0; bid < verBlkMgr.getBlkNum(); bid++) {
+        	File dir = getVerDir(bid);
+    		File f_v_r = new File(dir, Vert_File_Value_Prefix + _iteNum);
+    		vbFile.openVerReadHandler(f_v_r);
+        	
+    		int blkVertNum = verBlkMgr.getVerBlkBeta(bid).getVerNum();
+    		int blkMinId = verBlkMgr.getVerBlkBeta(bid).getVerMinId();
+    		int vertId = 0;
+    		for (int idx = 0; idx < blkVertNum; idx++) {
+    			vertId = blkMinId + idx;
+    			flagIdx = vertId - taskMinId;
+    			graph_rw.deserVerValue(vbFile.getVerReadHandler());
+    			sb.setLength(0);
+    			sb.append(actFlag[flagIdx]? 1:0);
+    			sb.append(resFlag[type][flagIdx]? 1:0);
+    			sb.append(graph_rw.getVerValue().toString());
+        		this.ckpMgr.archive(Integer.toString(vertId), sb.toString());
+    		}
+    		vbFile.closeVerReadHandler();
+    		ckpNum += blkVertNum;
+        }
+        
+        ckpMgr.aftArchive(_version);
+        
+        /**
+         * Delete out-of-date local disk files with suffix id less 
+         * than _iteNum. 
+         */
+        for (int delIdx = 1; delIdx < _iteNum; delIdx++) {
+        	for (int bid = 0; bid < verBlkMgr.getBlkNum(); bid++) {
+        		File dir = getVerDir(bid);
+        		
+        		deleteLocalFile(dir, Vert_File_Value_Prefix+delIdx);
+        		deleteLocalFile(dir, Vert_File_ActFlag_Prefix+delIdx);
+        		deleteLocalFile(dir, Vert_File_ResFlag_Prefix+delIdx);
+        		deleteLocalFile(dir, Vert_File_ActFlag_Prefix+delIdx 
+        				+Vert_File_Flag_Suffix);
+        		deleteLocalFile(dir, Vert_File_ResFlag_Prefix+delIdx 
+        				+Vert_File_Flag_Suffix);
+        	}
+        	msgDataServer.clearLoggedMsg(delIdx);
+        }
+        
+        long endTime = System.currentTimeMillis();
+		LOG.info("\narchive " + ckpNum + " vertices into checkpoint, " 
+				+ (endTime-startTime)/1000.0 + " seconds, version-" + _version);
+		return ckpNum;
+	}
+	
+	private void deleteLocalFile(File dir, String filename) {
+		File f = new File(dir, filename);
+		if (f.exists()) {
+			f.delete();
+		}
+	}
+	
+	@Override
+	public int loadCheckPoint(int iteNum, int ckpVersion) throws Exception {
+		long startTime = System.currentTimeMillis();
+		RecordReader<Text,Text> reader = ckpMgr.befLoad(ckpVersion);
+		int ckpNum = 0;
+		if (reader == null) {
+			return ckpNum;
+		}
+		
+		int type = iteNum % 2;
+		int bid = 0, vid = 0, vIdx = 0, flagIdx = 0;
+		int blkSize = verBlkMgr.getVerBlkBeta(bid).getVerNum();
+		GraphRecord[] buf = new GraphRecord[blkSize];
+		long bytes = 0L;
+		while (reader.nextKeyValue()) {
+			buf[vIdx] = userTool.getGraphRecord();
+			vid = Integer.parseInt(reader.getCurrentKey().toString());
+			flagIdx = vid - verBlkMgr.getVerMinId();
+			String ckpValue = reader.getCurrentValue().toString();
+			actFlag[flagIdx] = ckpValue.charAt(0)=='1'? true:false;
+			resFlag[type][flagIdx] = ckpValue.charAt(1)=='1'? true:false;
+			buf[vIdx].parseVerValue(ckpValue.substring(2));
+			bytes += buf[vIdx].getVerByte();
+			if (actFlag[flagIdx]) {
+				verBlkMgr.setBlkActive(bid, actFlag[flagIdx]);
+				verBlkMgr.incActiveVerNum(bid);
+			}
+			if (resFlag[type][flagIdx]) {
+				verBlkMgr.setBlkRespond(type, bid, resFlag[type][flagIdx]);
+				verBlkMgr.incRespondVerNum(bid);
+			}
+			
+			vIdx++;
+			ckpNum++;
+			if (vIdx == blkSize) {
+				File dir = getVerDir(bid);
+				File fvw = new File(dir, Vert_File_Value_Prefix + iteNum);
+				if (fvw.exists()) {
+					fvw.delete();
+				}
+				vbFile.openVerWriteHandler(fvw, bytes);
+				for (GraphRecord record: buf) {
+					record.serVerValue(vbFile.getVerWriteHandler());
+				}
+				vbFile.closeVerWriteHandler();
+				
+				bid++;
+				vIdx = 0;
+				bytes = 0L;
+				if (bid < verBlkMgr.getBlkNum()) {
+					blkSize = verBlkMgr.getVerBlkBeta(bid).getVerNum();
+					buf = new GraphRecord[blkSize];
+				}
+			}
+		}
+		
+		if (bid != verBlkMgr.getBlkNum()) {
+			throw new Exception("verify error: bid=" + bid 
+					+ ", but actual #blocks=" + verBlkMgr.getBlkNum());
+		}
+		
+		ckpMgr.aftLoad();
+		long endTime = System.currentTimeMillis();
+		LOG.info("\nload " + ckpNum + " vertices from checkpoint, " 
+				+ (endTime-startTime)/1000.0 + " seconds, version-" + ckpVersion);
+		return ckpNum;
+	}
+	
+	@Override
+	public void close() {
+		LOG.info("read/write flags: " 
+				+ this.rwResTime/1000.0 + " seconds");
 	}
 }

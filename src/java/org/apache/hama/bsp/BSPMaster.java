@@ -45,6 +45,7 @@ import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.util.ReflectionUtils;
+import org.apache.hama.Constants;
 import org.apache.hama.HamaConfiguration;
 import org.apache.hama.ipc.JobSubmissionProtocol;
 import org.apache.hama.ipc.MasterProtocol;
@@ -83,6 +84,7 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   static final String SUBDIR = "bspMaster";
   FileSystem fs = null;
   Path systemDir = null;
+  Path ckpDir = null;
   // system directories are world-wide readable and owner readable
   final static FsPermission SYSTEM_DIR_PERMISSION = FsPermission
       .createImmutable((short) 0733); // rwx-wx-wx
@@ -95,8 +97,8 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   // private long startTime;
   private int totalSubmissions = 0; // how many jobs has been submitted by
   // clients
-  private int currentClusterTasks = 0; // currnetly running tasks
-  private int maxClusterTasks=0; // max tasks that the Cluster can run
+  private int usedTaskSlots = 0; // currnetly running tasks
+  private int allTaskSlots=0; // max tasks that the Cluster can run
   private int waitTasks=0;//tasks wait to execute
 
   private Map<BSPJobID, JobInProgress> jobs = 
@@ -112,6 +114,7 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   
   private CheckTimeOut cto;
   private static long HEART_BEAT_TIMEOUT = 30000;
+  private static long HEART_BEAT_IDLE = 10000;
   /**
    * This thread will run until stopping the cluster. It will check weather
    * the heart beat interval is time-out or not.
@@ -121,8 +124,8 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
    */
   public class CheckTimeOut extends Thread {
       public void run() {
-    	  LOG.info("The threshold of time out about heart beat is: " 
-    			  + HEART_BEAT_TIMEOUT);
+    	  LOG.info("time out threshold of heart-beat is: " 
+    			  + HEART_BEAT_TIMEOUT/1000.0 + " seconds");
           while (true) {
               long nowTime = System.currentTimeMillis();
               Iterator<Entry<GroomServerStatus, WorkerProtocol>> ite = 
@@ -131,27 +134,23 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
             	  Entry<GroomServerStatus, WorkerProtocol> e = ite.next();
                   long timeout = nowTime - e.getKey().getLastSeen();
                   if (timeout > HEART_BEAT_TIMEOUT) {
-                      LOG.error("[Fault Detective] The worker's time out is catched: " 
+                      LOG.error("[fault-tolerance] catch a time out exception: " 
                     		  + e.getKey().getGroomName());
-                      LOG.error("try to kill jobs on worker=" + e.getKey().getGroomName());
-                      List<TaskStatus> tlist = e.getKey().getTaskReports();
-        			  for (TaskStatus ts : tlist) {
-        				  try {
-        					  JobInProgress jip = whichJob(ts.getJobId());
-        					  jip.failedJob();
-        					  LOG.error("kill job=" + jip.getJobID());
-        				  } catch (Exception eof) {
-        					  LOG.error("[failedJob]", eof);
-        				  }
+        			  for (TaskStatus ts : e.getKey().getTaskReports()) {
+        				  ts.setRunState(TaskStatus.State.FAILED);
+        				  jobs.get(ts.getJobId()).updateTaskStatus(ts.getTaskId(), ts);
+        				  LOG.warn(ts.getTaskId() + " fails");
         			  }
         			  
-        			  LOG.error("delete this worker: " + e.getKey().getGroomName());
         			  ite.remove();
+        			  LOG.error("[fault-tolerance] remove " + e.getKey().getGroomName() 
+        					  + ", #taskslots=" + getClusterStatus(false).getNumOfTaskSlots());
+        			  //Hence, updateTaskStatus() is invoked only once for failed tasks.
                   }
               }
-
+              
               try {
-                  Thread.sleep(HEART_BEAT_TIMEOUT);
+                  Thread.sleep(HEART_BEAT_IDLE);
               } catch (Exception e) {
                   LOG.error("[CheckTimeOut]", e);
               }
@@ -190,20 +189,34 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
         if (fs == null) {
           fs = FileSystem.get(conf);
         }
-        // clean up the system dir, which will only work if hdfs is out of
-        // safe mode
+        // clean up the system & checkpoint dirs, which will only work 
+        // if hdfs is out of safe mode
         if (systemDir == null) {
           systemDir = new Path(getSystemDir());
         }
+        
+        if (ckpDir == null) {
+        	ckpDir = new Path(getCheckPointDir());
+        }
 
-        LOG.info("Cleaning up the system directory");
+        fs.delete(systemDir, true);
+        fs.delete(ckpDir, true);
+        LOG.info("cleanup the system and checkpoint directory");
+        if (fs.mkdirs(systemDir) && fs.mkdirs(ckpDir)) {
+            LOG.info("system dir is created, " + systemDir);
+            LOG.info("checkpoint dir is created," + ckpDir);
+          break;
+        }
+
+/*        LOG.info("cleaning up the system & checkpoint directory");
         LOG.info(systemDir);
         fs.delete(systemDir, true);
         if (FileSystem.mkdirs(fs, systemDir, new FsPermission(
             SYSTEM_DIR_PERMISSION))) {
           break;
-        }
-        LOG.error("Mkdirs failed to create " + systemDir);
+        }*/
+        LOG.error("mkdirs failed to create " + systemDir);
+        LOG.error("mkdirs failed to create " + ckpDir);
         LOG.info(SUBDIR);
 
       } catch (AccessControlException ace) {
@@ -251,9 +264,9 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
       // TODO: need to check if peer name has changed
       //add the maxClusterTasks if find new GroomServer
       if(!GroomServers.containsKey(status)){
-    	  maxClusterTasks+=status.getMaxTasksCount();
-    	  LOG.info(status.getGroomName() + " register and maxTasks is " 
-    			  + maxClusterTasks);
+    	  allTaskSlots += status.getNumOfTaskSlots();
+    	  LOG.info(status.getGroomName() + " registers, then #taskslots is " 
+    			  + allTaskSlots);
       }
       GroomServers.putIfAbsent(status, wc);
     } catch (UnsupportedOperationException u) {
@@ -300,6 +313,7 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
 	  
 	  // update GroomServerStatus hold in groomServers cache.
 	  GroomServerStatus fstus = directive.getStatus();
+	  //LOG.info("receive report from " + fstus.getGroomName());
 	  if (GroomServers.containsKey(fstus)) {
 		  GroomServerStatus ustus = null;
 		  for (GroomServerStatus old : GroomServers.keySet()) {
@@ -316,6 +330,8 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
 				  this.jobs.get(ts.getJobId()).updateTaskStatus(ts.getTaskId(), ts);
 				  JobInProgress jip = whichJob(ts.getJobId());
 				  switch(ts.getRunState()) {
+				  case SUCCEEDED: 
+					  break;
 				  case RUNNING:
 					  if (jip != null && 
 							  (jip.getStatus().getRunState() == JobStatus.KILLED 
@@ -328,12 +344,12 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
 						  worker.dispatch(jip.getJobID(), d);  
 					  }
 					  break;
-				  case SUCCEEDED:break;
-				  case KILLED:break;
-				  case FAILED:break;
-				  }
-				  
-				  
+				  case KILLED:
+					  break; //do nothing since it is killed by users/system
+				  case FAILED:
+					  //LOG.warn(ts.getTaskId() + " fails");
+					  break; //do nothing here since updateTaskStatus() can process it
+				  }  
 			  }
 		  } else {
 			  throw new RuntimeException("BSPMaster contains GroomServerSatus, "
@@ -344,13 +360,7 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   }
 
   private JobInProgress whichJob(BSPJobID id) {
-    for (JobInProgress job : taskScheduler
-        .getJobs(SimpleTaskScheduler.PROCESSING_QUEUE)) {
-      if (job.getJobID().equals(id)) {
-        return job;
-      }
-    }
-    return null;
+	  return jobs.get(id);
   }
 
   // /////////////////////////////////////////////////////////////
@@ -360,6 +370,10 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   // Get the job directory in system directory
   Path getSystemDirectoryForJob(BSPJobID id) {
     return new Path(getSystemDir(), id.toString());
+  }
+  
+  Path getCheckPointDirectoryForJob(BSPJobID id) {
+	    return new Path(getCheckPointDir(), id.toString());
   }
 
   String[] getLocalDirs() throws IOException {
@@ -489,26 +503,28 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   // //////////////////////////////////////////////////
 
   @Override
-  public ClusterStatus getClusterStatus(boolean detailed) {
+  public synchronized ClusterStatus getClusterStatus(boolean detailed) {
     Map<String, String> groomPeersMap = null;
 
     // give the caller a snapshot of the cluster status
     int numGroomServers = GroomServers.size();
     
-    currentClusterTasks=0;
+    allTaskSlots=0;
+    usedTaskSlots=0;
     groomPeersMap = new HashMap<String, String>();
     for (Map.Entry<GroomServerStatus, WorkerProtocol> entry : GroomServers
           .entrySet()) {
       GroomServerStatus s = entry.getKey();
       groomPeersMap.put(s.getGroomName(), s.getPeerName());
-      currentClusterTasks+=s.getCurrentTasksCount();
+      usedTaskSlots += s.getNumOfRunningTasks();
+      allTaskSlots += s.getNumOfTaskSlots();
     }
       
     if (detailed) {
-      return new ClusterStatus(groomPeersMap, currentClusterTasks, maxClusterTasks,
+      return new ClusterStatus(groomPeersMap, usedTaskSlots, allTaskSlots,
           state, waitTasks);
     } else {
-      return new ClusterStatus(numGroomServers, currentClusterTasks, maxClusterTasks,
+      return new ClusterStatus(numGroomServers, usedTaskSlots, allTaskSlots,
           state, waitTasks);
     }
   }
@@ -558,19 +574,39 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
    * 
    * @param jobId The id for the job submitted which needs to be added
    */
-  private synchronized JobStatus addJob(BSPJobID jobId, JobInProgress job) {
+  private synchronized JobStatus addJob(BSPJobID jobId, JobInProgress jip) {
     totalSubmissions++;
     synchronized (jobs) {
-      jobs.put(job.getProfile().getJobID(), job);
+      jobs.put(jip.getProfile().getJobID(), jip);
       for (JobInProgressListener listener : jobInProgressListeners) {
         try {
-          listener.jobAdded(job);
+          listener.jobAdded(jip);
         } catch (IOException ioe) {
           LOG.error("Fail to alter Scheduler a job is added.", ioe);
         }
       }
     }
-    return job.getStatus();
+    return jip.getStatus();
+  }
+  
+  public synchronized void resubmitJob(BSPJobID jobId, JobInProgress jip) {
+	  for (JobInProgressListener listener : jobInProgressListeners) {
+		  try {
+			  listener.jobAdded(jip);
+		  } catch (IOException ioe) {
+			  LOG.error("Fail to re-schedule " + jobId.toString(), ioe);
+		  }
+	  }
+  }
+  
+  public void clearJob(BSPJobID jobId, JobInProgress jip) {
+	  for (JobInProgressListener listener : jobInProgressListeners) {
+		  try {
+			  listener.jobRemoved(jip);
+		  } catch (IOException ioe) {
+			  LOG.error("Fail to clear " + jobId.toString(), ioe);
+		  }
+	  }
   }
 
   @Override
@@ -626,6 +662,11 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
     return fs.makeQualified(sysDir).toString();
   }
 
+  public String getCheckPointDir() {
+		return conf.get(Constants.CheckPoint.JobDir, 
+				"/tmp/hadoop/bsp/checkpoint");
+  }
+  
   @Override
   public JobProfile getJobProfile(BSPJobID jobid) throws IOException {
     synchronized (this) {
@@ -650,20 +691,17 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   }
 
   @Override
-  public void killJob(BSPJobID jobid) throws IOException {
+  synchronized public void killJob(BSPJobID jobid) throws IOException {
     JobInProgress job = jobs.get(jobid);
 
     if (null == job) {
-      LOG.info("killJob(): JobId " + jobid.toString() + " is not a valid job");
+      LOG.info("fail to kill job because " 
+    		  + jobid.toString() + " does not exist");
       return;
+    } else {
+    	LOG.info("manually killing " + job.getJobID());
+        job.killJob();
     }
-
-    killJob(job);
-  }
-
-  private synchronized void killJob(JobInProgress job) {
-    LOG.info("Killing job " + job.getJobID());
-    job.killJob();
   }
 
   @Override
@@ -721,8 +759,8 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   }
   
   @Override
-  public void saveResultOver(BSPJobID jobId, int parId, int saveRecordNum) {
-	  jobs.get(jobId).saveResultOver(parId, saveRecordNum);
+  public void dumpResult(BSPJobID jobId, int parId, int dumpNum) {
+	  jobs.get(jobId).dumpResult(parId, dumpNum);
   }
   
   @Override

@@ -146,6 +146,14 @@ public abstract class GraphRecord<V, W, M, I> {
      */
     public abstract void serVerValue(ByteBuffer vOut) 
 			throws EOFException, IOException;
+    
+    /**
+     * Only used for testing checkpoint
+     * @param valData
+     */
+    public void parseVerValue(String valData) {
+    	
+    }
 
     /**
      * Deserialize vertex value from the local memory or disk.

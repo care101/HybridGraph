@@ -5,7 +5,6 @@ package hybridgraph.examples.lpa;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Random;
 import java.util.Map.Entry;
 
 import org.apache.hama.Constants.VBlockUpdateRule;
@@ -44,26 +43,40 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	
 	@Override
 	public void update(
-			Context<Integer, Integer, MsgBundle, Integer> context) 
-				throws Exception {
+			Context<Integer, Integer, MsgBundle, Integer> context) {
 		GraphRecord<Integer, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
 		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
+		boolean isUpdated = false;
 		
-		/** At the first superstep, just send its value to all outer neighbors */
+		//at the 1st superstep, initialize the value to its id and then 
+		//broadcast the value to all outer neighbors at the 2nd superstep
 		if (context.getSuperstepCounter() == 1) {
 			graph.setVerValue(graph.getVerId());
-		} else if (msg != null) {
-			graph.setVerValue(findLabel(msg));
+			isUpdated = true;
+		} else if (msg!=null && (msg.getMsgValue()!=null) && (msg.getMsgValue().getAll()!=null)) {
+			int newLabel = findLabel(msg);
+			if (graph.getVerValue() != newLabel) {
+				graph.setVerValue(newLabel);
+				isUpdated = true;
+			}
 		}
 		
-		context.setRespond(); //always send messages for outer neighbors
+		if (isUpdated) {
+			context.setVertexAgg(1.0f);
+		}
+		
+		if ((context.getSuperstepCounter()>1) 
+				&& (context.getJobAgg()==0.0f)) {
+			context.voteToHalt();//no update, LPA converges
+		} else {
+			context.setRespond();//always broadcast messages
+		}
 	}
 	
 	@Override
 	public MsgRecord<MsgBundle>[] getMessages(
-			Context<Integer, Integer, MsgBundle, Integer> context) 
-				throws Exception {
+			Context<Integer, Integer, MsgBundle, Integer> context) {
 		GraphRecord<Integer, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
 		LPAMsgRecord[] result = new LPAMsgRecord[graph.getEdgeNum()];
@@ -80,36 +93,37 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 	}
 	
 	private int findLabel(MsgRecord<MsgBundle> msg) {
-		HashMap<Integer, Integer> recLabels = 
+		HashMap<Integer, Integer> clusteredLabels = 
 			new HashMap<Integer, Integer>(
 					msg.getMsgValue().getAll().size()); //labelId:count
 		for (int label: msg.getMsgValue().getAll()) {
-			if (recLabels.containsKey(label)) {
-				int count = recLabels.get(label);
-				recLabels.put(label, ++count);
+			if (clusteredLabels.containsKey(label)) {
+				int count = clusteredLabels.get(label);
+				clusteredLabels.put(label, ++count);
 			} else {
-				recLabels.put(label, 1);
+				clusteredLabels.put(label, 1);
 			}
 		}//compute the number of each label received from its neighbors
 		
 		int max = 0;
-		ArrayList<Integer> cands = new ArrayList<Integer>();
-		for (Entry<Integer, Integer> e: recLabels.entrySet()) {
+		ArrayList<Integer> candidates = new ArrayList<Integer>();
+		for (Entry<Integer, Integer> e: clusteredLabels.entrySet()) {
 			if (max < e.getValue()) {
 				max = e.getValue();
-				cands.clear();
-				cands.add(e.getKey());
+				candidates.clear();
+				candidates.add(e.getKey());
 			} else if (max == e.getValue()) {
-				cands.add(e.getKey());
+				candidates.add(e.getKey());
 			}
 		}//candidate labels with maximum counter
 		
-		//random choose a label from candidate labels
-		Random rd = new Random();
-		int idx = 0;
-		if (cands.size() > 2) {
-			idx = rd.nextInt(cands.size()-1);
+		//normally, random choose a label from candidate labels,
+		//but here, just select the label with the maximum label-value to 
+		//perform deterministic computations
+		max = 0;
+		for (int label: candidates) {
+			max = max<label? label:max;
 		}
-		return cands.get(idx);
+		return max;
 	}
 }

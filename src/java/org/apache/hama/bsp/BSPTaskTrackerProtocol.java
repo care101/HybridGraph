@@ -22,29 +22,10 @@ import java.io.IOException;
 /**
  * Protocol that task child process uses to contact its parent process.
  */
-public interface BSPPeerProtocol extends BSPPeerInterface {
+public interface BSPTaskTrackerProtocol extends BSPTaskTrackerInterface {
 
   /** Called when a child task process starts, to get its task. */
   Task getTask(TaskAttemptID taskid) throws IOException;
-
-  /**
-   * Periodically called by child to check if parent is still alive.
-   * 
-   * @return True if the task is known
-   */
-  boolean ping(TaskAttemptID taskid) throws IOException;
-
-  /**
-   * Report that the task is successfully completed. Failure is assumed if the
-   * task process exits without calling this.
-   * 
-   * @param taskid task's id
-   * @param shouldBePromoted whether to promote the task's output or not
-   */
-  void done(TaskAttemptID taskid, boolean shouldBePromoted) throws IOException;
-
-  /** Report that the task encounted a local filesystem error. */
-  void fsError(TaskAttemptID taskId, String message) throws IOException;
 
   public String getHostName();
   

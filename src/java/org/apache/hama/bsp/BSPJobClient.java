@@ -51,7 +51,6 @@ import org.apache.hadoop.security.UnixUserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
-import org.apache.hama.Constants;
 import org.apache.hama.HamaConfiguration;
 import org.apache.hama.ipc.JobSubmissionProtocol;
 
@@ -491,7 +490,7 @@ public class BSPJobClient extends Configured implements Tool {
                               ClassNotFoundException, Exception{
 	  Configuration conf = job.getConf();
 	    int maxClusterTasks=
-	    	jobSubmitClient.getClusterStatus(false).getMaxClusterTasks();
+	    	jobSubmitClient.getClusterStatus(false).getNumOfTaskSlots();
 	    LOG.info("[Total Task Slots] " + maxClusterTasks);
 	    org.apache.hama.myhama.io.InputFormat<?, ?> input 
 	    = ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
@@ -500,8 +499,8 @@ public class BSPJobClient extends Configured implements Tool {
 	    int splitNum = splits.size();
 	    LOG.info("[NumOfSplits] " + splitNum);
 	    if (splitNum > maxClusterTasks) {
-	    	throw new Exception("task slots are not sufficient, requiring" 
-	    			+ splitNum + " but only " + maxClusterTasks);
+	    	throw new Exception(splitNum + " taskslots are required, but only " 
+	    			+ maxClusterTasks + " are available");
 	    }
     
     T[] array = (T[])
@@ -596,7 +595,7 @@ public class BSPJobClient extends Configured implements Tool {
 		int oldStep = -1;
 		float[] oldProgress = { 0.0f, 0.0f };
 		BSPJobID jobId = info.getID();
-		LOG.info("Monitor job progress: " + jobId.toString());
+		LOG.info(jobId.toString() + " starts");
 		StringBuffer sb = new StringBuffer();
 		
 		try {
@@ -610,7 +609,7 @@ public class BSPJobClient extends Configured implements Tool {
 				case JobStatus.PREP: 
 					if (!stageHeadInfo.equals("PREP")) {
 						stageHeadInfo = "PREP";
-						LOG.info("wait the preprocess, please wait...");
+						LOG.info("preprocessing, please wait...");
 					}
 					break;
 				case JobStatus.LOAD:
@@ -659,32 +658,31 @@ public class BSPJobClient extends Configured implements Tool {
 			
 			switch(info.getJobState()) {
 			case JobStatus.SUCCEEDED:
-				sb.append("The job is finished successfully");
+				sb.append(jobId.toString() + " is done successfully");
 				break;
 			case JobStatus.KILLED:
-				sb.append("The job is killed by user");
+				sb.append(jobId.toString() + " is killed manually");
 				break;
 			case JobStatus.FAILED:
-				sb.append("The job is failed by worker's timeout or task's failure");
+				sb.append(jobId.toString() + " fails (some failures happen)");
 				break;
 			default:
-				sb.append("The job is finished by unknown reason");
+				sb.append(jobId.toString() + " terminates abnormally (unknown reason)");
 				break;
 			}
 			sb.append("\n*************************************************************");
-			sb.append("\n    STATISTICS: TOTAL SUPERSTEP = "
-					+ info.getSuperstepCounter());
-			sb.append("\n                TOTAL TIME = "
+			sb.append("\n    STATISTICS: SUPERSTEPS = "
+					+ (info.getSuperstepCounter()-1));
+			sb.append("\n                RUNTIME = "
 					+ info.getRunCostTime() + " seconds");
 			sb.append("\n*************************************************************");
 			LOG.info(sb.toString());
 		} catch (Exception e) {
-			sb.append("The job is finished by unknown reason");
+			sb.append(jobId.toString() + " terminates abnormally (unknown reason)");
 			sb.append("\n*************************************************************");
 			sb.append("\n    ERROR     : " + e.getMessage());
-	        sb.append("\n    ERROR     : The job is viewed as killed by system");
-	        sb.append("\n    STATISTICS: TOTAL SUPERSTEP = " + oldStep);
-	        sb.append("\n                TOTAL TIME = " + info.getRunCostTime() + " seconds");
+	        sb.append("\n    STATISTICS: SUPERSTEPS = " + oldStep);
+	        sb.append("\n                RUNTIME = " + info.getRunCostTime() + " seconds");
 	        sb.append("\n*************************************************************");
 	        LOG.info(sb.toString());
 	        System.exit(-1);

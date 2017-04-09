@@ -133,7 +133,6 @@ public class Directive implements Writable {
     } else {
       throw new IllegalStateException("Wrong directive type:" + getType());
     }
-
   }
 
   public void readFields(DataInput in) throws IOException {

@@ -1,6 +1,7 @@
 package org.apache.hama.myhama.graph;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -59,23 +60,26 @@ public abstract class GraphDataServer<V, W, M, I> {
 	
 	protected VerBlockMgr verBlkMgr; //local VBlock manager
 	protected EdgeHashBucMgr edgeBlkMgr; //local EBlock manager
-	/** active-flag, accessed by a single thread. 
-	 *  true as default.
-	 *  True: this source vertex should be updated/computed */
+	/** 
+	 *  Active-flag, accessed by a single thread. 
+	 *  True as default.
+	 *  True: this source vertex needs to be updated/computed 
+	 *  */
 	protected boolean[] actFlag;
-	/** responding-flag, accessed by two threads. 
-	 * flags at superstep t are read by getMsg(), i.e., pull-respond(), 
-	 * flags at superstep t+1 are modified by saveGraphRecord(), 
-	 * i.e., pull-request().
-	 * all flags are false as default.
-	 * True: this source vertex should send messages to its neighbors. */
+	/** 
+	 * Responding-flag, accessed by two threads. 
+	 * Flags at superstep t are read by getMsg(), i.e., pull-respond(), 
+	 * Flags at superstep t+1 are modified by saveGraphRecord(), 
+	 *   i.e., pull-request().
+	 * All flags are false by default.
+	 * True: this source vertex must send messages to its neighbors. */
 	protected boolean[][] resFlag;
 	
 	protected GraphRecord<V, W, M, I> graph_rw;
 	protected Long read_adj_edge; //read edges in the adjacency list
 	protected Long io_byte_ver; //io cost of updating vertex values
 	protected Long io_byte_info; //io cost of reading graphInfo
-	protected Long io_byte_adj; //io cost of reading edges in the adjacency list
+	protected Long io_byte_adj; //io cost of reading edges in adjacency list
 	protected int[] locMinVerIds;
 	
 	protected boolean estimatePullByteFlag;
@@ -86,9 +90,16 @@ public abstract class GraphDataServer<V, W, M, I> {
 	protected ArrayList<ByteArrayOutputStream>[] msgBuf;
 	protected ArrayList<Integer>[] msgBufLen;
 	protected boolean[] proMsgOver;
+	protected int[] packageVersion;
 	/** memory usage */
 	protected long memUsedByMetaData = 0L; //including VBlocks and EBlocks
-	protected long[] memUsedByMsgPull; //the maximal memory usage for messages in b-pull
+	//the maximal memory usage for messages in b-pull
+	protected long[] memUsedByMsgPull; 
+	
+	protected CheckPointManager ckpMgr; //checkpoint
+	
+	protected int uncompletedIteration; //location where failures happen
+	protected MsgDataServer msgDataServer;
 	
 	@SuppressWarnings("unchecked")
 	public GraphDataServer(int _taskId, BSPJob _job) {
@@ -99,11 +110,13 @@ public abstract class GraphDataServer<V, W, M, I> {
 		bspStyle = _job.getBspStyle();
 		
 		userTool = 
-	    	(UserTool<V, W, M, I>) ReflectionUtils.newInstance(job.getConf().getClass(
-	    			Constants.USER_JOB_TOOL_CLASS, UserTool.class), job.getConf());
+	    	(UserTool<V, W, M, I>) ReflectionUtils.newInstance(
+	    			job.getConf().getClass(Constants.USER_JOB_TOOL_CLASS, 
+	    					UserTool.class), job.getConf());
 		bsp = 
-			(BSP<V, W, M, I>) ReflectionUtils.newInstance(this.job.getConf().getClass(
-					"bsp.work.class", BSP.class), this.job.getConf());
+			(BSP<V, W, M, I>) ReflectionUtils.newInstance(
+					this.job.getConf().getClass("bsp.work.class", 
+							BSP.class), this.job.getConf());
 	    isAccumulated = userTool.isAccumulated();
 	    graph_rw = userTool.getGraphRecord();
 	}
@@ -130,8 +143,9 @@ public abstract class GraphDataServer<V, W, M, I> {
 	    InputSplit split = deserializer.deserialize(null);
 	    
 		InputFormat inputformat = 
-			(InputFormat) ReflectionUtils.newInstance(this.job.getConf().getClass(
-                Constants.USER_JOB_INPUT_FORMAT_CLASS, 
+			(InputFormat) ReflectionUtils.newInstance(
+					this.job.getConf().getClass( 
+							Constants.USER_JOB_INPUT_FORMAT_CLASS, 
                 InputFormat.class), this.job.getConf());
 		inputformat.initialize(this.job.getConf());
 		this.input = inputformat.createRecordReader(split, this.job);
@@ -150,17 +164,20 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @throws Exception
 	 */
 	public void initialize(TaskInformation taskInfo, 
-			final CommRouteTable<V, W, M, I> _commRT) throws Exception {
+			final CommRouteTable<V, W, M, I> _commRT, 
+			TaskAttemptID taskAttId) throws Exception {
 		commRT = _commRT;
 		locMinVerIds = new int[taskInfo.getBlkNum()];
+		setUncompletedIteration(-1);
 		
 		int[] blkNumTask = commRT.getJobInformation().getBlkNumOfTasks();
 		int taskNum = commRT.getTaskNum();
-		verBlkMgr = new VerBlockMgr(taskInfo.getVerMinId(), taskInfo.getVerMaxId(), 
+		verBlkMgr = new VerBlockMgr(taskInfo.getVerMinId(), 
+				taskInfo.getVerMaxId(), 
 				taskInfo.getBlkNum(), taskInfo.getBlkLen(), 
 				taskNum, blkNumTask, bspStyle);
 		
-		int blkNumJob = this.commRT.getJobInformation().getBlkNumOfJob();
+		//int blkNumJob = this.commRT.getJobInformation().getBlkNumOfJob();
 		
 		int verNum = this.verBlkMgr.getVerNum();
 		actFlag = new boolean[verNum]; Arrays.fill(actFlag, true);
@@ -177,6 +194,11 @@ public abstract class GraphDataServer<V, W, M, I> {
 		/** only used in pull or hybrid */
 		if (this.bspStyle != Constants.STYLE.Push) {
 			this.edgeBlkMgr = new EdgeHashBucMgr(taskNum, blkNumTask);
+			int sumOfBlkNum = 0;
+			for (int blk: blkNumTask) {
+				sumOfBlkNum += blk;
+			}
+			this.packageVersion = new int[sumOfBlkNum];
 			this.proMsgOver = new boolean[taskNum];
 			this.msgBufLen = new ArrayList[taskNum];
 			this.msgBuf = new ArrayList[taskNum];
@@ -185,6 +207,13 @@ public abstract class GraphDataServer<V, W, M, I> {
 				this.msgBuf[i] = new ArrayList<ByteArrayOutputStream>();
 			}
 		}
+		
+		ckpMgr = new CheckPointManager(this.job, taskAttId, 
+				this.commRT.getCheckPointDirForJob());
+	}
+	
+	public void bindMsgDataServer(MsgDataServer _msgDataServer) {
+		msgDataServer = _msgDataServer;
 	}
 	
 	/**
@@ -219,7 +248,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 		int bucNum = this.verBlkMgr.getBlkNum();
 		this.locMinVerIds = new int[bucNum];
 		for (int i = 0; i < bucNum; i++) {
-			this.locMinVerIds[i] = this.verBlkMgr.getVerBlkBeta(i).getVerMinId();
+			this.locMinVerIds[i] = 
+				this.verBlkMgr.getVerBlkBeta(i).getVerMinId();
 		}
 		
 		return this.locMinVerIds;
@@ -233,7 +263,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 	public int[] getRespondVerNumOfBlks() {		
 		int[] resVerNumBlks = new int[this.verBlkMgr.getBlkNum()];
 		for (int i = 0; i < this.verBlkMgr.getBlkNum(); i++) {
-			resVerNumBlks[i] = this.verBlkMgr.getVerBlkBeta(i).getRespondVerNum();
+			resVerNumBlks[i] = 
+				this.verBlkMgr.getVerBlkBeta(i).getRespondVerNum();
 		}
 		return resVerNumBlks;
 	}
@@ -429,15 +460,13 @@ public abstract class GraphDataServer<V, W, M, I> {
 	/**
 	 * Get {@link MsgRecord}s based on the outbound edges in local task.
 	 * This function should be invoked by RPC to pull messages.
-	 * 
-	 * @param _tid
-	 * @param _bid
+	 * @param _toTaskId id of task to which messages are sent
+	 * @param _toBlkId local id of {@link VBlock} to which messages are sent 
 	 * @param _iteNum
 	 * @return
-	 * @throws Exception
+	 * @throws IOException
 	 */
-	public abstract MsgPack<V, W, M, I> getMsg(int _tid, int _bid, int _iteNum) 
-			throws Exception;
+	public abstract MsgPack<V, W, M, I> getMsg(int _toTaskId, int _toBlkId, int _iteNum);
 	
 	/**
 	 * Do preprocessing work before launching a new iteration, 
@@ -475,18 +504,17 @@ public abstract class GraphDataServer<V, W, M, I> {
 		}
 		String pre = this.preIteStyle==Constants.STYLE.Pull? "pull":"push";
 		String cur = this.curIteStyle==Constants.STYLE.Pull? "pull":"push";
-		LOG.info("IteStyle=[pre:" + pre + " cur:" + cur 
+		LOG.info("\nIteStyle=[pre:" + pre + " cur:" + cur 
 				+ "], loadAdjEdge=" + this.loadAdjEdge 
 				+ ", loadGraphInfo=" + this.loadGraphInfo);
 		
 		/** clear the message buffer used in pull @getMsg */
 		if (this.bspStyle != Constants.STYLE.Push) {
+			Arrays.fill(packageVersion, 0);
+			Arrays.fill(proMsgOver, false);
 			for (int i = 0; i < this.commRT.getTaskNum(); i++) {
-				if (this.msgBuf[i].size() > 0) {
-					this.msgBuf[i].clear();
-					this.msgBufLen[i].clear();
-				}
-				this.proMsgOver[i] = false;
+				this.msgBuf[i].clear();
+				this.msgBufLen[i].clear();
 			}
 		}
 		
@@ -500,7 +528,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 	/** 
 	 * :)
 	 **/
-	public abstract void clearBefIteMemOrDisk(int _iteNum);
+	public abstract void clearBefIteMemOrDisk(int _iteNum) throws Exception;
 	
 	/**
 	 * Do some work after the workload of one iteration on the local task 
@@ -508,8 +536,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * 
 	 * @param _iteNum
 	 */
-	public void clearAftIte(int _iteNum) {
-		this.verBlkMgr.clearAftIte(_iteNum);
+	public void clearAftIte(int _iteNum, int flagOpt) throws Exception {
+		this.verBlkMgr.clearAftIte(_iteNum, flagOpt);
 	}
 	
 	/** 
@@ -518,6 +546,20 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 **/
 	public void clearOnlyForPush(int _iteNum) {
 		this.verBlkMgr.clearBefIte(_iteNum);
+	}
+	
+	public void setUncompletedIteration(int location) {
+		uncompletedIteration = location;
+	}
+	
+	/**
+	 * The returned value is not -1 only when: 
+	 * (1) this is a surviving task, and 
+	 * (2) {@link SuperStepCommand}.CommandType is RECOVER.
+	 * @return
+	 */
+	public int getUncompletedIteration() {
+		return uncompletedIteration;
 	}
 	
 	/** 
@@ -585,7 +627,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * 
 	 * @return
 	 */
-	public abstract GraphRecord<V, W, M, I> getNextGraphRecord(int _bid) throws Exception;
+	public abstract GraphRecord<V, W, M, I> getNextGraphRecord(int _bid) 
+			throws Exception;
 	
 	/**
 	 * Write a {@link GraphRecord} onto the local disk 
@@ -627,7 +670,37 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * @return
 	 * @throws Exception
 	 */
-	public abstract int saveAll(TaskAttemptID taskId, int _iteNum) throws Exception;
+	public abstract int saveAll(TaskAttemptID taskId, int _iteNum) 
+			throws Exception;
+	
+	/**
+	 * Archive checkpoint.
+	 * 
+	 * @param _version
+	 * @param _iteNum
+	 * @return Number of archived vertices
+	 * @throws Exception
+	 */
+	public int archiveCheckPoint(int _version, int _iteNum) 
+			throws Exception {
+		return 0;
+	}
+	
+	/**
+	 * Load the most recent available checkpoint.
+	 * Now it is implemented in {@link GraphDataServerDisk} only. 
+	 * Thus, now HybridGraph can tolerate failures only for disk-based 
+	 * computations. 
+	 * @param iteNum restarting iteration counter
+	 * @param ckpVersion the most recent available checkpoint version
+	 * @return Number of vertices loaded from checkpoint 
+	 * (0 if no checkpoint is available)
+	 * @throws Exception
+	 */
+	public int loadCheckPoint(int iteNum, int ckpVersion) 
+			throws Exception {
+		return 0;
+	}
 	
 	public void close() {
 		

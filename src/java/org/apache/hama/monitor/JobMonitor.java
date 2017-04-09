@@ -14,6 +14,9 @@ public class JobMonitor {
 	private ArrayList<Float> agg_list;
 	private ArrayList<Counters> counters_list;
 	
+	private double timeOfFindFailure;
+	private double timeOfReloadData;
+	
 	/**
 	 * Construct a job monitor.
 	 * @param iterNum #iteration
@@ -26,18 +29,23 @@ public class JobMonitor {
 		
 		this.agg_list = new ArrayList<Float>();
 		this.counters_list = new ArrayList<Counters>();
+		
+		this.timeOfFindFailure = 0;
+		this.timeOfReloadData = 0;
 	}
 	
-	public void addLoadByte(long _byte) {
-		this.loadByte += _byte;
+	public void setTimeOfFindFailure(double time) {
+		this.timeOfFindFailure = time;
 	}
 	
-	public void setVerNumOfTasks(int taskId, int verNum) {
-		this.verNumOfTasks[taskId] = verNum;
+	public void setTimeOfReloadData(double time) {
+		this.timeOfReloadData = time;
 	}
 	
-	public void setEdgeNumOfTasks(int taskId, long num) {
-		this.edgeNumOfTasks[taskId] = num;
+	public void registerInfo(int taskId, TaskInformation tif) {
+		this.loadByte += tif.getLoadByte();
+		this.verNumOfTasks[taskId] = tif.getVerNum();
+		this.edgeNumOfTasks[taskId] = tif.getEdgeNum();
 	}
 	
 	public synchronized void updateMonitor(int curIteNum, int taskId, 
@@ -52,6 +60,18 @@ public class JobMonitor {
 			for (Enum<?> name: COUNTER.values()) {
 				acc_counters.addCounter(name, counters.getCounter(name));
 			}
+		}
+	}
+	
+	public synchronized void rollbackMonitor(int curIteNum) {
+		/** 
+		 * Reports from some normal tasks have been accumulated. 
+		 * Now these reports will be deleted.
+		 * */
+		if (!this.agg_list.isEmpty() 
+				&& this.agg_list.size()==curIteNum) {
+			this.agg_list.remove(curIteNum-1);
+			this.counters_list.remove(curIteNum-1);
 		}
 	}
 	
@@ -117,6 +137,14 @@ public class JobMonitor {
 	public String printJobMonitor(int currIterNum) {
 		StringBuffer sb = new StringBuffer();
 	    
+		sb.append("\n   TimeOfFindFailure = ");
+		sb.append(this.timeOfFindFailure);
+		sb.append(" sec");
+		
+		sb.append("\n   TimeOfReloadData = ");
+		sb.append(this.timeOfReloadData);
+		sb.append(" sec\n");
+		
 		sb.append("\nLoadBytes=" + Long.toString(this.loadByte));
 		
 		sb.append("\nVertices/task");
@@ -142,6 +170,7 @@ public class JobMonitor {
 		sb.append(printCounterInfo(COUNTER.Byte_Push));
 		sb.append(printCounterInfo(COUNTER.Byte_Pull));
 		sb.append(printCounterInfo(COUNTER.Byte_Pull_Vert));
+		sb.append(printCounterInfo(COUNTER.Byte_LOG));
 		
 		sb.append(printCounterInfo(COUNTER.Mem_Used));
 	    

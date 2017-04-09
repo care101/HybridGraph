@@ -50,7 +50,12 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
   public String getSystemDir();
   
   /**
-   * Build the route table
+   * Ensure that all tasks have been launched successfully. Each task 
+   * reports the local minimum vertex id so that {@link JobInProgress} 
+   * can compute the distribution of vertex ids among tasks, and then 
+   * get the global route table. This works only for the current Range 
+   * graph partitioning method. You can use this function together with 
+   * {@link JobInProgress}.setRouteTable().
    * @param jobId
    * @param local
    * @return
@@ -58,30 +63,29 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
   public void buildRouteTable(BSPJobID jobId, TaskInformation local);
   
   /**
-   * Once the task has run successfully, it will register to the JobInProgress
-   * and report some information.
-   * 
-   * Once the function is invoked, that means the task has run successfully and
-   * finished loading data.
-   * 
-   * @author 
+   * Ensure that all tasks have loaded specific input data successfully. 
+   * Some information about input data will be reported via the parameter
+   * {@link TaskInformation}. You can use this function together with 
+   * {@link CommunicationServerProtocol}.setRegisterInfo().
+   * @param jobId
+   * @param taskInfo
    */
-  public void registerTask(BSPJobID jobId, TaskInformation statis);
+  public void registerTask(BSPJobID jobId, TaskInformation taskInfo);
   
   /**
-   * Make sure than all tasks have completed the preparation work 
-   * before beginning a new superstep.
-   * 
+   * Ensure that all tasks have completed the preparation work before beginning 
+   * a new superstep. You can use this function together with 
+   * {@link CommunicationServerProtocol}.setRegisterInfo().
    * @param jobId
    * @param parId
-   * @return
    */
   public void beginSuperStep(BSPJobID jobId, int parId);
   
   /**
-   * Report local information after finishing the current superstep, 
-   * and then get the {@link SuperStepCommand} for the next superstep.
-   * 
+   * Ensure that all tasks have finished computation workloads 
+   * at one superstep. Local information maintained in {@link SuperStepReport} is 
+   * reported. You can use this function together with 
+   * {@link CommunicationServerProtocol}.setNextSuperStepCommand().
    * @author 
    * @param jobId
    * @param parId
@@ -90,15 +94,18 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
   public void finishSuperStep(BSPJobID jobId, int parId, SuperStepReport ssr);
   
   /**
-   * Have saved the local results onto the distributed file system, such as HDFS.
+   * Ensure that all tasks have dumped local computation results 
+   * onto a distributed file system, like HDFS.
    * @param jobId
    * @param parId
-   * @param saveRecordNum
+   * @param dumpNum
    */
-  public void saveResultOver(BSPJobID jobId, int parId, int saveRecordNum);
+  public void dumpResult(BSPJobID jobId, int parId, int dumpNum);
   
   /**
-   * Just synchronize, do nothing.
+   * Ensure that all tasks have completed some thing, like archiving/loading a 
+   * checkpoint. You can use this function together with 
+   * {@link CommunicationServerProtocol}.quit().
    * @param jobId
    * @param parId
    */

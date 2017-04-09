@@ -96,7 +96,7 @@ class FCFSQueue implements Queue<JobInProgress> {
   }
 
   @Override
-  public JobInProgress removeJob() throws Exception {
+  public JobInProgress removeJob() {
     try {
       return queue.take();
     } catch (InterruptedException ie) {
@@ -109,5 +109,9 @@ class FCFSQueue implements Queue<JobInProgress> {
   public Collection<JobInProgress> getJobs() {
     return queue;
   }
-
+  
+  @Override
+  public int size() {
+	  return queue.size();
+  }
 }

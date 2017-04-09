@@ -23,6 +23,7 @@ import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -90,7 +91,6 @@ class JobInProgress {
 
 	private JobInformation jobInfo;
 	private JobMonitor jobMonitor;
-	private String[] taskToWorkerName;
 
 	/** how long of scheduling, loading graph, saving result */
 	private double scheTaskTime, loadDataTime, saveDataTime;
@@ -126,25 +126,38 @@ class JobInProgress {
 	private float seqReadSpeed = 2415*ONE_KB;
 	private float netSpeed = 112*ONE_KB*ONE_KB;    
 	private double lastCombineRatio = 0.0;
+	
+	/**
+	 * Record failed tasks. Now only failures between beginSuperStep() 
+	 * and finishSuperStep() (excluding barrier points) can be recovered.
+	 */
+	private HashSet<Integer> failedTaskIds;
+	private int recoveryIteNum = 0;
 
 	public JobInProgress(BSPJobID _jobId, Path _jobFile, BSPMaster _master,
 			Configuration _conf) throws IOException {
-		this.randReadSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Read_ThroughPut, 
+		this.randReadSpeed = 
+			_conf.getFloat(Constants.HardwareInfo.RD_Read_ThroughPut, 
 				Constants.HardwareInfo.Def_RD_Read_ThroughPut)*ONE_KB;
-		this.randWriteSpeed = _conf.getFloat(Constants.HardwareInfo.RD_Write_ThroughPut, 
+		this.randWriteSpeed = 
+			_conf.getFloat(Constants.HardwareInfo.RD_Write_ThroughPut, 
 				Constants.HardwareInfo.Def_RD_Write_ThroughPut)*ONE_KB;
-		this.seqReadSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Read_ThroughPut, 
+		this.seqReadSpeed = 
+			_conf.getFloat(Constants.HardwareInfo.Seq_Read_ThroughPut, 
 				Constants.HardwareInfo.Def_Seq_Read_ThroughPut)*ONE_KB;
-		this.seqWriteSpeed = _conf.getFloat(Constants.HardwareInfo.Seq_Write_ThroughPut, 
+		this.seqWriteSpeed = 
+			_conf.getFloat(Constants.HardwareInfo.Seq_Write_ThroughPut, 
 				Constants.HardwareInfo.Def_Seq_Write_ThroughPut)*ONE_KB;
-		this.netSpeed = _conf.getFloat(Constants.HardwareInfo.Network_ThroughPut, 
+		this.netSpeed = 
+			_conf.getFloat(Constants.HardwareInfo.Network_ThroughPut, 
 				Constants.HardwareInfo.Def_Network_ThroughPut)*ONE_KB*ONE_KB;
-		LOG.info("hardware info " 
-				+ "\nrandom.read.throughput = " + this.randReadSpeed/ONE_KB + " KB/s" 
-				+ "\nrandom.write.throughput = " + this.randWriteSpeed/ONE_KB + " KB/s" 
-				+ "\nsequential.read.throughput = " + this.seqReadSpeed/ONE_KB + " KB/s"
-				+ "\nsequential.write.throughput = " + this.seqWriteSpeed/ONE_KB + " KB/s"
-				+ "\nnetwork.throughput = " + this.netSpeed/(ONE_KB*ONE_KB) + " MB/s");
+		LOG.info(print("=*", 38) + "=");
+/*		LOG.info("hardware info " 
+				+ "\nrandom.read.throughput = " + randReadSpeed/ONE_KB + " KB/s" 
+				+ "\nrandom.write.throughput = " + randWriteSpeed/ONE_KB + " KB/s" 
+				+ "\nsequential.read.throughput = " + seqReadSpeed/ONE_KB + " KB/s"
+				+ "\nsequential.write.throughput = " + seqWriteSpeed/ONE_KB + " KB/s"
+				+ "\nnetwork.throughput = " + netSpeed/(ONE_KB*ONE_KB) + " MB/s");*/
 		
 		jobId = _jobId; master = _master; MyLOG = new JobLog(jobId);
 		localFs = FileSystem.getLocal(_conf); jobFile = _jobFile;
@@ -178,14 +191,15 @@ class JobInProgress {
 		submitTime = System.currentTimeMillis();
 		status.setSubmitTime(submitTime);
 		
-		this.preIteStyle = job.getStartIteStyle();
-		this.curIteStyle = this.preIteStyle;
-		this.reportCounter = new AtomicInteger(0);
+		preIteStyle = job.getStartIteStyle();
+		curIteStyle = this.preIteStyle;
+		reportCounter = new AtomicInteger(0);
+		
+		failedTaskIds = new HashSet<Integer>();
 	}
 
 	private void initialize() {
 		jobInfo = new JobInformation(this.job, this.taskNum);
-		taskToWorkerName = new String[this.taskNum];
 	}
 
 	public JobProfile getProfile() {
@@ -218,13 +232,38 @@ class JobInProgress {
 	public String getPriority() {
 		return priority;
 	}
-
+	
+	/**
+	 * For the first scheduling operation, return #tasks. 
+	 * For a recovery scheduling operation, return #failedTasks.
+	 * @return
+	 */
 	public int getNumBspTask() {
-		return this.taskNum;
+		if (this.status.getRunState() == JobStatus.RESTART) {
+			return this.failedTaskIds.size();
+		} else {
+			return this.taskNum;
+		}
 	}
-
+	
+	/**
+	 * Return all {@link TaskInProgress}s for the first scheduling. 
+	 * Return failed {@link TaskInProgress}s for the recovery scheduling.
+	 * @return
+	 */
 	public TaskInProgress[] getTaskInProgress() {
-		return tips;
+		if (this.status.getRunState() == JobStatus.RESTART) {
+			TaskInProgress[] result = 
+				new TaskInProgress[failedTaskIds.size()];
+			int idx = 0; 
+			for (Integer id: failedTaskIds) {
+				result[idx] = tips[id];
+				idx++;
+			}
+			return result;
+		} else {
+			return tips;
+		}
 	}
 
 	public long getFinishTime() {
@@ -265,10 +304,6 @@ class JobInProgress {
 				+ profile.getUser() + "\n" + "JobId:" + jobId + "\n"
 				+ "JobFile:" + jobFile + "\n";
 	}
-	
-	public void updateWorker(int i, String _taskId, String _worker) {
-		this.taskToWorkerName[i] = _taskId + "==" + _worker;
-	}
 
 	public synchronized void initTasks() throws IOException {
 		if (tasksInited) {
@@ -277,7 +312,8 @@ class JobInProgress {
 		//change in version=0.2.3 read the input split info from HDFS
 		Path sysDir = new Path(this.master.getSystemDir());
 		FileSystem fs = sysDir.getFileSystem(conf);
-		DataInputStream splitFile = fs.open(new Path(conf.get("bsp.job.split.file")));
+		DataInputStream splitFile = 
+			fs.open(new Path(conf.get("bsp.job.split.file")));
 		RawSplit[] splits;
 		try {
 			splits = BSPJobClient.readSplitFile(splitFile);
@@ -288,17 +324,20 @@ class JobInProgress {
 		this.tips = new TaskInProgress[this.taskNum];
 		for (int i = 0; i < this.taskNum; i++) {
 			if (i < splits.length) {
-				tips[i] = new TaskInProgress(getJobID(), this.jobFile.toString(), 
+				tips[i] = new TaskInProgress(getJobID(), 
+						this.jobFile.toString(), 
 						this.master, this.conf, this, i, splits[i]);
 			} else {
-				//change in version=0.2.6 create a disable split. this only happen in Hash.
+				//change in version=0.2.6 create a disable split. 
+				//this only happen in Hash.
 				RawSplit split = new RawSplit();
 				split.setClassName("no");
 				split.setDataLength(0);
 				split.setBytes("no".getBytes(), 0, 2);
 				split.setLocations(new String[] { "no" });
 				//this task will not load data from DFS
-				tips[i] = new TaskInProgress(getJobID(), this.jobFile.toString(), 
+				tips[i] = new TaskInProgress(getJobID(), 
+						this.jobFile.toString(), 
 						this.master, this.conf, this, i, split);
 			}
 		}
@@ -307,19 +346,19 @@ class JobInProgress {
 		tasksInited = true;
 	}
 
-	public void completedJob() {
+	private void completedJob() {
 		this.finishTime = System.currentTimeMillis();
 		this.status.setProgress(new float[] {1.0f, 1.0f}, new int[]{-1, -1});
 		this.status.setSuperStepCounter(curIteNum);
 		this.status.setRunState(JobStatus.SUCCEEDED);
 		this.status.setFinishTime(this.finishTime);
 		garbageCollect();
-		MyLOG.info("Job successfully done.");
 		MyLOG.close();
-		LOG.info(jobId.toString() + " is done successfully.");
+		LOG.info(jobId.toString() + " is done.");
+		LOG.info(print("=*", 38) + "=");
 	}
 
-	public synchronized void failedJob() {
+	private void failedJob() {
 		this.finishTime = System.currentTimeMillis();
 		this.status.setProgress(new float[] {1.0f, 1.0f}, new int[]{-1, -1});
 		this.status.setSuperStepCounter(curIteNum);
@@ -327,7 +366,8 @@ class JobInProgress {
 		this.status.setFinishTime(this.finishTime);
 		garbageCollect();
 		MyLOG.close();
-		LOG.info(jobId.toString() + " is failed.");
+		LOG.warn(jobId.toString() + " finally fails.");
+		LOG.info(print("=*", 38) + "=");
 	}
 
 	public void killJob() {
@@ -341,7 +381,8 @@ class JobInProgress {
 			tips[i].kill();
 		}
 		MyLOG.close();
-		LOG.info(jobId.toString() + " is killed.");
+		LOG.warn(jobId.toString() + " is killed.");
+		LOG.info(print("=*", 38) + "=");
 	}
 
 	/**
@@ -363,7 +404,16 @@ class JobInProgress {
 			// so we remove that directory to cleanup
 			FileSystem fs = FileSystem.get(conf);
 			fs.delete(new Path(profile.getJobFile()).getParent(), true);
-
+			
+			Path ckpJobDir = master.getCheckPointDirectoryForJob(jobId);
+			if (fs.delete(ckpJobDir, true)) {
+				/*LOG.info(jobId.toString() + " deletes checkpoint dir:\n" 
+						+ ckpJobDir.toString());*/
+			} else {
+				LOG.error("fail to delete checkpoint dir:" 
+						+ ckpJobDir.toString());
+			}
+			master.clearJob(jobId, this);
 			writeJobInformation();
 		} catch (IOException e) {
 			LOG.error("Error cleaning up " + profile.getJobID(), e);
@@ -396,12 +446,30 @@ class JobInProgress {
 		this.status.setCurrentTime(System.currentTimeMillis());
 	}
 
-	public void updateTaskStatus(TaskAttemptID taskId, TaskStatus ts) {
+	synchronized public void updateTaskStatus(TaskAttemptID taskId, 
+			TaskStatus ts) {
 		Progress.put(taskId, ts.getProgress());
 		this.status.updateTaskStatus(taskId, ts);
-		if (ts.getRunState() == State.FAILED && 
-				this.status.getRunState() == JobStatus.RUNNING) {
-			this.status.setRunState(JobStatus.FAILED);
+		/**
+		 * Status of failed/killed/succeeded tasks will be updated only once.
+		 * Killed/succeeded tasks can be ignored. While, failed tasks trigger 
+		 * failure recovery operations.
+		 */
+		if (ts.getRunState() == State.FAILED) {
+			LOG.warn(ts.getTaskId() + " fails");
+			if (failedTaskIds.isEmpty()) {
+				this.status.setRunState(JobStatus.RESTART);
+			}
+			
+			/** 
+			 * {@link CheckTimeOut} and {@link BSPMaster}.report may report 
+			 * a failed task twice. Only the first report is handled.
+			 * */
+			Integer id = taskId.getIntegerId();
+			if (!failedTaskIds.contains(id)) {
+				failedTaskIds.add(id);
+				this.finishSuperStep(id, null);
+			}
 		}
 	}
 	
@@ -414,7 +482,7 @@ class JobInProgress {
 
 			for (CommunicationServerProtocol comm : this.comms.values()) {
 				try {
-					comm.quitSync();
+					comm.quit();
 				} catch (Exception e) {
 					LOG.error("[sync:quitSync]", e);
 				}
@@ -424,11 +492,15 @@ class JobInProgress {
 	
 	/** Build route-table by loading the first record of each task */
 	public void buildRouteTable(TaskInformation tif) {
-		/*LOG.info("[ROUTETABLE] tid=" + s.getTaskId() + "\t verMinId=" + s.getVerMinId());*/
+		/*LOG.info("[ROUTETABLE] tid=" + tif.getTaskId() 
+				+ " minId=" + tif.getVerMinId() 
+				+ " host=" + tif.getHostName()
+				+ " port=" + tif.getPort());*/
 		this.byteOfOneMessage = tif.getByteOfOneMessage();
 		this.isAccumulated = tif.isAccumulated();
 		this.jobInfo.buildInfo(tif.getTaskId(), tif);
-		InetSocketAddress address = new InetSocketAddress(tif.getHostName(), tif.getPort());
+		InetSocketAddress address = 
+			new InetSocketAddress(tif.getHostName(), tif.getPort());
 		try {
 			CommunicationServerProtocol comm = 
 				(CommunicationServerProtocol) RPC.waitForProxy(
@@ -440,14 +512,46 @@ class JobInProgress {
 		}
 		
 		int finished = this.reportCounter.incrementAndGet();
-		if (finished == taskNum) {
+		if (finished==taskNum 
+				|| (finished==failedTaskIds.size() 
+						&& this.status.getRunState()==JobStatus.RESTART)) {
 			this.reportCounter.set(0);
-			this.jobInfo.initAftBuildingInfo(this.job.getNumTotalVertices());
-			for (CommunicationServerProtocol comm : comms.values()) {
+			
+			//initialize variables related to checkpoint
+			if (this.status.getRunState() != JobStatus.RESTART) {
+				Path ckpJobDir = master.getCheckPointDirectoryForJob(jobId);
 				try {
-					comm.buildRouteTable(jobInfo);
+					FileSystem fs = ckpJobDir.getFileSystem(this.conf);
+					if (fs.mkdirs(ckpJobDir)) {
+						/*LOG.info(jobId.toString() + " creates checkpoint dir:\n" 
+								+ ckpJobDir.toString() 
+								+ ", interval=" + job.getCheckPointInterval());*/
+					} else {
+						LOG.error("fail to create checkpoint dir:" 
+								+ ckpJobDir.toString());
+					}
 				} catch (Exception e) {
-					LOG.error("[buildRouteTable:buildRouteTable]", e);
+					LOG.error("fail to create checkpoint dir", e);
+				}
+				
+				this.jobInfo.initAftBuildingInfo(this.job.getNumTotalVertices(), 
+						ckpJobDir.toString());
+			}
+			
+			for (Entry<Integer, CommunicationServerProtocol> entry: 
+					comms.entrySet()) {
+				try {
+					if (this.status.getRunState()==JobStatus.RESTART 
+							&& !failedTaskIds.contains(entry.getKey())) {
+						//only update info kept on surviving tasks
+						entry.getValue().updateRouteTable(jobInfo);
+					} else {
+						//set info and quit barrier
+						entry.getValue().setRouteTable(jobInfo);
+					}
+				} catch (Exception e) {
+					LOG.error("[buildRouteTable:setRouteTable] taskId=" 
+							+ entry.getKey(), e);
 				}
 			}
 		}
@@ -456,27 +560,30 @@ class JobInProgress {
 	/** Register after loading graph data and building VE-Block */
 	public void registerTask(TaskInformation tif) {
 		//LOG.info("[REGISTER] tid=" + statis.getTaskId());
+		if (this.status.getRunState() == JobStatus.RESTART) {
+			recoveryRegisterTask(tif);
+			return; //recovery register
+		}
+		
 		this.jobInfo.registerInfo(tif.getTaskId(), tif);
-		this.jobMonitor.addLoadByte(tif.getLoadByte());
-		this.jobMonitor.setVerNumOfTasks(tif.getTaskId(), tif.getVerNum());
-		this.jobMonitor.setEdgeNumOfTasks(tif.getTaskId(), tif.getEdgeNum());
+		this.jobMonitor.registerInfo(tif.getTaskId(), tif);
 		int finished = this.reportCounter.incrementAndGet();
 		if (finished == this.taskNum) {
 			this.reportCounter.set(0);
 
-			for (CommunicationServerProtocol comm : this.comms.values()) {
+			for (CommunicationServerProtocol comm : comms.values()) {
 				try {
-					comm.setPreparation(this.jobInfo);
+					comm.setRegisterInfo(jobInfo);
 				} catch (Exception e) {
-					LOG.error("[registerTask:setPreparation]", e);
+					LOG.error("[registerTask:setRegistInfo]", e);
 				}
 			}
 			
 			this.loadDataTime = 
 				System.currentTimeMillis() - this.startTime;
 			this.status.setRunState(JobStatus.RUNNING);
-			LOG.info(jobId.toString() + " loads over, and then starts computations, "
-							+ "please wait...");
+			LOG.info(jobId.toString() + " starts with CheckPoint.Policy=" 
+					+ job.getCheckPointPolicy());
 		}
 	}
 
@@ -489,15 +596,37 @@ class JobInProgress {
 		//LOG.info("[PREPROCESS] tid=" + partitionId + "\tOVER!");
 		if (finished == this.taskNum) {
 			this.reportCounter.set(0);
-			for (CommunicationServerProtocol comm : this.comms.values()) {
-				try {
-					comm.startNextSuperStep();
-				} catch (Exception e) {
-					LOG.error("[beginSuperStep:startNextSuperStep]", e);
+			/** archive a checkpoint successfully */
+			if (curIteNum>=1 && 
+					this.status.getRunState()==JobStatus.RUNNING) { 
+				CommandType type = 
+					this.jobInfo.getCommand(curIteNum).getCommandType();
+				if (type == CommandType.ARCHIVE) {
+					this.jobInfo.setAvailableCheckPoint(curIteNum);
 				}
 			}
-			curIteNum++;
-			this.status.setSuperStepCounter(curIteNum);
+			for (CommunicationServerProtocol comm : this.comms.values()) {
+				try {
+					comm.quit();
+				} catch (Exception e) {
+					LOG.error("[beginSuperStep] startNextSuperStep-" 
+							+ (curIteNum+1), e);
+				}
+			}
+			if (this.status.getRunState() == JobStatus.RECOVERY) {
+				recoveryIteNum++;
+				this.status.setSuperStepCounter(recoveryIteNum);
+				if (recoveryIteNum == curIteNum) {
+					this.status.setRunState(JobStatus.RUNNING); //recovery is done
+					this.failedTaskIds.clear();
+					recoveryIteNum = 0;
+					LOG.info(jobId.toString() + " continues computations");
+				}
+			} else {
+				curIteNum++;
+				this.status.setSuperStepCounter(curIteNum);
+			}
+			
 			Progress.clear();
 			/*LOG.info("===**===Begin the SuperStep-"
 					+ this.curIteNum + " ===**===");*/
@@ -506,70 +635,183 @@ class JobInProgress {
 	
 	/** Clean over after one iteraiton */
 	public void finishSuperStep(int parId, SuperStepReport ssr) {
-		this.jobInfo.updateRespondVerNumOfBlks(parId, ssr.getActVerNumBucs());
-		this.jobMonitor.updateMonitor(curIteNum, parId, ssr.getTaskAgg(), ssr.getCounters());
+		//RUNNING, RESTART, or RECOVERY is valid
+		if (this.status.getRunState() != JobStatus.RUNNING) {
+			this.jobMonitor.rollbackMonitor(curIteNum);
+			
+		} else {
+			this.jobInfo.updateRespondVerNumOfBlks(parId, ssr.getActVerNumBucs());
+			this.jobMonitor.updateMonitor(curIteNum, parId, ssr.getTaskAgg(), 
+					ssr.getCounters());
+		}
+		
 		//LOG.info("[SUPERSTEP] taskID=" + parId);
 		int finished = this.reportCounter.incrementAndGet();
-		if (finished == this.taskNum) {
+		if (finished==this.taskNum) {
 			this.reportCounter.set(0);
 			
+			/** failures happen */
+			if (this.status.getRunState() == JobStatus.RESTART) {
+				LOG.warn(this.jobId + " fails");
+				if (job.getCheckPointPolicy()==Constants.CheckPoint.Policy.None 
+						|| jobInfo.getAvailableCheckPoint()<=0
+						|| !job.isGraphDataOnDisk()) {
+					LOG.warn(jobId + " cannot find any available checkpoint");
+					failedJob(); //failure cannot be recovered
+				} else {
+					master.resubmitJob(jobId, this); //re-schedule failed tasks
+				}
+				//suspend surviving tasks until restart tasks enter 
+				//recoveryRegisterTask()
+				double time = (System.currentTimeMillis()-startTimeIte) / 1000.0;
+				jobMonitor.setTimeOfFindFailure(time);
+				this.startTimeIte = System.currentTimeMillis();
+				return; 
+			}
+			
 			SuperStepCommand ssc = getNextSuperStepCommand();
-			for (Entry<Integer, CommunicationServerProtocol> entry: this.comms.entrySet()) {
+			if (ssc.getCommandType() == CommandType.TERMITE) {
+				this.status.setRunState(JobStatus.SAVE);
+			}
+			
+			double time = (System.currentTimeMillis()-startTimeIte) / 1000.0;
+			ssc.setIterationTime(time);
+			if (this.status.getRunState() == JobStatus.RECOVERY) {
+				this.jobInfo.archiveRecoveryCommand(ssc);
+			} else {
+				this.jobInfo.archiveCommand(ssc);
+			}
+			this.startTimeIte = System.currentTimeMillis();
+			
+			for (Entry<Integer, CommunicationServerProtocol> entry: 
+				this.comms.entrySet()) {
 				try {
 					ssc.setRealRoute(
-							this.jobInfo.getActualCommunicationRouteTable(entry.getKey()));
+							this.jobInfo.getActualRouteTable(entry.getKey(), 
+							ssc.getCommandType()));
 					entry.getValue().setNextSuperStepCommand(ssc);
 				} catch (Exception e) {
 					LOG.error("[finishSuperStep:setNextSuperStepCommand]", e);
 				}
 			}
 			
-			double time = (System.currentTimeMillis() - this.startTimeIte) / 1000.0;
-			this.jobInfo.recordIterationInformation(time, ssc.getMetricQ(), ssc.toString());
+			/*LOG.info("===**===Finish the SuperStep-" 
+			*+ this.curIteNum + " ===**===");*/
+		}
+	}
+	
+	/**
+	 * Register a new task with respect to the failed one. Once new tasks 
+	 * corresponding to all failed tasks kept in failedTaskIds have been 
+	 * registered, finishSuperStep will continue to broadcast a new command 
+	 * {@link SuperStepCommand} to recover failures. 
+	 */
+	private void recoveryRegisterTask(TaskInformation tif) {
+		int recoveryTasks = this.reportCounter.incrementAndGet();
+		/*LOG.info("[recoveryRegister] tid=" + tif.getTaskId() 
+				+ ", " + recoveryTasks + " of " + failedTaskIds.size());*/
+		if (recoveryTasks == failedTaskIds.size()) {
+			this.reportCounter.set(0);
+			this.status.setRunState(JobStatus.RECOVERY);
+			this.recoveryIteNum = this.jobInfo.getAvailableCheckPoint();
+			LOG.info(jobId.toString() + " restarts from superstep-" 
+					+ (this.recoveryIteNum+1));
+			double time = (System.currentTimeMillis()-startTimeIte) / 1000.0;
+			jobMonitor.setTimeOfReloadData(time);
 			this.startTimeIte = System.currentTimeMillis();
-			if (ssc.getCommandType() == CommandType.STOP) {
+			
+			SuperStepCommand ssc = getNextSuperStepCommand();
+			if (ssc.getCommandType() == CommandType.TERMITE) {
 				this.status.setRunState(JobStatus.SAVE);
 			}
 			
-			//LOG.info("===**===Finish the SuperStep-" + this.curIteNum + " ===**===");
+			ssc.setIterationTime(0.0);
+			this.jobInfo.archiveRecoveryCommand(ssc);
+			
+			/**
+			 * Surviving tasks quit the finishSuperStep() barrier, 
+			 * while restart tasks quit the registerTask() barrier. 
+			 * Afterwards, all tasks enter the beginSuperStep() barrier.
+			 */
+			for (Entry<Integer, CommunicationServerProtocol> entry: 
+				this.comms.entrySet()) {
+				try {
+					ssc.setRealRoute(
+							this.jobInfo.getActualRouteTable(entry.getKey(), 
+							ssc.getCommandType()));
+					entry.getValue().setNextSuperStepCommand(ssc);
+				} catch (Exception e) {
+					LOG.error("[recoveryRegisterTask]", e);
+				}
+			}
 		}
 	}
 
 	private SuperStepCommand getNextSuperStepCommand() {
-		if (this.curIteStyle == Constants.STYLE.Pull) {
-			long diskMsgCount = 
-				this.jobMonitor.getProducedMsgNum(curIteNum)-(this.taskNum*this.recMsgBuf);
-			diskMsgCount = diskMsgCount<0? 0:diskMsgCount;
-			this.jobMonitor.addByteOfPush(curIteNum, diskMsgCount*this.byteOfOneMessage*2);
+		SuperStepCommand ssc = new SuperStepCommand();
+		if (this.status.getRunState() == JobStatus.RECOVERY) {
+			ssc.setAvailableCheckPointVersion(
+					jobInfo.getAvailableCheckPoint()+1);
+			if ((recoveryIteNum+1) == curIteNum) {
+				//all tasks re-execute the failed iteration
+				ssc.setCommandType(CommandType.RECOVERED);
+			} else {
+				//surviving tasks and new tasks perform different operations
+				ssc.setCommandType(CommandType.RECOVER);
+				ssc.setFailedTaskIds(failedTaskIds);
+			}
+			
+			ssc.setIteNum(recoveryIteNum);
+			
+			//anyway, other parameters have been available, just copy them
+			SuperStepCommand archivedCommand = 
+				this.jobInfo.getCommand(recoveryIteNum);
+			ssc.copy(archivedCommand);
+			
+			return ssc;
 		}
 		
-		SuperStepCommand ssc = new SuperStepCommand();
+		if (this.curIteStyle == Constants.STYLE.Pull) {
+			long diskMsgCount = 
+				this.jobMonitor.getProducedMsgNum(curIteNum)
+				-(this.taskNum*this.recMsgBuf);
+			diskMsgCount = diskMsgCount<0? 0:diskMsgCount;
+			this.jobMonitor.addByteOfPush(curIteNum, 
+					diskMsgCount*this.byteOfOneMessage*2);
+		}
+		
+		ssc.setIteNum(curIteNum);
 		ssc.setJobAgg(this.jobMonitor.getAgg(curIteNum));
 		//LOG.info("debug. curIteNum=" + this.curIteNum);
 		double Q = 0.0;
 		if (this.curIteNum > 2) {
 			
 			long diskMsgNum = 
-				this.jobMonitor.getProducedMsgNum(curIteNum)-(this.taskNum*this.recMsgBuf);
+				this.jobMonitor.getProducedMsgNum(curIteNum)
+				-(this.taskNum*this.recMsgBuf);
 			diskMsgNum = diskMsgNum<0? 0:diskMsgNum;
-			double diskMsgWriteCost = (diskMsgNum*this.byteOfOneMessage) / this.randWriteSpeed;
+			double diskMsgWriteCost = 
+				(diskMsgNum*this.byteOfOneMessage) / this.randWriteSpeed;
 			
 			long seqDiskByteDiff = this.jobMonitor.getByteOfPush(curIteNum) 
 				- diskMsgNum*this.byteOfOneMessage 
 				- (this.jobMonitor.getByteOfPull(curIteNum) 
 						- this.jobMonitor.getByteOfVertInPull(curIteNum));
-			double diskReadCostDiff = seqDiskByteDiff/this.seqReadSpeed
-				- this.jobMonitor.getByteOfVertInPull(curIteNum)/this.randReadSpeed;
+			double diskReadCostDiff = seqDiskByteDiff/seqReadSpeed
+				- jobMonitor.getByteOfVertInPull(curIteNum)/randReadSpeed;
 			
-			double reducedNetMsgNum = (double)this.jobMonitor.getReducedNetMsgNum(curIteNum);
-			if (this.curIteStyle == Constants.STYLE.Push) {
-				reducedNetMsgNum = this.jobMonitor.getProducedMsgNum(curIteNum) * this.lastCombineRatio;
+			double reducedNetMsgNum = 
+				(double)jobMonitor.getReducedNetMsgNum(curIteNum);
+			if (curIteStyle == Constants.STYLE.Push) {
+				reducedNetMsgNum = 
+					jobMonitor.getProducedMsgNum(curIteNum) * lastCombineRatio;
 			} else {
-				this.lastCombineRatio = reducedNetMsgNum / this.jobMonitor.getProducedMsgNum(curIteNum);
+				lastCombineRatio = 
+					reducedNetMsgNum / jobMonitor.getProducedMsgNum(curIteNum);
 			}
 			double reducedNetCost = 
-				this.isAccumulated? (reducedNetMsgNum*this.byteOfOneMessage)/this.netSpeed 
-						: (reducedNetMsgNum*4)/this.netSpeed;
+				isAccumulated? (reducedNetMsgNum*byteOfOneMessage)/netSpeed 
+						: (reducedNetMsgNum*4)/netSpeed;
 			
 			Q = diskMsgWriteCost + diskReadCostDiff + reducedNetCost; //push-pull
 			
@@ -614,9 +856,12 @@ class JobInProgress {
 		
 		/**
 		 * About the switchCounter value:
-		 * 1) switchCounter=1 (old style): prepare to switch at the next iteration, but the current iteration is old style): ;
-		 * 2) switchCounter=2 (new style): switching from old to new style (collected info. may not be accurate);
-		 * 3) switchCounter=3 (new style): do a complete iteration using the new style (collected info. is accurate);
+		 * 1) switchCounter=1 (old style): prepare to switch at the next iteration, 
+		 *    but the current iteration is old style);
+		 * 2) switchCounter=2 (new style): switching from old to new style (collected 
+		 *    info. may not be accurate);
+		 * 3) switchCounter=3 (new style): do a complete iteration using the new 
+		 *    style (collected info. is accurate);
 		 * Thus, the switching interval w=2.
 		 */
 		if (this.switchCounter != 0) {
@@ -637,7 +882,7 @@ class JobInProgress {
 		//this.curIteStyle = Constants.STYLE.Pull; //always pull in the hybrid
 		
 		//for the next superstep
-		ssc.setIteStyle(this.curIteStyle);
+		ssc.setIteStyle(this.preIteStyle, this.curIteStyle);
 		ssc.setMetricQ(Q);
 		if (this.job.getBspStyle()==Constants.STYLE.Hybrid 
 				&& this.curIteStyle==Constants.STYLE.Push) {
@@ -648,7 +893,9 @@ class JobInProgress {
 		
 		if (this.jobMonitor.getActVerNum(curIteNum)==0
 				|| (curIteNum==maxIteNum)) {
-			ssc.setCommandType(CommandType.STOP);
+			ssc.setCommandType(CommandType.TERMITE);
+		} else if (isCheckPoint()) {
+			ssc.setCommandType(CommandType.ARCHIVE);
 		} else {
 			ssc.setCommandType(CommandType.START);
 		}
@@ -656,7 +903,17 @@ class JobInProgress {
 		return ssc;
 	}
 	
-	public void saveResultOver(int parId, int saveRecordNum) {
+	private boolean isCheckPoint() {
+		int interval = job.getCheckPointInterval();
+		if (job.getCheckPointPolicy()==Constants.CheckPoint.Policy.None 
+				|| !job.isGraphDataOnDisk() || interval<=0) {
+			return false;
+		} else {
+			return (curIteNum%interval) == 0;
+		}
+	}
+	
+	public void dumpResult(int parId, int dumpNum) {
 		int finished = this.reportCounter.incrementAndGet();
 		if (finished == this.taskNum) {
 			this.reportCounter.set(0);
@@ -666,25 +923,24 @@ class JobInProgress {
 	}
 
 	private void writeJobInformation() {
-		StringBuffer sb = new StringBuffer(
-				"\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=");
+		StringBuffer sb = new StringBuffer("\n" + print("=*", 24) + "=");
 		if (this.status.getRunState() == JobStatus.SUCCEEDED) {
 			sb.append("\n    Job has been completed successfully!");
 		} else {
 			sb.append("\n       Job has been quited abnormally!");
 		}
 		
-		sb.append("\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=");
+		sb.append("\n" + print("=*", 24) + "=");
 		sb.append("\n              STATISTICS DATA");
-		sb.append("\nMaxIterator:  " + this.maxIteNum);
-		sb.append("\nAllIterator:  " + this.curIteNum);
-		sb.append("\nScheTaskTime: " + this.scheTaskTime / 1000.0 + " seconds");
-		sb.append("\nJobRunTime:  " + this.status.getRunCostTime()
+		sb.append("\nGiven Number of Iterations:  " + this.maxIteNum);
+		sb.append("\nActual Number of Iterations: " + this.curIteNum);
+		sb.append("\nRuntime of Scheduling Tasks: " + this.scheTaskTime / 1000.0 + " seconds");
+		sb.append("\nRuntime of Processing Graph: " + this.status.getRunCostTime()
 				+ " seconds");
-		sb.append("\nLoadDataTime: " + this.loadDataTime / 1000.0 + " seconds");
-		sb.append("\nIteCompuTime: " + (this.status.getRunCostTime()*1000.0f-
+		sb.append("\n               [load graph]: " + this.loadDataTime / 1000.0 + " seconds");
+		sb.append("\n               [super-step]: " + (this.status.getRunCostTime()*1000.0f-
 				this.loadDataTime-this.saveDataTime) / 1000.0 + " seconds");
-		sb.append("\nSaveDataTime: " + this.saveDataTime / 1000.0 + " seconds");
+		sb.append("\n               [save graph]: " + this.saveDataTime / 1000.0 + " seconds");
 		
 		sb.append(this.jobInfo.toString());
 		sb.append(this.jobMonitor.printJobMonitor(this.curIteNum));
@@ -693,18 +949,27 @@ class JobInProgress {
 		sb.append("\n    (1)JobID: " + jobId.toString());
 		sb.append("\n    (2)#total_vertices: " + this.jobInfo.getVerNum());
 		sb.append("\n    (3)#total_edges: " + this.jobInfo.getEdgeNum());
-		sb.append("\n    (4)TaskToWorkerName:");
-		for (int index = 0; index < taskToWorkerName.length; index++) {
-			sb.append("\n              " + taskToWorkerName[index]);
-		}
 		
 		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-		sb.append("\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=");
-		sb.append("\nlog time: " + sdf.format(new Date()));
-		sb.append("\nauthor: HybridGraph");
+		sb.append("\n" + print("=*", 24) + "=");
+		sb.append("\nHybridGraph, " + sdf.format(new Date()));
 
 		MyLOG.info(sb.toString());
 		this.jobInfo = null;
 		this.jobMonitor = null;
+	}
+	
+	/**
+	 * Print the given flag x times.
+	 * @param flag
+	 * @param x
+	 * @return
+	 */
+	private String print(String flag, int x) {
+		StringBuffer sb = new StringBuffer();
+		for (int i = 0; i < x; i++) {
+			sb.append(flag);
+		}
+		return sb.toString();
 	}
 }

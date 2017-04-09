@@ -27,8 +27,8 @@ public interface Schedulable{
   /**
    * Schedule job to designated GroomServer(s) immediately.
    * @param job to be scheduled. 
-   * @param statuses of GroomServer(s).
+   * @param int number of running tasks.
    * @throws IOException
    */
-  void schedule(JobInProgress job) throws Exception;
+  void schedule(JobInProgress job, int runningTasks) throws Exception;
 }

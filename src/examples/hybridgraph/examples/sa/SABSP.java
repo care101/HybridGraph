@@ -71,8 +71,7 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	
 	@Override
 	public void update(
-			Context<Value, Integer, MsgBundle, Integer> context) 
-				throws Exception {
+			Context<Value, Integer, MsgBundle, Integer> context) {
 		GraphRecord<Value, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
 		MsgRecord<MsgBundle> msg = context.getReceivedMsgRecord();
@@ -97,8 +96,7 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 	
 	@Override
 	public MsgRecord<MsgBundle>[] getMessages(
-			Context<Value, Integer, MsgBundle, Integer> context) 
-				throws Exception {
+			Context<Value, Integer, MsgBundle, Integer> context) {
 		GraphRecord<Value, Integer, MsgBundle, Integer> graph = 
 			context.getGraphRecord();
 		SAMsgRecord[] result = new SAMsgRecord[graph.getEdgeNum()];

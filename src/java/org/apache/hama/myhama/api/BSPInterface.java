@@ -44,10 +44,8 @@ public interface BSPInterface<V, W, M, I> {
 	/**
 	 * A vertex-centric function for updating a vertex value.
 	 * It must be implemented by users.
-	 * @throws Exception
 	 */
-	public void update(Context<V, W, M, I> context) 
-			throws Exception;
+	public void update(Context<V, W, M, I> context);
 	
 	/**
 	 * A vertex-centric function for generating messages 
@@ -61,10 +59,8 @@ public interface BSPInterface<V, W, M, I> {
 	 * This fuction must be implemented by users.
 	 * @param context
 	 * @return
-	 * @throws Exception
 	 */
-	public MsgRecord<M>[] getMessages(Context<V, W, M, I> context) 
-			throws Exception;
+	public MsgRecord<M>[] getMessages(Context<V, W, M, I> context);
 	
 	/**
 	 * Cleanup after processing vertices in one VBlock.

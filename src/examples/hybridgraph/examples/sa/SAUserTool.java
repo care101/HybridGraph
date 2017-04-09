@@ -66,6 +66,12 @@ public class SAUserTool
 				throws EOFException, IOException {
 			this.verValue.read(vIn);
 		}
+		
+		@Override
+	    public void parseVerValue(String valData) {
+			this.verValue = new Value();
+			this.verValue.parseValue(valData);
+	    }
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 

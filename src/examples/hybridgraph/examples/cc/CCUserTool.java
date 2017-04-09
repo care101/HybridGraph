@@ -55,6 +55,11 @@ public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 				throws EOFException, IOException {
 			this.verValue = vIn.getInt();
 		}
+		
+	    @Override
+	    public void parseVerValue(String valData) {
+	    	this.verValue = Integer.parseInt(valData);
+	    }
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 

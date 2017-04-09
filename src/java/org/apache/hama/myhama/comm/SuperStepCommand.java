@@ -4,6 +4,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 
 import org.apache.hama.Constants;
 import org.apache.hama.Constants.CommandType;
@@ -16,14 +17,75 @@ public class SuperStepCommand implements Writable {
 	private float jobAgg;
 	private ArrayList<Integer>[] route;
 	
-	private int iteStyle;
+	private int preIteStyle;
+	private int curIteStyle;
 	private boolean estimatePullByte;
+	
+	private int iteNum;
+	private int ckpVersion;
 	
 	//local variable
 	private double metricQ;
+	private double iteTime;
+	private HashSet<Integer> failedTaskIds;
 	
 	public SuperStepCommand() {
 		
+	}
+	
+	public void setIterationTime(double time) {
+		iteTime = time;
+	}
+	
+	public double getIterationTime() {
+		return iteTime;
+	}
+	
+	/**
+	 * Reduce the storage space requirement by releasing the memory 
+	 * space of some variables, such as route table (ArrayList[]).
+	 */
+	public void compact() {
+		route = null;
+	}
+	
+	/**
+	 * Copy some variables provided by the given command.
+	 * @param command
+	 */
+	public void copy(SuperStepCommand command) {
+		jobAgg = command.getJobAgg();
+		preIteStyle = command.getPreIteStyle();
+		curIteStyle = command.getCurIteStyle();
+		estimatePullByte = command.isEstimatePullByte();
+		metricQ = command.getMetricQ();
+	}
+	
+	public void setIteNum(int num) {
+		iteNum = num;
+	}
+	
+	/**
+	 * Get the counter of the next superstep.
+	 * @return
+	 */
+	public int getIteNum() {
+		return iteNum;
+	}
+	
+	public void setAvailableCheckPointVersion(int version) {
+		ckpVersion = version;
+	}
+	
+	public int getAvailableCheckPointVersion() {
+		return ckpVersion;
+	}
+	
+	public void setFailedTaskIds(HashSet<Integer> _failed) {
+		failedTaskIds = new HashSet();
+		for (int id: _failed) {
+			failedTaskIds.add(id);
+		}
 	}
 	
 	public void setMetricQ(double _q) {
@@ -58,12 +120,17 @@ public class SuperStepCommand implements Writable {
 		return this.route;
 	}
 	
-	public void setIteStyle(int _style) {
-		this.iteStyle = _style;
+	public void setIteStyle(int _preStyle, int _curStyle) {
+		this.preIteStyle = _preStyle;
+		this.curIteStyle = _curStyle;
 	}
 	
-	public int getIteStyle() {
-		return this.iteStyle;
+	public int getCurIteStyle() {
+		return this.curIteStyle;
+	}
+	
+	public int getPreIteStyle() {
+		return this.preIteStyle;
 	}
 	
 	public void setEstimatePullByte(boolean flag) {
@@ -76,28 +143,35 @@ public class SuperStepCommand implements Writable {
 	
 	@Override
 	public void readFields(DataInput in) throws IOException {
-		this.commandType = WritableUtils.readEnum(in, CommandType.class);
-		this.jobAgg = in.readFloat();
-		this.iteStyle = in.readInt();
-		this.estimatePullByte = in.readBoolean();
+		commandType = 
+			WritableUtils.readEnum(in, CommandType.class);
+		jobAgg = in.readFloat();
+		preIteStyle = in.readInt();
+		curIteStyle = in.readInt();
+		estimatePullByte = in.readBoolean();
+		iteNum = in.readInt();
+		ckpVersion = in.readInt();
 		
 		int len = in.readInt();
-		this.route = new ArrayList[len];
+		route = new ArrayList[len];
 		for (int i = 0; i < len; i++) {
-			this.route[i] = new ArrayList<Integer>();
+			route[i] = new ArrayList<Integer>();
 			int size = in.readInt();
 			for (int j = 0; j < size; j++) {
-				this.route[i].add(in.readInt());
+				route[i].add(in.readInt());
 			}
 		}
 	}
 
 	@Override
 	public void write(DataOutput out) throws IOException {
-		WritableUtils.writeEnum(out, this.commandType);
-		out.writeFloat(this.jobAgg);
-		out.writeInt(this.iteStyle);
-		out.writeBoolean(this.estimatePullByte);
+		WritableUtils.writeEnum(out, commandType);
+		out.writeFloat(jobAgg);
+		out.writeInt(preIteStyle);
+		out.writeInt(curIteStyle);
+		out.writeBoolean(estimatePullByte);
+		out.writeInt(iteNum);
+		out.writeInt(ckpVersion);
 		
 		out.writeInt(route.length);
 		for (int i = 0; i < route.length; i++) {
@@ -111,13 +185,33 @@ public class SuperStepCommand implements Writable {
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer();
-		sb.append("command="); sb.append(this.commandType);
-		sb.append("\tsum-agg="); sb.append(this.jobAgg);
+		sb.append("command="); 
+		sb.append(this.commandType);
+		
+		sb.append("\tsum-agg="); 
+		sb.append(this.jobAgg);
+		
 		sb.append("\tstyle="); 
-		if (this.iteStyle == Constants.STYLE.Pull) {
-			sb.append("Pull");
+		if (this.curIteStyle == Constants.STYLE.Pull) {
+			sb.append("PULL");
 		} else {
-			sb.append("Push");
+			sb.append("PUSH");
+		}
+		
+		sb.append("\t");
+		sb.append(iteTime);
+		
+		sb.append("\t");
+		sb.append(metricQ);
+		
+		if (failedTaskIds != null) {
+			sb.append("\tfailures=[");
+			for (Integer id: failedTaskIds) {
+				sb.append(id.toString());
+				sb.append(",");
+			}
+			sb.deleteCharAt(sb.length()-1); //delete the last ","
+			sb.append("]");
 		}
 		return sb.toString();
 	}

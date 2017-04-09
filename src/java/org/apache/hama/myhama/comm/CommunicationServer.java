@@ -6,6 +6,7 @@
 package org.apache.hama.myhama.comm;
 
 import java.io.IOException;
+import java.lang.reflect.UndeclaredThrowableException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,7 +24,6 @@ import org.apache.hadoop.ipc.RPC.Server;
 import org.apache.hama.Constants;
 import org.apache.hama.HamaConfiguration;
 import org.apache.hama.bsp.BSPJob;
-import org.apache.hama.bsp.BSPJobID;
 import org.apache.hama.bsp.TaskAttemptID;
 import org.apache.hama.ipc.CommunicationServerProtocol;
 import org.apache.hama.monitor.JobInformation;
@@ -42,7 +42,6 @@ public class CommunicationServer<V, W, M, I>
 	private static final Log LOG = LogFactory.getLog(CommunicationServer.class);
 	private int taskNum;
 	private HamaConfiguration conf;
-	private BSPJobID jobId;
 	private int parId;
 	
 	private MsgDataServer<V, W, M, I> msgDataServer;
@@ -66,7 +65,7 @@ public class CommunicationServer<V, W, M, I>
 	private Integer pullNum = 0;
 	private int localBucNum;
 	
-	private long io_byte = 0L, io_byte_vert;
+	private long io_byte = 0L, io_byte_vert, io_byte_log;
 	private long read_edge = 0L, read_fragment = 0L;
 	/** 
 	 * 1. msg_net: original network messages.
@@ -78,91 +77,96 @@ public class CommunicationServer<V, W, M, I>
 	private long msg_pro = 0L, msg_rec = 0L, 
 				 msg_net = 0L, msg_net_actual = 0L, msg_disk = 0L;
 	
+	/**
+	 * Whether or not a connection error is found.
+	 */
+	private boolean connectionError = false;
+	
 	public class PushMsgDataThread implements Callable<Boolean> {
-		private int srcParId, iteNum;
+		private int srcParId;
 		private InetSocketAddress srcAddr, dstAddr;
 		private MsgPack<V, W, M, I> msgPack;
 		
-		public PushMsgDataThread(int _srcParId, int _dstParId, int _iteNum, 
+		public PushMsgDataThread(int _srcParId, int _dstParId, 
 				MsgPack<V, W, M, I> _msgPack, InetSocketAddress _srcAddr, 
 				InetSocketAddress _dstAddr) {
 			this.srcParId = _srcParId;
-			this.iteNum = _iteNum;
-			this.srcAddr = _srcAddr; this.dstAddr = _dstAddr;
+			this.srcAddr = _srcAddr; 
+			this.dstAddr = _dstAddr;
 			this.msgPack = _msgPack;
 		}
 		
 		public Boolean call() {
+			boolean done = false;
+			long _msg_rec = 0L, _msg_net = 0L, _msg_disk = 0L;
 			try {
-				long _msg_rec = 0L, _msg_net = 0L, _msg_disk = 0L;
 				_msg_rec = this.msgPack.getMsgRecNum();
 				if (this.srcAddr.equals(this.dstAddr)) {
 					_msg_disk = 
-						recMsgData(this.srcParId, this.iteNum, this.msgPack);
+						recMsgData(this.srcParId, this.msgPack);
 				} else {
 					_msg_net = _msg_rec;
 					CommunicationServerProtocol<V, W, M, I> comm = 
 						commRT.getCommServer(this.dstAddr);
 					_msg_disk = 
-						comm.recMsgData(this.srcParId, this.iteNum, this.msgPack);
+						comm.recMsgData(this.srcParId, this.msgPack);
 				}
-				updateCounters(0L, 0L, 0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
-				
-				return true;
+				updateCounters(0L, 0L, 0L, 0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
+				done = true;
+			} catch (UndeclaredThrowableException un) {
+				LOG.warn("communication exception is caught but ignored", un);
+				done = true;
+				connectionError = true;
 			} catch (Exception e) {
-				LOG.error("pushMsgThread", e);
-				return false;
+				LOG.error("fatal unknown error", e);
 			}
+			
+			return done;
 		}
 	}
 	
 	private class PullMsgDataThread implements Callable<Boolean> {
-		private int srcParId;
-		private int bid;
+		private int toTaskId;
+		private int toBlkId;
 		private int iteNum;
-		private InetSocketAddress srcAddr, dstAddr;
+		private InetSocketAddress fromAddr, toAddr;
 		private boolean isOver;
 		
 		@SuppressWarnings("unchecked")
-		public PullMsgDataThread(int _srcParId, int _bid, int _iteNum, 
-				InetSocketAddress _srcAddr, InetSocketAddress _dstAddr) {
-			this.srcParId = _srcParId;
-			this.bid = _bid;
-			this.iteNum = _iteNum;
-			this.srcAddr = _srcAddr;
-			this.dstAddr = _dstAddr;
-			this.isOver = false;
+		public PullMsgDataThread(int _toTaskId, int _toBlkId, int _iteNum, 
+				InetSocketAddress _toAddr, InetSocketAddress _fromAddr) {
+			toTaskId = _toTaskId;
+			toBlkId = _toBlkId;
+			iteNum = _iteNum;
+			toAddr = _toAddr;
+			fromAddr = _fromAddr;
+			isOver = false;
 		}
 		
 		@Override
 		public Boolean call() {
-			boolean flag = false;
+			boolean done = false;
+			
 			try {
-				while (!this.isOver) {
+				while (!isOver) {
 					long _msg_rec = 0L, _msg_net = 0L, _msg_net_actual = 0L;
 					MsgPack<V, W, M, I> recMsgPack = null;
-					if (this.srcAddr.equals(this.dstAddr)) {
+					if (toAddr.equals(fromAddr)) {
 						recMsgPack = 
-							obtainMsgData(this.srcParId, this.bid, this.iteNum);
+							obtainMsgData(toTaskId, toBlkId, iteNum);
 					} else {
 						CommunicationServerProtocol<V, W, M, I> comm = 
-							commRT.getCommServer(this.dstAddr);
-						if (comm == null) {
-							LOG.error("[PullMsgDataThread]: comm is null " 
-									+ dstAddr.toString());
-							this.isOver = true;
-							return isOver;
-						} else {
-							recMsgPack = 
-								comm.obtainMsgData(this.srcParId, this.bid, this.iteNum);
-							_msg_net = recMsgPack.getMsgProNum();
-							_msg_net_actual = recMsgPack.getMsgRecNum();
-						}
+							commRT.getCommServer(fromAddr);
+						recMsgPack = 
+							comm.obtainMsgData(toTaskId, toBlkId, iteNum);
+						_msg_net = recMsgPack.getMsgProNum();
+						_msg_net_actual = recMsgPack.getMsgRecNum();
 					}
 					
 					_msg_rec = recMsgPack.getMsgRecNum();
 					updateCounters(recMsgPack.getIOByte(), 
 							recMsgPack.getIOByteOfVertInPull(), 
+							recMsgPack.getIOByteOfLoggedMsg(), 
 							recMsgPack.getReadEdgeNum(), 
 							recMsgPack.getReadFragNum(),
 							recMsgPack.getMsgProNum(), _msg_rec, 
@@ -172,27 +176,32 @@ public class CommunicationServer<V, W, M, I>
 					 * the latter of subsequent @{link MsgPack}s is zero.
 					 **/
 					if (recMsgPack.size() > 0) {
-						msgDataServer.putIntoBuf(this.bid, this.iteNum, recMsgPack);
+						msgDataServer.putIntoBuf(
+								toBlkId, iteNum, recMsgPack);
 					}
 					this.isOver = recMsgPack.isOver();
 				} //while
 				
-				pullOver();
-				
-				flag = true;
+				done = true;
+			} catch (UndeclaredThrowableException un) {
+				LOG.error("communication exception is caught but ignored", un);
+				done = true;
+				connectionError = true;
+			} catch (NullPointerException nulle) {
+				LOG.error("fatal null pointer error", nulle);
 			} catch (Exception e) {
+				LOG.error("fatal unknown error", e);
+			} finally {
 				pullOver();
-				LOG.error("pullMsgThread", e);
-				flag = false;
 			}
-			return flag;
+			
+			return done;
 		}
 	}
 	
-	public CommunicationServer (BSPJob job, int parId, TaskAttemptID taskId) 
+	public CommunicationServer (BSPJob job, int parId, TaskAttemptID taskId, int port) 
 			throws Exception {
 		this.conf = new HamaConfiguration();
-		this.jobId = job.getJobID();
 		this.parId = parId;
 		taskNum = job.getNumBspTask();
 		this.msgHandlePool = Executors.newFixedThreadPool(taskNum);
@@ -203,16 +212,13 @@ public class CommunicationServer<V, W, M, I>
 		this.commRT = new CommRouteTable<V, W, M, I>(job, this.parId);
 		this.bindAddr = job.get("host");
 		this.serverPort = conf.getInt(Constants.PEER_PORT, 
-				Constants.DEFAULT_PEER_PORT) 
-				+ Integer.parseInt(jobId.toString().substring(17)) 
-				+ Integer.parseInt(taskId.toString().substring(26,32));
+				Constants.DEFAULT_PEER_PORT) + port;
 		this.peerAddr = new InetSocketAddress(this.bindAddr, this.serverPort);
 		
 		this.server = RPC.getServer(this, 
 				this.peerAddr.getHostName(), this.peerAddr.getPort(), this.conf);
 		this.server.start();
-		LOG.info("CommunicationServer address:" + this.peerAddr.getHostName() 
-				+ " port:" + this.peerAddr.getPort());
+		LOG.info(this.peerAddr.getHostName() + ":" + this.peerAddr.getPort());
 		
 		this.counter = new AtomicInteger(0);
 	}
@@ -246,10 +252,10 @@ public class CommunicationServer<V, W, M, I>
 	 * @param result
 	 * @param superStepCounter
 	 */
-	public void pushMsgData(MsgRecord<M>[] msgData, int _iteNum) 
+	public void pushMsgData(MsgRecord<M>[] msgData) 
 			throws Exception {
 		int dstVid, dstPid, pro_msg = msgData.length;
-		updateCounters(0L, 0L, 0L, 0L, pro_msg, pro_msg, 0L, 0L, 0L);
+		updateCounters(0L, 0L, 0L, 0L, 0L, pro_msg, pro_msg, 0L, 0L, 0L);
 		
 		for(int idx = 0; idx < pro_msg; idx++) {
 			dstVid = msgData[idx].getDstVerId();
@@ -269,10 +275,10 @@ public class CommunicationServer<V, W, M, I>
 						throw new Exception("ERROR");
 					}
 				}
-				startPushMsgDataThread(dstPid, dstAddress, _iteNum, msgPack);
+				startPushMsgDataThread(dstPid, dstAddress, msgPack);
 				break;
 			default : LOG.error("[sendMsgData] Fail send messages to Partition " 
-					+ dstPid + " at SuperStep " + _iteNum);
+					+ dstPid);
 					throw new Exception("invalid BufferStatus");
 			}
 		}
@@ -282,7 +288,7 @@ public class CommunicationServer<V, W, M, I>
 	 * Flush all remaining messages in the sendBuffer, 
 	 * used in push at the end of one superstep. 
 	 * */
-	public void pushFlushMsgData(int iteNum) throws Exception {
+	public void pushFlushMsgData() throws Exception {
 		InetSocketAddress dstAddr;
 		
 		clearPushMsgResult();
@@ -290,7 +296,7 @@ public class CommunicationServer<V, W, M, I>
 			dstAddr = commRT.getInetSocketAddress(dstParId);
 			if (this.msgDataServer.getSendBufferSize(dstParId) > 0) {
 				MsgPack<V, W, M, I> pack = this.msgDataServer.getMsgPack(dstParId);
-				startPushMsgDataThread(dstParId, dstAddr, iteNum, pack);
+				startPushMsgDataThread(dstParId, dstAddr, pack);
 			}
 		}
 		clearPushMsgResult();
@@ -311,37 +317,37 @@ public class CommunicationServer<V, W, M, I>
 	
 	/**
 	 * Pull messages from source vertices.
-	 * First, signal each essential source task to 
+	 * First, the system signals each essential source task to 
 	 * produce messages based on source vertices.
-	 * Second, pull messages in {@link MsgPack} 
-	 * one by one for each source task, 
-	 * and combine them.
-	 * Wait until all messages have been pulled and combined.
-	 * For local messages, directly combine them, 
-	 * otherwise, get them by RPC Server.
-	 * @param _srcParId
-	 * @param _bid
+	 * Second, the newly produced messages are sent to the requesting 
+	 * task (this) in {@link MsgPack}s (Combination is applied before 
+	 * sending if possible). When all messages have been received, 
+	 * this function returns the runtime cost of pulling operations. 
+	 * Note that messages on the requesting task will be directly put 
+	 * into {@link MsgDataServer}. Otherwise, messages are transmitted 
+	 * via RPC.
+	 * @param _toBlkId id of local {@link VBlock} to which messages are sent
 	 * @param _iteNum
 	 * @return
 	 * @throws Exception
 	 */
-	public long pullMsgFromSource(int _srcParId, int _bid, int _iteNum) 
+	public long pullMsgFromSource(int _toBlkId, int _iteNum) 
 			throws Exception {
 		if (_iteNum == 1) {
 			return 0L;
 		}
 		
 		long start = System.currentTimeMillis();
-		if (_bid==0 || !this.msgDataServer.isAccumulated()) {
-			this.pullNum = this.pullRoute[_bid].size();
-			for (int tid: this.pullRoute[_bid]) {
-				InetSocketAddress dstAddress = commRT.getInetSocketAddress(tid);
-				startPullMsgDataThread(tid, dstAddress, _bid, _iteNum);
+		if (_toBlkId==0 || !this.msgDataServer.isAccumulated()) {
+			this.pullNum = this.pullRoute[_toBlkId].size();
+			for (int tid: this.pullRoute[_toBlkId]) {
+				InetSocketAddress fromAddress = commRT.getInetSocketAddress(tid);
+				startPullMsgDataThread(fromAddress, _toBlkId, _iteNum);
 			}
 		}
 		
 		if (this.pullNum > 0) {
-			this.barrier(); //wait, until all msgs have been pulled for cur bucket.
+			this.suspend(); //wait, until all msgs have been pulled for cur bucket.
 		}
 		
 		for (Future<Boolean> f: this.pullMsgResult) {
@@ -351,13 +357,19 @@ public class CommunicationServer<V, W, M, I>
 		} //check if Exception happens when pulling.
 		this.pullMsgResult.clear();
 		
-		if (this.msgDataServer.isAccumulated()) {
+		/**
+		 * When finding connection error, pre-fetching messages 
+		 * will invoke pullOver() one more time and then makes 
+		 * the local computation quit the suspend() barrier abnormally.
+		 */
+		if (this.msgDataServer.isAccumulated() && 
+				!findConnectionError()) {
 			this.msgDataServer.switchPreMsgToCache();
-			if ((_bid+1)<this.localBucNum) {
-				this.pullNum = this.pullRoute[(_bid+1)].size();
-				for (int tid: this.pullRoute[(_bid+1)]) {
-					InetSocketAddress dstAddress = commRT.getInetSocketAddress(tid);
-					startPullMsgDataThread(tid, dstAddress, (_bid+1), _iteNum);
+			if ((_toBlkId+1)<this.localBucNum) {
+				this.pullNum = this.pullRoute[(_toBlkId+1)].size();
+				for (int tid: this.pullRoute[(_toBlkId+1)]) {
+					InetSocketAddress fromAddress = commRT.getInetSocketAddress(tid);
+					startPullMsgDataThread(fromAddress, (_toBlkId+1), _iteNum);
 				}
 			}
 		}
@@ -379,12 +391,14 @@ public class CommunicationServer<V, W, M, I>
 	 * @param _msg_net_actual
 	 * @param _msg_disk
 	 */
-	public synchronized void updateCounters(long _io_byte, long _io_byte_vert, 
+	public synchronized void updateCounters(long _io_byte, 
+			long _io_byte_vert, long _io_byte_log, 
 			long _read_edge, long _read_fragment,
 			long _msg_pro, long _msg_rec, 
 			long _msg_net, long _msg_net_actual, long _msg_disk) {
 		this.io_byte += _io_byte;
 		this.io_byte_vert += _io_byte_vert;
+		this.io_byte_log += _io_byte_log;
 		this.read_edge += _read_edge;
 		this.read_fragment += _read_fragment;
 		this.msg_pro += _msg_pro;
@@ -406,6 +420,10 @@ public class CommunicationServer<V, W, M, I>
 	
 	public long getIOByteOfVertInPull() {
 		return this.io_byte_vert;
+	}
+	
+	public long getIOByteOfLoggedMsg() {
+		return this.io_byte_log;
 	}
 	
 	/**
@@ -477,6 +495,7 @@ public class CommunicationServer<V, W, M, I>
 	public void clearBefIte(int _iteNum, int _iteStyle) {
 		this.io_byte = 0L;
 		this.io_byte_vert = 0L;
+		this.io_byte_log = 0L;
 		this.read_edge = 0L;
 		this.read_fragment = 0L;
 		this.msg_pro = 0L;
@@ -484,32 +503,36 @@ public class CommunicationServer<V, W, M, I>
 		this.msg_net = 0L;
 		this.msg_net_actual = 0L;
 		this.msg_disk = 0L;
+		
+		this.connectionError = false;
+	}
+	
+	/**
+	 * Is there any connection error at the current iteration?
+	 * If yes, then some failures happen on other tasks. In this 
+	 * case, this task can skipp remaining local computations 
+	 * and directly enter the barrier, since wokloads at the 
+	 * current iteration will be ignored when recovering failures.
+	 * @return
+	 */
+	public boolean findConnectionError() {
+		return this.connectionError;
 	}
 	
 	private void startPushMsgDataThread(int dstParId, InetSocketAddress dstAddr, 
-			int iteNum, MsgPack<V, W, M, I> msgPack) {
+			MsgPack<V, W, M, I> msgPack) {
 		Future<Boolean> future = this.msgHandlePool.submit(
-				new PushMsgDataThread(parId, dstParId, iteNum, 
+				new PushMsgDataThread(parId, dstParId, 
 						msgPack, peerAddr, dstAddr));
 		this.pushMsgResult.put(dstParId, future);
 	}
 	
-	private void startPullMsgDataThread(int _dstParId, InetSocketAddress dstAddr, 
-			int _bid, int _iteNum) {
+	private void startPullMsgDataThread(InetSocketAddress _fromAddr, 
+			int _toBlkId, int _iteNum) {
 		Future<Boolean> future =
-			this.msgHandlePool.submit(new PullMsgDataThread(parId, _bid, 
-					_iteNum, peerAddr, dstAddr));
+			this.msgHandlePool.submit(new PullMsgDataThread(parId, _toBlkId, 
+					_iteNum, peerAddr, _fromAddr));
 		this.pullMsgResult.add(future);
-	}
-	
-	public void barrier() throws Exception {
-		synchronized(mutex) {
-			if (!this.hasNotify) {
-				mutex.wait();
-			}
-			
-			this.hasNotify = false;
-		}
 	}
 	
 	public void pullOver() {
@@ -517,6 +540,7 @@ public class CommunicationServer<V, W, M, I>
 		//LOG.info("counter=" + this.counter.get() + ", pullNum=" + this.pullNum);
 		if (cur == this.pullNum) {
 			this.counter.set(0);
+			//LOG.info("pullOver");
 			synchronized(mutex) {
 				this.hasNotify = true;
 				mutex.notify();
@@ -525,8 +549,7 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	@Override
-	public long recMsgData(int srcParId, int iteNum, MsgPack<V, W, M, I> pack) 
-			throws Exception {
+	public long recMsgData(int srcParId, MsgPack<V, W, M, I> pack) {
 		if (pack.size() > 0) {
 			return this.msgDataServer.recMsgData(srcParId, pack);
 		} else {
@@ -535,15 +558,14 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	@Override
-	public MsgPack<V, W, M, I> obtainMsgData(int _srcParId, int _bid, int _iteNum) 
-			throws Exception {
-		return this.graphDataServer.getMsg(_srcParId, _bid, _iteNum);
+	public MsgPack<V, W, M, I> obtainMsgData(int _toTaskId, int _toBlkId, int _iteNum) {
+		return this.graphDataServer.getMsg(_toTaskId, _toBlkId, _iteNum);
 	}
 	
 	@Override
-	public void buildRouteTable(JobInformation global) {
-		this.commRT.initialilze(global);
-		
+	public void setRouteTable(JobInformation jobInfo) {
+		this.commRT.initialilze(jobInfo);
+		//LOG.info("setRouteTable");
 		synchronized(mutex) {
 			this.hasNotify = true;
 			mutex.notify();
@@ -551,9 +573,14 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	@Override
-	public void setPreparation(JobInformation _jobInfo) {
+	public void updateRouteTable(JobInformation jobInfo) {
+		this.commRT.initialilze(jobInfo);
+	}
+	
+	@Override
+	public void setRegisterInfo(JobInformation _jobInfo) {
 		this.commRT.resetJobInformation(_jobInfo);
-		
+		//LOG.info("setRegisterInfo");
 		synchronized(mutex) {
 			this.hasNotify = true;
 			mutex.notify();
@@ -564,23 +591,33 @@ public class CommunicationServer<V, W, M, I>
 	public void setNextSuperStepCommand(SuperStepCommand ssc) {
 		this.ssc = ssc;
 		this.pullRoute = this.ssc.getRealRoute();
-		
+		//LOG.info("setNextSuperStepCommand");
 		synchronized(mutex) {
 			this.hasNotify = true;
 			mutex.notify();
 		}
 	}
 	
-	@Override
-	public void startNextSuperStep() {
+	/**
+	 * Suspend computing thread until notified by someone else, 
+	 * like functions in {@link JobInProgress} or this.pullMsgFromSource().
+	 * @throws Exception
+	 */
+	public void suspend() throws Exception {
+		//LOG.info("enter...");
 		synchronized(mutex) {
-			this.hasNotify = true;
-			mutex.notify();
+			if (!this.hasNotify) {
+				mutex.wait();
+			}
+			
+			this.hasNotify = false;
 		}
+		//LOG.info("leave...");
 	}
 	
 	@Override
-	public void quitSync() {
+	public void quit() {
+		//LOG.info("quit()");
 		synchronized(mutex) {
 			this.hasNotify = true;
 			mutex.notify();

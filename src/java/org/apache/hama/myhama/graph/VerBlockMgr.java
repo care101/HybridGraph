@@ -93,6 +93,24 @@ public class VerBlockMgr {
 	}
 	
 	/**
+	 * Set the active flag for a {@link VerBlockBeta}.
+	 * @param type
+	 * @param bid
+	 * @param flag
+	 */
+	public void setBlkActive(int bid, boolean flag) {
+		this.blocks[bid].setActive(flag);
+	}
+	
+	/**
+	 * Increase the number of active vertices in a VBlock.
+	 * @param bid
+	 */
+	public void incActiveVerNum(int bid) {
+		this.blocks[bid].incActiveVerNum();
+	}
+	
+	/**
 	 * Set the responding flag for a {@link VerBlockBeta}.
 	 * @param type
 	 * @param bid
@@ -117,6 +135,13 @@ public class VerBlockMgr {
 	 * and set the starting offset for edge data files of each local block.
 	 */
 	public void loadOver(int bspStyle, int taskNum, int[] blkNumTask) {
+		StringBuffer sb = new StringBuffer("VerBlockMgr Metadata:");
+		for (VerBlockBeta vbb: this.blocks) {
+			sb.append("\n");
+			sb.append(vbb);
+		}
+		LOG.info(sb.toString());
+		
 		if (bspStyle == Constants.STYLE.Push) {
 			return;
 		}
@@ -148,9 +173,9 @@ public class VerBlockMgr {
 		}
 	}
 	
-	public void clearAftIte(int _iteNum) {
+	public void clearAftIte(int _iteNum, int flagOpt) {
 		for (int bid = 0; bid < this.blkNum; bid++) {
-			this.blocks[bid].clearAftIte(_iteNum);
+			this.blocks[bid].clearAftIte(_iteNum, flagOpt);
 		}
 	}
 	

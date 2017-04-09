@@ -509,4 +509,97 @@ public void setBspClass(Class<? extends BSP> cls)
 	  return conf.getInt(Constants.Hash_Bucket_Num, 
 			  Constants.DEFAULT.Hash_Bucket_Num);
   }
+  
+  /**
+   * Set the checkpoint policy.
+   * @param p
+   */
+  public void setCheckPointPolicy(Constants.CheckPoint.Policy p) {
+	  conf.set("bsp.checkpoint.policy", p.toString());
+  }
+  
+  /**
+   * Get the checkpoint policy. 
+   * Constants.CheckPoint.Policy.None is returned if the policy is
+   * not specified by users.
+   * @return
+   */
+  public Constants.CheckPoint.Policy getCheckPointPolicy() {
+	  String policy = 
+		  conf.get("bsp.checkpoint.policy", 
+				  Constants.CheckPoint.Policy.None.toString());
+	  return Constants.CheckPoint.Policy.valueOf(policy);
+  }
+  
+  /**
+   * Set the checkpoint interval, 
+   * Checkpointing is disabled if _interval equals -1.
+   * @param _interval
+   */
+  public void setCheckPointInterval(int _interval) {
+	  conf.setInt("fault.tolerance.ckp.interval", _interval);
+  }
+  
+  /**
+   * Get the checkpoint interval. 
+   * Return -1 by default, indicating that checkpointing is disabled.
+   * @return
+   */
+  public int getCheckPointInterval() {
+	  return conf.getInt("fault.tolerance.ckp.interval", -1);
+  }
+  
+  /**
+   * Assume that some tasks fail at the given superstep to simulate 
+   * the failure in real scenrios. No failure happens if the parameter 
+   * "failed" equals -1.
+   * @param _interval
+   */
+  public void setFailedIteration(int failed) {
+	  conf.setInt("fault.tolerance.failed.location", failed);
+  }
+  
+  /**
+   * Get the failure location.
+   * Return -1 by default, indicating that no failure happens.
+   * @return
+   */
+  public int getFailedIteration() {
+	  return conf.getInt("fault.tolerance.failed.location", -1);
+  }
+  
+  /**
+   * Set the number of failed tasks. The parameter is invalid 
+   * if no failure happens. 
+   * @param _interval
+   */
+  public void setNumOfFailedTasks(int failednum) {
+	  if (getFailedIteration() == -1){
+		  LOG.info("!!! # of failed tasks is automatically set to 0" 
+				   + ", instead of given " + failednum);
+		  failednum = 0;
+	  } else if (getCheckPointPolicy() == 
+		  Constants.CheckPoint.Policy.CompleteRecovery) {
+		  if (failednum != getNumBspTask()) {
+			  LOG.info("!!! # of failed tasks is automatically set to " 
+					  + getNumBspTask() + ", instead of given " + failednum);
+			  failednum = getNumBspTask();
+		  }
+	  }
+	  
+	  conf.setInt("fault.tolerance.failed.percentage", failednum);
+  }
+  
+  /**
+   * Get the number of failed tasks.
+   * Return 0 by default, indicating that no failure happens.
+   * @return
+   */
+  public int getNumOfFailedTasks() {
+	  if (getFailedIteration() == -1){
+		  return 0;
+	  } else {
+		  return conf.getInt("fault.tolerance.failed.percentage", 0);
+	  }
+  }
 }
