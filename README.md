@@ -139,12 +139,13 @@ when the buffer further decreases (such as 0.5 million). This is because more ve
 
 <img src="figures/app_4_a_runtime_pr.jpg" alt="runtime of PageRank" title="runtime of PageRank" width="300" /><img src="figures/app_4_b_runtime_sssp.jpg" alt="runtime of SSSP" title="runtime of SSSP" width="300" />  
 
-<img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="250" />
-<img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="250" />  
+<img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" /><img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
 
 
 ## 6. Publications
-* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. [Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing](http://dl.acm.org/citation.cfm?id=2882938). SIGMOD 2016.
+* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. [Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing](http://dl.acm.org/citation.cfm?id=2882938). SIGMOD 2016.  
+
+* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Lixin Gao. [An I/O-efficient and Adaptive Fault-tolerant Framework for Distributed Graph Computations](http://link.springer.com/article/10.1007/s10619-017-7192-2). Distributed and Parallel Databases 2017.
 
 ## 7. Contact  
 If you encounter any problem with HybridGraph, please feel free to contact wangzhiganglab@gmail.com.
