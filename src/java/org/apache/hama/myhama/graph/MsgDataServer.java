@@ -15,6 +15,7 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -108,7 +109,8 @@ public class MsgDataServer<V, W, M, I> {
 		}
 	}
 	
-	private int bspStyle = -1;
+	private BSPJob jobConf;
+	private Constants.STYLE bspStyle;
 	private boolean isAccumulated;
 	
 	private UserTool<V, W, M, I> userTool;
@@ -131,6 +133,7 @@ public class MsgDataServer<V, W, M, I> {
 	private int MESSAGE_SEND_BUFFER_THRESHOLD;
 	private int MESSAGE_RECEIVE_BUFFER_THRESHOLD;
 	private ArrayList<MsgRecord<M>>[] sendBuffer; //[DstPartitionId]: msgs
+	private int[] packageVersion; //for logging outgoing messages (fault-tolerance)
 	
 	/**                                                    _ 
 	 *              msgDataDir        => Root Dir           |     
@@ -146,16 +149,21 @@ public class MsgDataServer<V, W, M, I> {
 	 */
 	/** root directory of messages */
 	private File msgDataDir;
-	/** directory of archived messages under PULL/Hybrid */
+	/** sub-directory of archived messages (fault-tolerance) */
 	private File msgDataArchivedDir;
-	/** direcotry of received messages under PUSH/Hybrid */
+	/** sub-direcotry of received messages under PUSH */
 	private File msgDataReceivedDir;
+	
 	/** messages received from the previous iteration under PUSH */
-	private File msgDataIncomedDir;
+	private File msgDataPreIteIncomedDir;
 	/** messages being received at the current iteration under PUSH */
-	private File msgDataIncomingDir;
-	/** messages being sent at the current iteration under PUSH/PULL */
-	private File msgDataOutgoingDir;
+	private File msgDataCurIteIncomingDir;
+	/** messages being sent at the current iteration (fault-tolerance) */
+	private File msgDataCurIteOutgoingDir;
+	/** messages being sent at the current iteration (fault-tolerance) */
+	private File msgDataCurIteOutgoingPushDir;
+	/** messages being pulled at the current iteration (fault-tolerance) */
+	private File msgDataCurIteOutgoingPullDir;
 	
 	private int locVerMinId = -1;
 	private int locBucLen = -1;
@@ -182,10 +190,12 @@ public class MsgDataServer<V, W, M, I> {
 	}
 	
 	public void init(BSPJob job, int _bucLen, int _bucNum, int[] _verMinIds, 
-			int _parId, String _rootDir) {
+			int _parId, String _rootDir, boolean miniSuperStep) {
+		jobConf = job;
 		parId = _parId;
 		bspStyle = job.getBspStyle();
 		taskNum = job.getNumBspTask();
+		packageVersion = new int[taskNum];
 		
 		localFileOpt = new LocalFileOperation();
 		cache = (MsgRecord<M>[]) new MsgRecord[_bucLen];
@@ -208,7 +218,7 @@ public class MsgDataServer<V, W, M, I> {
 		createMsgDir(new File(_rootDir));
 		
 		/** used in push or pull/hybrid&accumulated **/
-		if (this.bspStyle!=Constants.STYLE.Pull 
+		if (this.bspStyle!=Constants.STYLE.PULL 
 				|| this.isAccumulated) {
 			this.pre_cache = (MsgRecord<M>[]) new MsgRecord[this.locBucLen];
 			this.pre_msgNum = 0L;
@@ -218,18 +228,20 @@ public class MsgDataServer<V, W, M, I> {
 		}
 		
 		/** used in push or hybrid of push&pull */
-		if (this.bspStyle != Constants.STYLE.Pull) {
+		if ((this.bspStyle!=Constants.STYLE.PULL) || miniSuperStep) {
 			MESSAGE_SEND_BUFFER_THRESHOLD = job.getMsgSendBufSize(); 
 			MESSAGE_RECEIVE_BUFFER_THRESHOLD = 1 + 
 				job.getMsgRecBufSize() / (this.taskNum*this.locBucNum);
-			LOG.info("initialize send_buffer=" 
-					+ MESSAGE_SEND_BUFFER_THRESHOLD 
-					+ " (#, per dstTask, used in Push)");
-			LOG.info("initialize receive_buffer=" 
-					+ MESSAGE_RECEIVE_BUFFER_THRESHOLD 
-					+ " (#, per (#tasks*#local_buckets), used in Push)" 
-					+ " and total_buffer=" + job.getMsgRecBufSize() 
-					+ " (#, per dstTask)");
+			StringBuffer sb = new StringBuffer("\ninitialize parameters used in PUSH:");
+			sb.append("\nsend_buffer=");
+			sb.append(MESSAGE_SEND_BUFFER_THRESHOLD);
+			sb.append(" (#, per dstination task)");
+			sb.append("\nreceive_buffer=");
+			sb.append(MESSAGE_RECEIVE_BUFFER_THRESHOLD);
+			sb.append(" (#, per (#tasks*#local_buckets)) and total_buffer=");
+			sb.append(job.getMsgRecBufSize());
+			sb.append(" (#, per destination task)");
+			LOG.info(sb.toString());
 			
 			/** used in push: send messages */
 			this.sendBuffer = new ArrayList[this.taskNum];
@@ -261,7 +273,6 @@ public class MsgDataServer<V, W, M, I> {
 	private void createMsgDir(File rootDir) {
 		msgDataDir = new File(rootDir, Constants.Msg_Dir);
 		if (msgDataDir.exists()) {
-			LocalFileOperation localFileOpt = new LocalFileOperation();
 			localFileOpt.deleteDir(msgDataDir);
 		}
 		msgDataDir.mkdir();
@@ -274,19 +285,20 @@ public class MsgDataServer<V, W, M, I> {
 	/**
 	 * Create a directory to store messages at the given iteration, 
 	 * and then return the directory. This function is called only 
-	 * by the main thread. When logging outgoing messages, existing 
-	 * directory should be preserved.
+	 * by the main thread. When logging outgoing messages or getting 
+	 * incomed message directory, existing directory should be preserved.
 	 * @param dir
 	 * @param iteNum
-	 * @param preserve preserve existing superstep dir if true, delete otherwise
 	 * @return directory File
 	 */
-	private File getMsgDirSuperStep(File dir, int iteNum, boolean preserve) {
+	private File getMsgDirSuperStep(File dir, int iteNum) {
 		File f = new File(dir, "ss-" + iteNum);
-		if (f.exists() && !preserve) {
-			LocalFileOperation localFileOpt = new LocalFileOperation();
-			localFileOpt.deleteDir(f);
-		}
+		f.mkdirs();
+		return f;
+	}
+	
+	private File getMsgDirSuperStepStyle(File dir, Constants.STYLE style) {
+		File f = new File(dir, style.toString());
 		f.mkdirs();
 		return f;
 	}
@@ -357,12 +369,46 @@ public class MsgDataServer<V, W, M, I> {
 		}
 	}
 	
-	/** Get one {@link MsgPack} and then clear the related buffer */
+	/**
+	 * Get one {@link MsgPack} when recovering failures under PUSH.
+	 * @param dstTaskId
+	 * @return
+	 * @throws Exception
+	 */
+	public MsgPack<V, W, M, I> getMsgPackFromLog(int dstTaskId) throws Exception {
+		if (packageVersion[dstTaskId] == 0) {
+			return null;
+		}
+		
+		MsgPack<V, W, M, I> msgPack = new MsgPack<V, W, M, I>(userTool);
+		//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+		long[] statis = new long[7];
+		ByteArrayOutputStream messages = 
+			new ByteArrayOutputStream(this.MESSAGE_SEND_BUFFER_THRESHOLD);
+		int vCounter = loadOutgoingMsg(messages, dstTaskId, packageVersion[dstTaskId]-1, 
+					statis, Constants.STYLE.PUSH);
+		msgPack.setEdgeInfo(statis[0], 0L, 0L, 0L);
+		msgPack.setRemote(messages, vCounter, 0L, vCounter, 0L);
+		packageVersion[dstTaskId]--;
+		
+		messages = null;
+		statis = null;
+		
+		return msgPack;
+	}
+	
+	/** Get one {@link MsgPack} and then clear the related buffer under PUSH */
 	public MsgPack<V, W, M, I> getMsgPack(int dstPid) throws Exception {
 		MsgPack<V, W, M, I> msgPack = 
 			new MsgPack<V, W, M, I>(userTool); //message pack
 		int counter = 0;
 		long mem = 0L;
+		boolean logMsg = false;
+		long loggedBytes = 0L;
+		if (jobConf.getCheckPointPolicy() 
+				== Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) {
+			logMsg = true;
+		}
 		
 		if (this.parId == dstPid) {
 			MsgRecord<M>[] msgData = 
@@ -371,8 +417,33 @@ public class MsgDataServer<V, W, M, I> {
 				msgData[counter++] = msg;
 				mem += msg.getMsgByte();
 			}
+			
+			if (logMsg) {
+				ByteArrayOutputStream bytes = 
+					new ByteArrayOutputStream(this.sendBuffer[dstPid].size());
+				DataOutputStream stream = new DataOutputStream(bytes);
+				for (MsgRecord<M> msg: this.sendBuffer[dstPid]) {
+					msg.serialize(stream);
+				}
+				stream.close();
+				bytes.close();
+				packageVersion[dstPid]++;
+				int version = packageVersion[dstPid] - 1; //starting from zero
+				//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+				long[] statis = new long[7];
+				statis[5] = counter;
+				loggedBytes = 
+					logOutgoingMsg(bytes, dstPid, version, statis, counter, 
+							Constants.STYLE.PUSH);
+				
+				bytes = null;
+				statis = null;
+			}
+			
 			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
-			msgPack.setLocal(msgData, counter, 0L, counter, 0L);
+			msgPack.setLocal(msgData, counter, 0L, counter, loggedBytes);
+			
+			msgData = null;
 		} else {
 			ByteArrayOutputStream bytes = 
 				new ByteArrayOutputStream(this.sendBuffer[dstPid].size());
@@ -385,8 +456,23 @@ public class MsgDataServer<V, W, M, I> {
 			bytes.close();
 			mem += stream.size();
 			
+			if (logMsg) {
+				packageVersion[dstPid]++;
+				int version = packageVersion[dstPid] - 1;//starting from zero
+				//io, edge_read, fragment_read, msg_pro, msg_rec, dstVerHasMsg, io_vert.
+				long[] statis = new long[7];
+				statis[5] = counter;
+				loggedBytes = 
+					logOutgoingMsg(bytes, dstPid, version, statis, counter, 
+							Constants.STYLE.PUSH);
+				
+				statis = null;
+			}
+			
 			msgPack.setEdgeInfo(0L, 0L, 0L, 0L);
-			msgPack.setRemote(bytes, counter, 0L, counter, 0L);
+			msgPack.setRemote(bytes, counter, 0L, counter, loggedBytes);
+			
+			bytes = null;
 		}
 		
 		this.sendBuffer[dstPid].clear();
@@ -402,8 +488,9 @@ public class MsgDataServer<V, W, M, I> {
 	
 	/** Clear buffer and variables at the end of one iteration */
 	public void clearSendBuffer() {
-		for (int idx = 0; idx < this.taskNum; idx++) {
-			this.sendBuffer[idx].clear();
+		for (int idx = 0; idx < taskNum; idx++) {
+			sendBuffer[idx].clear();
+			packageVersion[idx] = 0;
 		}
 	}
 	
@@ -436,12 +523,14 @@ public class MsgDataServer<V, W, M, I> {
 				this.incomingBufByte[pbid] += msg.getMsgByte();
 				
 				if (this.incomingBufLen[pbid] >= MESSAGE_RECEIVE_BUFFER_THRESHOLD) {
-					File dir = this.getMsgDirBlock(msgDataIncomingDir, bid);
+					File dir = this.getMsgDirBlock(msgDataCurIteIncomingDir, bid);
 					msgCountOnDisk = this.incomingBufLen[pbid];
 					
 					spillReceivedMsgToDisk(dir, srcParId, this.incomingBuffer[pbid], 
 							this.incomingBufLen[pbid], this.incomingBufByte[pbid]);
 					this.memUsage.updateIncomingBuf(pbid, this.incomingBufByte[pbid]);
+					
+					this.incomingBuffer[pbid] = null; 
 					
 					this.incomingBuffer[pbid] = 
 						(MsgRecord<M>[]) new MsgRecord[MESSAGE_RECEIVE_BUFFER_THRESHOLD];
@@ -449,6 +538,8 @@ public class MsgDataServer<V, W, M, I> {
 					this.incomingBufByte[pbid] = 0;
 				}
 			}
+			
+			pack = null;
 			return msgCountOnDisk;
 		} catch (Exception e) {
 			return -1;
@@ -465,11 +556,15 @@ public class MsgDataServer<V, W, M, I> {
 	 * @return long bytes
 	 * @throws Exception
 	 */
-	public long logOutgoingMsg(ByteArrayOutputStream messages, 
-			int globalBlkIdx, int version, long[] statistics, int vCounter) 
-			throws IOException {
+	public long logOutgoingMsg(ByteArrayOutputStream messages, int globalBlkIdx, int version, 
+			long[] statistics, int vCounter, Constants.STYLE style) throws IOException {
 		long result = 0L;
-		File dir = getMsgDirBlock(msgDataOutgoingDir, globalBlkIdx);
+		File dir = null; 
+		if (style == Constants.STYLE.PULL) {
+			dir = getMsgDirBlock(msgDataCurIteOutgoingPullDir, globalBlkIdx);
+		} else {
+			dir = getMsgDirBlock(msgDataCurIteOutgoingPushDir, globalBlkIdx);
+		}
 		File dataFile = getMsgDataFile(dir, version);
 		if (dataFile.exists()) {
 			dataFile.delete();
@@ -478,7 +573,7 @@ public class MsgDataServer<V, W, M, I> {
 		RandomAccessFile raf = new RandomAccessFile(dataFile, "rw");
 		FileChannel fc = raf.getChannel();
 		//length of messages in bytes, vCounter
-		int sizeOfBuffer = messages.size() + 4*2; 
+		int sizeOfBuffer = messages.size() + 4*2;
 		if (version == 0) {
 			//length of the statistic array and the long array values
 			sizeOfBuffer += (4 + 8*statistics.length);
@@ -498,12 +593,22 @@ public class MsgDataServer<V, W, M, I> {
 		mbb.put(writeBytes);
 		result = fc.size();
 		fc.close();
-		raf.close();
+		raf.close(); 
+		
+		messages = null;
+		statistics = null;
+		
 		return result;
 	}
 	
-	public int getNumberOfMsgPacks(int globalBlkIdx) {
-		File dir = getMsgDirBlock(msgDataOutgoingDir, globalBlkIdx);
+	public int getNumberOfMsgPacks(int globalBlkIdx, Constants.STYLE style) {
+		File dir = null; 
+		if (style == Constants.STYLE.PULL) {
+			dir = getMsgDirBlock(msgDataCurIteOutgoingPullDir, globalBlkIdx);
+		} else {
+			dir = getMsgDirBlock(msgDataCurIteOutgoingPushDir, globalBlkIdx);
+		}
+		
 		if (dir.exists()) {
 			return dir.listFiles().length;
 		} else {
@@ -511,14 +616,28 @@ public class MsgDataServer<V, W, M, I> {
 		}
 	}
 	
+	/**
+	 * Prepare to load outgoing messages logged under PUSH. 
+	 * Here, only packageVersion[] is initialized. 
+	 * @param filters set of failed tasks
+	 */
+	public void prepareLoadMsgLoggedUnderPush(HashSet<Integer> filters) {
+		for (Integer dstTaskId: filters) {
+			packageVersion[dstTaskId] = 
+				getNumberOfMsgPacks(dstTaskId, Constants.STYLE.PUSH);
+		}
+	}
+	
 	public void clearLoggedMsg(int iteNum) {
-		getMsgDirSuperStep(msgDataArchivedDir, iteNum, false);
+		File dir = getMsgDirSuperStep(msgDataArchivedDir, iteNum);
+		localFileOpt.deleteDir(dir);
 	}
 	
 	/**
 	 * Load logged outgoing messages. Messages are put into the 
 	 * parameter "messages" and statistics will be returned only 
-	 * when "version" is zero.
+	 * when "version" is zero. In particular, statistics[0] indicates 
+	 * the bytes of logged messages, instead of the logged value of statistics[0].
 	 * @param messages
 	 * @param globalBlkIdx
 	 * @param version
@@ -526,10 +645,14 @@ public class MsgDataServer<V, W, M, I> {
 	 * @return vCounter int
 	 * @throws Exception
 	 */
-	public int loadOutgoingMsg(ByteArrayOutputStream messages, 
-			int globalBlkIdx, int version, long[] statis) 
-			throws IOException {
-		File dir = getMsgDirBlock(msgDataOutgoingDir, globalBlkIdx);
+	public int loadOutgoingMsg(ByteArrayOutputStream messages, int globalBlkIdx, 
+			int version, long[] statis, Constants.STYLE style) throws IOException {
+		File dir = null;
+		if (style == Constants.STYLE.PULL) {
+			dir = getMsgDirBlock(msgDataCurIteOutgoingPullDir, globalBlkIdx);
+		} else {
+			dir = getMsgDirBlock(msgDataCurIteOutgoingPushDir, globalBlkIdx);
+		}
 		File dataFile = getMsgDataFile(dir, version);
 		RandomAccessFile raf = new RandomAccessFile(dataFile, "r");
 		FileChannel fc = raf.getChannel();
@@ -540,7 +663,9 @@ public class MsgDataServer<V, W, M, I> {
 			for (int i = 0; i < length; i++) {
 				statis[i] = mbb.getLong();
 			}
+			statis[0] = 0L;
 		}
+		statis[0] += fc.size();
 		
 		int vCounter = mbb.getInt();
 		byte[] readBytes = new byte[mbb.getInt()];
@@ -549,6 +674,9 @@ public class MsgDataServer<V, W, M, I> {
 		
 		fc.close();
 		raf.close();
+		
+		readBytes = null;
+		
 		return vCounter;
 	}
 	
@@ -574,6 +702,9 @@ public class MsgDataServer<V, W, M, I> {
 		}
 		
 		fc.close();	ra.close();
+		
+		messages = null;
+		
 		return true;
 	}
 	
@@ -582,6 +713,7 @@ public class MsgDataServer<V, W, M, I> {
 	private void switchIncomingToIncomed() {
 		int length = this.taskNum * this.locBucNum;
 		for (int pbid = 0; pbid < length; pbid++) {
+			this.incomedBuffer[pbid] = null;
 			if (this.incomingBufLen[pbid] > 0) {
 				this.incomedBuffer[pbid] = 
 					(MsgRecord<M>[]) new MsgRecord[this.incomingBufLen[pbid]];
@@ -590,9 +722,7 @@ public class MsgDataServer<V, W, M, I> {
 				}
 				this.memUsage.updateIncomingBuf(pbid, this.incomingBufByte[pbid]);
 				this.memUsage.updateIncomedBuf(pbid, this.incomingBufByte[pbid]);
-			} else {
-				this.incomedBuffer[pbid] = null;
-			}
+			} 
 			this.incomingBuffer[pbid] = null;
 			this.incomingBufLen[pbid] = 0;
 			this.incomingBufByte[pbid] = 0;
@@ -638,7 +768,7 @@ public class MsgDataServer<V, W, M, I> {
 		}
 		long start = System.currentTimeMillis();
 		if (bid == 0) { //for the first bucket, start threads to prepare messages
-			File msgDir = getMsgDirBlock(msgDataIncomedDir, bid);
+			File msgDir = getMsgDirBlock(msgDataPreIteIncomedDir, bid);
 			
 			this.locMemPullResult = 
 				this.locMemPullExecutor.submit(
@@ -673,7 +803,7 @@ public class MsgDataServer<V, W, M, I> {
 
 		/** start threads to prepare messages for the next bucket asynchronously */
 		if ((bid+1) < this.locBucNum) {
-			File msgDir = getMsgDirBlock(msgDataIncomedDir, (bid+1));
+			File msgDir = getMsgDirBlock(msgDataPreIteIncomedDir, (bid+1));
 			
 			this.locMemPullResult = 
 				this.locMemPullExecutor.submit(
@@ -752,14 +882,15 @@ public class MsgDataServer<V, W, M, I> {
 	 * Also, the receiving buffer should be cleared and created.
 	 * Single-Thread.
 	 **/
-	public void clearBefIte(int _iteNum, int _preIteStyle, int _curIteStyle) 
+	public void clearBefIte(int _iteNum, Constants.STYLE _preIteStyle, 
+			Constants.STYLE _curIteStyle, boolean miniSuperStep) 
 			throws Exception {
 		this.io_byte = 0L;
 		int cur_IteNum = _iteNum, next_IteNum = _iteNum+1;
 		
 		clearBefBucket();
 		/** used in push or pull/hybrid&accumulated **/
-		if (this.bspStyle!=Constants.STYLE.Pull 
+		if (this.bspStyle!=Constants.STYLE.PULL 
 				|| this.isAccumulated) {
 			for (int i = 0; i < this.locBucLen; i++) {
 				this.pre_cache[i].reset();
@@ -768,52 +899,113 @@ public class MsgDataServer<V, W, M, I> {
 			this.pre_cacheMem = 0;
 		}
 		
-		if (this.bspStyle != Constants.STYLE.Pull) {
+		if ((this.bspStyle!=Constants.STYLE.PULL) || miniSuperStep) {
 			clearSendBuffer();
 		}
+		
+		/** 
+		 * msgDataOutgoingDir" is initialized to archive outgoing messages 
+		 * generated by this task. 
+		 **/
+		msgDataCurIteOutgoingDir = 
+			getMsgDirSuperStep(msgDataArchivedDir, cur_IteNum);
+		msgDataCurIteOutgoingPullDir = 
+			getMsgDirSuperStepStyle(msgDataCurIteOutgoingDir, Constants.STYLE.PULL);
+		msgDataCurIteOutgoingPushDir = 
+			getMsgDirSuperStepStyle(msgDataCurIteOutgoingDir, Constants.STYLE.PUSH);
 		
 		/** 
 		 * If _preStyle==Push, messages in "incomingBuffer" are moved into 
 		 * the "incomedBuffer" variable, and also, the "msgDataIncomedDir" 
 		 * variable is initialized for reading messages on local disk.
 		 **/
-		if (_preIteStyle == Constants.STYLE.Push) {
+		if (_preIteStyle == Constants.STYLE.PUSH) {
 			switchIncomingToIncomed();
-			msgDataIncomedDir = 
-				getMsgDirSuperStep(msgDataReceivedDir, cur_IteNum, false);
+			msgDataPreIteIncomedDir = 
+				getMsgDirSuperStep(msgDataReceivedDir, cur_IteNum);
 		}
 		
 		/** 
-		 * If _curStyle==Pull, "msgDataPulledDir" is initialized to archive pulled 
-		 * messages. Otherwise, i.e. _curStyle==Push, "incomingBuffer" and 
-		 * "msgDataIncomingDir" are initialized to store messages received at the 
-		 * current iteration but used at the next iteration. In the latter case, 
-		 * "locBucHitFlags" is also reset to collect runtime statistics for 
-		 * estimating i/o-costs if PULL were executed.
-		 * */
-		if (_curIteStyle == Constants.STYLE.Pull) {
-			msgDataOutgoingDir = getMsgDirSuperStep(msgDataArchivedDir, cur_IteNum, true);
-		} else {
+		 * If _curIteStype==Push, "incomingBuffer" and "msgDataIncomingDir" are 
+		 * initialized to store messages received at the current iteration but 
+		 * used at the next one. Meanwhile, "locBucHitFlags" is reset to collect 
+		 * runtime statistics for estimating i/o-costs if PULL were executed.
+		 **/
+		if ((_curIteStyle==Constants.STYLE.PUSH) || miniSuperStep) {
 			int length = this.taskNum * this.locBucNum;
 			for (int index = 0; index < length; index++) {
+				this.incomingBuffer[index] = null;
 				this.incomingBuffer[index] = 
 					(MsgRecord<M>[]) new MsgRecord[MESSAGE_RECEIVE_BUFFER_THRESHOLD];
 				this.incomingBufLen[index] = 0;
 				this.incomingBufByte[index] = 0;
 			}
 			
-			msgDataIncomingDir = getMsgDirSuperStep(msgDataReceivedDir, next_IteNum, false);
-			if (msgDataIncomingDir.exists()) {
-				LOG.warn("\nincoming message dir:" + msgDataIncomingDir 
-						+ " exists, now delete and then re-create it!");
-				localFileOpt.deleteDir(msgDataIncomingDir);
-			} else {
-				msgDataIncomingDir.mkdirs();
-			}
+			//preserve-flag is true to preserve received messages at the failed iteration, 
+			//so that surviving tasks can easily continue failed iteration.
+			msgDataCurIteIncomingDir = 
+				getMsgDirSuperStep(msgDataReceivedDir, next_IteNum);
 			
 			for (int tid = 0; tid < this.taskNum; tid++) {
 				Arrays.fill(this.locBucHitFlags[tid], false);
 			}
+		}
+	}
+	
+	/**
+	 * Cleanup function. 
+	 * @param _iteNum
+	 * @param _preIteStyle
+	 * @param _curIteStyle
+	 * @param isInterrupted
+	 * @throws Exception
+	 */
+	public void clearAftIte(int _iteNum, Constants.STYLE _preIteStyle, 
+			Constants.STYLE _curIteStyle, boolean isInterrupted) throws Exception {
+		if (_preIteStyle == Constants.STYLE.PUSH) {
+			/**
+			 * If the current iteration is interrupted by failures of other tasks, we 
+			 * spill received messages kept in "incomedBuffer" onto local disk. Also, 
+			 * existing message disk file cannot be deleted. In this way, surviving 
+			 * tasks can correctly redo the failed iteration based on messages from 
+			 * the previous iteration.
+			 * 
+			 * If the current iteration is successfully done, we delete all message 
+			 * disk files and empty "incomedBuffer" to save storage space.
+			 */
+			if (isInterrupted) {
+				for (int srcTaskId = 0; srcTaskId < taskNum; srcTaskId++) {
+					for (int bid = 0; bid < locBucNum; bid++) {
+						int taskToBlkIdx = srcTaskId * locBucNum + bid;
+						int numOfMsg = 0;
+						long bytesOfMsg = 0L;
+						if (incomedBuffer[taskToBlkIdx] != null) {
+							for (MsgRecord<M> msg: incomedBuffer[taskToBlkIdx]) {
+								numOfMsg++;
+								bytesOfMsg += msg.getMsgByte();
+							}
+							File dir = this.getMsgDirBlock(msgDataPreIteIncomedDir, bid);						
+							spillReceivedMsgToDisk(dir, srcTaskId, incomedBuffer[taskToBlkIdx], 
+									numOfMsg, bytesOfMsg);
+							incomedBuffer[taskToBlkIdx] = null;
+						}
+					}
+				}
+			} else {
+				int length = taskNum * locBucNum;
+				localFileOpt.deleteDir(msgDataPreIteIncomedDir);
+				for (int index = 0; index < length; index++) {
+					incomedBuffer[index] = null;
+				}
+			}
+		}
+		
+		/**
+		 * Under PUSH, all messages received at the interrupted iteration should be 
+		 * deleted because they will be re-received when recovering failures. 
+		 */
+		if (_curIteStyle==Constants.STYLE.PUSH && isInterrupted) {
+			localFileOpt.deleteDir(msgDataCurIteIncomingDir);
 		}
 	}
 	
@@ -869,7 +1061,7 @@ public class MsgDataServer<V, W, M, I> {
 	
 	/** Close {@link MsgDataServer}, mainly close some thread pools. */
 	public void close() {
-		if (this.bspStyle != Constants.STYLE.Pull) {
+		if (this.bspStyle != Constants.STYLE.PULL) {
 			this.locMemPullExecutor.shutdown();
 			this.locDiskPullExecutor.shutdown();
 		}
@@ -906,10 +1098,11 @@ public class MsgDataServer<V, W, M, I> {
 							index < incomedBuffer[srcPBID].length; index++) {
 						dstId = incomedBuffer[srcPBID][index].getDstVerId();
 						msgIndex = dstId - this.startIndex;
-						pre_cache[msgIndex].collect(incomedBuffer[srcPBID][index]);
+						pre_cache[msgIndex].collect(
+								incomedBuffer[srcPBID][index].clone());
 					}
 					addPreMsgNum(incomedBuffer[srcPBID].length);
-					incomedBuffer[srcPBID] = null;
+					//incomedBuffer[srcPBID] = null; //clear at clearAftIte
 				}
 				flag = true;
 			} catch (Exception e) {
@@ -952,12 +1145,15 @@ public class MsgDataServer<V, W, M, I> {
 					msgIndex = dstId - this.startIndex;
 					pre_cache[msgIndex].collect(message);
 					counter++;
+					message = null;
 				}
 				addPreMsgNum(counter);
 				addIOByte(2*fc.size());
 				
 				fc.close();
-				this.fileName.delete();
+				//delete all message files if and only if this iteration is 
+				//successfully done, please refer to clearAftIte().
+				//this.fileName.delete();
 				flag = true;
 			} catch(Exception e) {
 				LOG.error("[readMsgThread]: " + this.fileName, e);

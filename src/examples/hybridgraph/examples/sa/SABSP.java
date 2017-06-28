@@ -5,7 +5,7 @@ package hybridgraph.examples.sa;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Random;
+//import java.util.Random;
 import java.util.Map.Entry;
 
 import org.apache.hama.Constants.VBlockUpdateRule;
@@ -18,20 +18,21 @@ import hybridgraph.examples.sa.SAUserTool.SAMsgRecord;
 
 /**
  * SABSP.java implements {@link BSP}.
- * Note: messages of this algorithm can only be concatenated.
+ * Note: 1) messages of this algorithm can only be concatenated.
+ *       2) non-weighted directed graph.
  * 
  * Implement a simple but efficient simulating advertisement algorithm. 
  * The basic idea can refer to Zuhair Khayyat et al. 
  * "Mizan: A System for Dynamic Load Balancing in Large-scale Graph Processing", 
  * EuroSys 2013.
- * Here, we implement this application based on LPA:
+ * Here, we implement this algorithm based on LPA:
  * (1) an unique Integer, aId, is used to indicate an advertisement;
  * (2) each vertex maintain one advertisement 
  *     with the highest popularity among the vertex's incoming neighbors;
- * (3) each vertex is initialized with its vertex id (aid), 
- *     denoting the advertisement it maintains;
- * (4) at each superstep, each vertex update its value using a candidate advertisement 
- *     which satisfies the following constraints: 
+ * (3) a vertex value is initialized with the vertex id (aid), 
+ *     denoting the advertisement a user likes;
+ * (4) at each superstep, one vertex update its value using a candidate 
+ *     advertisement which satisfies the following constraints: 
  *     1) a maximum number of the vertex's incoming neighbors have, 
  *        i.e., the highest popularity,
  *     and, 
@@ -81,13 +82,14 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 			if (graph.getVerId() == SourceVerId) {
 				context.setRespond();
 			}
-		} else if (msg != null) {
+		} else if (msg!=null && (msg.getMsgValue()!=null) && (msg.getMsgValue().getAll()!=null)) {
 			//Otherwise, update value and send new advertisement or not.
 			Value canV = findNewValue(msg);
 			if ((graph.getVerValue().getAdverId()!=canV.getAdverId()) ||
 					(graph.getVerValue().getAdverIdNum()<canV.getAdverIdNum())) {
 				graph.setVerValue(canV);
 				context.setRespond();
+				context.setVertexAgg(1.0f);
 			}
 		}
 		
@@ -131,22 +133,31 @@ public class SABSP extends BSP<Value, Integer, MsgBundle, Integer> {
 		} //compute the number of each aId received from its neighbors
 		
 		int max = 0;
-		ArrayList<Integer> cands = new ArrayList<Integer>();
+		ArrayList<Integer> candidates = new ArrayList<Integer>();
 		for (Entry<Integer, Integer> e: recAIds.entrySet()) {
 			if (max < e.getValue()) {
 				max = e.getValue();
-				cands.clear();
-				cands.add(e.getKey());
+				candidates.clear();
+				candidates.add(e.getKey());
 			} else if (max == e.getValue()) {
-				cands.add(e.getKey());
+				candidates.add(e.getKey());
 			}
 		} //candidate aIds with maximum counter
 		
-		Random rd = new Random(); //random choose an aId from candidate labels
-		int idx = 0;
-		if (cands.size() > 2) {
-			idx = rd.nextInt(cands.size()-1);
+		//normally, random choose a label from candidate labels,
+		//but here, just select the label with the maximum label-value to 
+		//perform deterministic computations
+		int maxAid = 0;
+		for (int label: candidates) {
+			maxAid = Math.max(maxAid, label);
 		}
-		return new Value(cands.get(idx), max);
+		return new Value(maxAid, max);
+		
+/*		Random rd = new Random(); //random choose an aId from candidate labels
+		int idx = 0;
+		if (candidates.size() > 2) {
+			idx = rd.nextInt(candidates.size()-1);
+		}
+		return new Value(candidates.get(idx), max);*/
 	}
 }

@@ -186,6 +186,9 @@ public class MsgPack<V, W, M, I> implements Writable {
 		byte[] b = this.bos.toByteArray();
 		out.writeInt(b.length);
 		out.write(b);
+		
 		this.msgData = null;
+		this.bos = null;
+		b = null;
 	}
 }

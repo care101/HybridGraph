@@ -52,6 +52,7 @@ import org.apache.hama.ipc.MasterProtocol;
 import org.apache.hama.ipc.WorkerProtocol;
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.SuperStepReport;
+import org.apache.hama.myhama.util.MiniCounters;
 
 /**
  * BSPMaster is responsible to control all the groom servers and to manage bsp
@@ -139,7 +140,6 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
         			  for (TaskStatus ts : e.getKey().getTaskReports()) {
         				  ts.setRunState(TaskStatus.State.FAILED);
         				  jobs.get(ts.getJobId()).updateTaskStatus(ts.getTaskId(), ts);
-        				  LOG.warn(ts.getTaskId() + " fails");
         			  }
         			  
         			  ite.remove();
@@ -766,5 +766,10 @@ public class BSPMaster implements JobSubmissionProtocol, MasterProtocol, // Inte
   @Override
   public void sync(BSPJobID jobId, int parId) {
 	  jobs.get(jobId).sync(parId);
+  }
+  
+  @Override
+  public void miniSync(BSPJobID jobId, int parId, MiniCounters minicounters) {
+	  jobs.get(jobId).miniSync(parId, minicounters);
   }
 }

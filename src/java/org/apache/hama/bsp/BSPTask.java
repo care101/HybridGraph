@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
+import java.util.HashSet;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -25,6 +26,7 @@ import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
 import org.apache.hama.myhama.api.MsgRecord;
 import org.apache.hama.myhama.comm.CommunicationServer;
+import org.apache.hama.myhama.comm.MiniSuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepReport;
 import org.apache.hama.myhama.graph.GraphDataServer;
@@ -33,8 +35,10 @@ import org.apache.hama.myhama.graph.GraphDataServerMem;
 import org.apache.hama.myhama.graph.MsgDataServer;
 import org.apache.hama.myhama.util.Counters;
 import org.apache.hama.myhama.util.GraphContext;
+import org.apache.hama.myhama.util.MiniCounters;
 import org.apache.hama.myhama.util.TaskReportTimer;
 import org.apache.hama.myhama.util.Counters.COUNTER;
+import org.apache.hama.myhama.util.MiniCounters.MINICOUNTER;
 import org.apache.hama.myhama.util.TaskReportContainer;
 
 /**
@@ -87,13 +91,37 @@ public class BSPTask<V, W, M, I> extends Task {
 	private long memUsage = 0L;
 
 	/** Style of this job (PUSH, PULL, or HYBRID) */
-	private int bspStyle;
+	private Constants.STYLE bspStyle;
 	/** Style of each iteration, updated per iteration when bspStyle=HYBRID */
-	private int preIteStyle, curIteStyle; //pre=cur at the 1st iteration
+	private Constants.STYLE preIteStyle, curIteStyle; //pre=cur at the 1st iteration
 	/** Need to estimate the I/O cost (bytes) of PULL? */
 	private boolean estimatePullByte;
-	/** Skip local computations or not, during failure recovery? */
-	private boolean skipLocalComputation;
+	
+	/** when recovering failures, incoming messages need to be prepared or not */
+	private boolean prepareMsg;
+	
+	enum UpdateModel{
+		/** completely skip local computations */
+		CompleteSkip, 
+		/** normally run local computations */
+		NormalRun, 
+		/** when cur=PUSH in failure recovery, a restart task should update vertices 
+		 * and then push messages to restart tasks */
+		UpdateAndConfinedMsgPush, 
+		/** when cur=PUSH in failure recovery, a surviving task only needs to push 
+		 * messages to restart tasks without any update on local vertices */
+		ConfinedMsgPush
+	}
+	/** how to perform local computations, especially when recovering failures */
+	private UpdateModel updateModel;
+	private HashSet<Integer> failedTaskIds;
+	
+	/**
+	 * Whether or not to enable the mini-superstep function.
+	 */
+	private boolean miniSuperStep;
+	/** runtime statistics at the first mini-superstep */
+	private MiniCounters minicounters;
 	
 	public BSPTask() {
 		
@@ -164,27 +192,13 @@ public class BSPTask<V, W, M, I> extends Task {
 		preIteStyle = job.getStartIteStyle();
 		curIteStyle = preIteStyle;
 		estimatePullByte = false;
-		switch(bspStyle) {
-		case Constants.STYLE.Push:
-			LOG.info("initialize BspStyle = STYLE.Push, " +
-					"IteStyle = STYLE.Push");
-			break;
-		case Constants.STYLE.Pull:
-			LOG.info("initialize BspStyle = STYLE.Pull, " +
-					"IteStyle = STYLE.Pull");
-			break;
-		case Constants.STYLE.Hybrid:
-			if (preIteStyle == Constants.STYLE.Push) {
-				LOG.info("initialize BspStyle = STYLE.Hybrid," +
-						" IteStyle = STYLE.Push");
-			} else {
-				LOG.info("initialize BspStyle = STYLE.Hybrid," +
-						" IteStyle = STYLE.Pull");
-			}
-			break;
-		default:
-			throw new Exception("invalid bspStyle=" + bspStyle);
+		StringBuffer styleInfo = new StringBuffer("initialize BspStyle=");
+		styleInfo.append(bspStyle);
+		if (bspStyle == Constants.STYLE.Hybrid) {
+			styleInfo.append(", IteStyle=");
+			styleInfo.append(preIteStyle);
 		}
+		LOG.info(styleInfo);
 		
 		if (job.isGraphDataOnDisk()) {
 			graphDataServer = 
@@ -213,6 +227,11 @@ public class BSPTask<V, W, M, I> extends Task {
 		
 		report = new TaskReportContainer();
 		reportTimer = new TaskReportTimer(jobId, taskId, this, 3000);
+		
+		prepareMsg = true;
+		
+		miniSuperStep = job.isMiniSuperStep();
+		minicounters = new MiniCounters();
 	}
 	
 	/**
@@ -261,7 +280,8 @@ public class BSPTask<V, W, M, I> extends Task {
 		graphDataServer.loadGraphData(taskInfo, rawSplit, rawSplitClass);
 		
 		msgDataServer.init(job, taskInfo.getBlkLen(), taskInfo.getBlkNum(), 
-				graphDataServer.getLocBucMinIds(), parId, getRootDir(umbilical));
+				graphDataServer.getLocBucMinIds(), parId, 
+				getRootDir(umbilical), miniSuperStep);
 		graphDataServer.bindMsgDataServer(msgDataServer);
 		commServer.bindMsgDataServer(msgDataServer);
 		commServer.bindGraphData(graphDataServer, taskInfo.getBlkNum());
@@ -309,6 +329,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			  + " " + print("=", 14));
 		
 		counters.clearValues();
+		minicounters.clearValues();
 		taskAgg = 0.0f; //clear the local aggregator
 		report.clearBefIte();
 		memUsage = graphDataServer.getAndClearMemUsage()
@@ -317,20 +338,21 @@ public class BSPTask<V, W, M, I> extends Task {
 		graphDataServer.clearBefIte(iteNum, preIteStyle, 
 				curIteStyle, estimatePullByte);
 		graphDataServer.clearBefIteMemOrDisk(iteNum);
-		commServer.clearBefIte(iteNum, curIteStyle);
-		msgDataServer.clearBefIte(iteNum, preIteStyle, curIteStyle);
+		commServer.clearBefIte(iteNum);
+		msgDataServer.clearBefIte(iteNum, preIteStyle, curIteStyle, miniSuperStep);
 		taskInfo.clear();
-		setSkipLocalComputation(false);
 		if (iteNum%2 == 0) {
 			updateMemInfo();
 		}
 		
+		setPrepareMsgFlag(true);
+		setUpdateModel(UpdateModel.NormalRun);
+		
 		if (iteNum > 1) {
 			SuperStepCommand ssc = commServer.getNextSuperStepCommand();
-			LOG.info("superstep command: \n" + ssc.toString());
 			termination = false;
 			switch (ssc.getCommandType()) {
-			case RECOVERED:
+			case REDO:
 		  	case START:
 		  		graphDataServer.setUncompletedIteration(-1); //disable
 		  		break;
@@ -339,20 +361,32 @@ public class BSPTask<V, W, M, I> extends Task {
 		  		graphDataServer.setUncompletedIteration(-1); //disable
 		  		break;
 		  	case RECOVER:
+		  		failedTaskIds = ssc.getFailedTaskIds();
 		  		if (isRestart()) {
 		  			LOG.info("i am a restart task");
+		  			if (curIteStyle == Constants.STYLE.PUSH) {
+		  				setUpdateModel(UpdateModel.UpdateAndConfinedMsgPush);
+		  			}
 		  		} else {
 		  			LOG.info("i am a surviving task");
-		  			setSkipLocalComputation(true);
+		  			graphDataServer.setSkipMsgLoad(ssc.skipMsgLoad());
+		  			setPrepareMsgFlag(false); //skip message preparation
+		  			if (curIteStyle == Constants.STYLE.PUSH) {
+		  				setUpdateModel(UpdateModel.ConfinedMsgPush);
+		  			} else {
+		  				setUpdateModel(UpdateModel.CompleteSkip);
+		  			}
 		  		}
 		  		break;
-		  	case TERMITE:
+		  	case STOP:
 		  		termination = true;
 		  		break;
 		  	default:
 		  		throw new Exception("[Invalid Command Type] " 
 		  				+ ssc.getCommandType());
 			}
+			LOG.info("superstep command: \n" + ssc.toString() 
+					+ "\tupdateModel=" + getUpdateModel());
 		}
 		
 		LOG.info("enter the beginSuperStep() barrier");
@@ -379,9 +413,17 @@ public class BSPTask<V, W, M, I> extends Task {
 		this.jobServer.finishSuperStep(this.jobId, this.parId, ssr);
 		this.commServer.suspend();
 		LOG.info("leave the finishSuperStep() barrier");
-		
-		// Get the command from JobInProgress.
+		//Get the command from JobInProgress.
 		SuperStepCommand ssc = this.commServer.getNextSuperStepCommand();
+		//!!!invoked after the finishSuperStep() barrier before initializing pre&cur.
+		//if failure happens at the iteration where style is switching from PUSH to PULL, 
+		//no communication behavior -> findConnectionError()=false. Only work for 
+		//surviving tasks.
+		this.msgDataServer.clearAftIte(iteNum, preIteStyle, curIteStyle, ssc.findError());
+		if (ssc.findError()) {
+			this.graphDataServer.setUncompletedIteration(iteNum);
+		}//only work for surviving task
+		
 		this.jobAgg = ssc.getJobAgg();
 		
 		//this.preIteStyle = this.curIteStyle;
@@ -398,18 +440,15 @@ public class BSPTask<V, W, M, I> extends Task {
 			//since they have been logged in previous iterations.
 			if (!isRestart()) {
 				if ((ssc.getCommandType()==Constants.CommandType.RECOVER) 
-						|| (ssc.getCommandType()==Constants.CommandType.RECOVERED))
+						|| (ssc.getCommandType()==Constants.CommandType.REDO))
 				flagOpt = 2; //load flags
 			}
 		}
 		
 		this.graphDataServer.clearAftIte(iteNum, flagOpt);
 		this.estimatePullByte = ssc.isEstimatePullByte();
-		if (this.curIteStyle!=Constants.STYLE.Push &&
-				this.curIteStyle!=Constants.STYLE.Pull) {
-			throw new Exception("invalid curIteStyle=" + this.curIteStyle);
-		}
 		
+		System.gc();
 		LOG.info(print("=", 15) + " end superstep-" + iteNum
 			  + " " + print("=", 15) + "\n");
 	}
@@ -423,40 +462,6 @@ public class BSPTask<V, W, M, I> extends Task {
         LOG.info("enter the saveResultOver() barrier");
 		this.jobServer.dumpResult(jobId, parId, num);
 		LOG.info("leave the saveResultOver() barrier");
-	}
-	
-	/**
-	 * Whether to process this VBlock or not.
-	 * @param VBlockUpdateRule
-	 * @param msgNum
-	 * @return
-	 */
-	private boolean isUpdateVBlock(VBlockUpdateRule rule, long msgNum) 
-			throws Exception {
-		boolean update = false;
-		if (isSkipLocalComputation()) {
-			return update;
-		}
-		
-		switch (rule) {
-		case UPDATE:
-			update = true;
-			break;
-		case SKIP:
-			update = false;
-			break;
-		case MSG_DEPEND:
-			if (iteNum == 1) {
-				update = true;
-			} else {
-				update = msgNum>0L? true:false;
-			}
-			break;
-		default:
-			throw new Exception("Invalid update rule " + rule);
-		}
-		
-		return update;
 	}
 	
 	/**
@@ -478,27 +483,43 @@ public class BSPTask<V, W, M, I> extends Task {
 					this.commServer.getCommRouteTable());
 		context.setVBlockId(bucketId);
 		GraphRecord<V, W, M, I> graph = null;
-		this.graphDataServer.openGraphDataStream(parId, bucketId, iteNum);
+		this.graphDataServer.openGraphDataStream(bucketId, iteNum);
 		
 		while (this.graphDataServer.hasNextGraphRecord(bucketId)) {
+			graph = null;
 			graph = this.graphDataServer.getNextGraphRecord(bucketId);
 			context.reset();
 			if (isActive(bucketId, graph.getVerId())) {
 				MsgRecord<M> msg = this.msgDataServer.getMsg(bucketId, graph.getVerId());
-				context.initialize(graph, msg, this.jobAgg, true);
+				context.initialize(graph, msg, this.jobAgg, true, 
+						this.graphDataServer.getDegree(graph.getVerId()));
+				
 				this.bsp.update(context); //execute the local computation
 				this.taskAgg += context.getVertexAgg();
-				
 				this.counters.addCounter(COUNTER.Vert_Active, 1);
+				
 				if (context.isRespond()) {
 					this.counters.addCounter(COUNTER.Vert_Respond, 1);
+					this.minicounters.addCounter(MINICOUNTER.Msg_Estimate, 
+							this.bsp.estimateNumberOfMessages(context));
+					this.minicounters.addCounter(MINICOUNTER.Byte_RandReadVert, 
+							this.graphDataServer.getNumOfFragmentsMini(graph.getVerId()));
 					
-					if (this.preIteStyle==Constants.STYLE.Push && 
-							this.curIteStyle==Constants.STYLE.Push) {
+					//(this.miniSuperStep) to simulate original PUSH without mini-barriers
+					if (this.preIteStyle==Constants.STYLE.PUSH && 
+							this.curIteStyle==Constants.STYLE.PUSH && (!this.miniSuperStep)) {
 						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-						this.commServer.pushMsgData(msgs);
+						if (msgs != null) {
+							this.commServer.pushMsgData(graph.getVerId(), msgs, failedTaskIds, 
+									getUpdateModel()==UpdateModel.UpdateAndConfinedMsgPush);
+						}
+						msgs = null;
+						if (commServer.findConnectionError()) {
+							break;
+						}
 					}
 				}
+				msg = null;
 			} else {
 				context.voteToHalt();
 			}
@@ -507,9 +528,55 @@ public class BSPTask<V, W, M, I> extends Task {
 			this.counters.addCounter(COUNTER.Vert_Read, 1);
 		}
 		
-		this.graphDataServer.closeGraphDataStream(parId, bucketId, iteNum);
+		this.graphDataServer.closeGraphDataStream(bucketId, iteNum);
 		bucEndTime = System.currentTimeMillis();
 		return (bucEndTime-bucStaTime);
+	}
+	
+	/**
+	 * Whether to process this VBlock or not.
+	 * @param VBlockUpdateRule
+	 * @param msgNum
+	 * @return
+	 */
+	private boolean isUpdateVBlock(int bid, VBlockUpdateRule rule, long msgNum) 
+			throws Exception {
+		boolean update = false;
+		if (getUpdateModel()==UpdateModel.CompleteSkip 
+				|| getUpdateModel()==UpdateModel.ConfinedMsgPush) {
+			return update;
+		}
+		
+		switch (rule) {
+		case UPDATE:
+			update = true;
+			break;
+		case SKIP:
+			update = false;
+			break;
+		case MSG_DEPEND:
+			if (iteNum == 1) {
+				update = true;
+			} else {
+				update = msgNum>0? true:false;
+			}
+			break;
+		case MSG_ACTIVE_DEPENDED:
+			if (iteNum == 1) {
+				update = true;
+			} else {
+				if ((msgNum>0) || this.graphDataServer.isActiveOfVBlock(bid)) {
+					update = true;
+				} else {
+					update = false;
+				}
+			}
+			break;
+		default:
+			throw new Exception("Invalid update rule " + rule);
+		}
+		
+		return update;
 	}
 	
 	/**
@@ -544,6 +611,9 @@ public class BSPTask<V, W, M, I> extends Task {
 		
 		this.reportTimer.force();
 		this.bsp.superstepSetup(context);
+		if (this.curIteStyle == Constants.STYLE.PUSH) {
+			this.graphDataServer.setUseEdgesInPush(context.isUseEdgesInPush());
+		}
 		
 		hbInfo.setLength(0);
 		hbInfo.append("begin local computations");
@@ -552,28 +622,28 @@ public class BSPTask<V, W, M, I> extends Task {
 			hbInfo.append("\nVBlockId=" + bucketId); //loop real buckets
 			this.msgDataServer.clearBefBucket(); //prepare to collect msgs
 			msgTime = 0L;
-			if (!isSkipLocalComputation()) {
+			if (isPrepareMsg()) {
 				switch(bspStyle) {
-				case Constants.STYLE.Push: 
+				case PUSH: 
 					msgTime += msgDataServer.pullMsgFromLocal(bucketId, iteNum);
 					break;
-				case Constants.STYLE.Pull:
+				case PULL:
 					msgTime += commServer.pullMsgFromSource(bucketId, iteNum);
 					break;
-				case Constants.STYLE.Hybrid:
-					if (preIteStyle == Constants.STYLE.Push) {
+				case Hybrid:
+					switch(preIteStyle) {
+					case PUSH: 
 						msgTime += msgDataServer.pullMsgFromLocal(bucketId, iteNum);
-					} else if (preIteStyle == Constants.STYLE.Pull) {
+						break;
+					case PULL: 
 						msgTime += commServer.pullMsgFromSource(bucketId, iteNum);
-					} else {
-						throw new Exception("invalid preIteStyle=" + preIteStyle);
+						break;
 					}
 					break;
 				}
 			}
 			
 			if (commServer.findConnectionError()) {
-				graphDataServer.setUncompletedIteration(iteNum);
 				break;
 			}
 			
@@ -583,7 +653,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			
 			context.setVBlockId(bucketId);
 			this.bsp.vBlockSetup(context);;
-			if (isUpdateVBlock(context.getVBlockUpdateRule(), msgNum)) {
+			if (isUpdateVBlock(bucketId, context.getVBlockUpdateRule(), msgNum)) {
 				hbInfo.append("\tType=Normal");
 				compTime = runBucket(bucketId);
 				hbInfo.append("\tcompTime=" + compTime + "ms");
@@ -598,16 +668,47 @@ public class BSPTask<V, W, M, I> extends Task {
 		
 		this.taskInfo.setRespondVerNumBlks(this.graphDataServer.getRespondVerNumOfBlks());
 		
-		/** switch from Pull to Push in auto-version: first pull, and then push */
-		if (this.preIteStyle==Constants.STYLE.Pull &&
-				this.curIteStyle==Constants.STYLE.Push) {
-			this.jobServer.sync(jobId, parId);
-			this.commServer.suspend(); //ensure all tasks complete Pull
-			this.runIterationOnlyForPush();
-		}
-		
-		if (this.curIteStyle == Constants.STYLE.Push) {
-			this.commServer.pushFlushMsgData();
+		if (!commServer.findConnectionError()) {
+			//failure recovery or normal computation
+			//"!miniSuperStep" to simulate original PUSH without mini-barrier.
+			boolean miniPush = false;
+			if (miniSuperStep) {
+				this.minicounters.addCounter(MINICOUNTER.Byte_SeqReadVert, 
+						this.graphDataServer.getIOBytesOfReadVertsMini((iteNum+1)));
+				
+				GraphContext<V, W, M, I> tmpcontext = 
+					new GraphContext<V, W, M, I>(this.parId, this.job, 
+							this.iteNum, Constants.STYLE.PUSH, 
+							this.commServer.getCommRouteTable());
+				this.bsp.superstepSetup(tmpcontext);
+				this.minicounters.addCounter(MINICOUNTER.Byte_PushEdge, 
+						this.graphDataServer.getIOBytesOfPushEdgeMini((iteNum+1), 
+								tmpcontext.isUseEdgesInPush()));
+				this.minicounters.addCounter(MINICOUNTER.Byte_PullSeqRead, 
+						this.graphDataServer.getIOBytesOfPullSeqReadMini((iteNum+1)));
+				
+				
+				this.jobServer.miniSync(jobId, parId, minicounters);
+				this.commServer.suspend(); //ensure all tasks complete update()
+				//decision->PULL=>do nothing, PUSH=>switch, now assume that PUSH
+				MiniSuperStepCommand mssc = this.commServer.getNextMiniSuperStepCommand();
+				miniPush = (mssc.getStyle()==Constants.STYLE.PUSH);
+				if (miniPush) {
+					this.switchToPush();
+				}
+			} else if ((this.preIteStyle==Constants.STYLE.PULL &&
+					this.curIteStyle==Constants.STYLE.PUSH)) {
+				//switch from Pull to Push in auto-version: first pull, and then push
+				this.jobServer.sync(jobId, parId);
+				this.commServer.suspend(); //ensure all tasks complete Pull
+				this.switchToPush();
+			} else if (getUpdateModel() == UpdateModel.ConfinedMsgPush) {
+				this.switchToPush(); //surviving tasks, under PUSH, failure recovery
+			}
+			
+			if ((this.curIteStyle==Constants.STYLE.PUSH) || miniPush) {
+				this.commServer.pushFlushMsgData();
+			}
 		}
 		
 		iteEndTime = System.currentTimeMillis();
@@ -619,44 +720,71 @@ public class BSPTask<V, W, M, I> extends Task {
 	}
 	
 	/**
-	 * Run an iteration to generate and push messages based on current vertex values.
-	 * This is invoked when switching from Pull to Push.
+	 * Generate and then push messages based on currently updated vertex 
+	 * values under PULL. This is invoked when switching from Pull to PUSH.
 	 * The logic is similar to that of {@link GraphDataServer.getMsg()}, 
-	 * i.e., the Pull operation in the next iteration.
+	 * i.e., the Pull operation in the next iteration. 
+	 * Besides, in failure recovery, a surviving task will also invoke this 
+	 * function to only push messages to restart tasks without local updates 
+	 * under PUSH.
 	 * @throws Exception
 	 */
-	private void runIterationOnlyForPush() throws Exception {
+	private void switchToPush() throws Exception {
+		/** Confined pushing. If messages have been logged, they are directly pushed. */
+		if (job.getCheckPointPolicy()==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg 
+				&& getUpdateModel()==UpdateModel.ConfinedMsgPush) {
+			this.commServer.directAndConfinedPushMsg(failedTaskIds);
+			return;
+		}
+		/** Confined pushing. All messages are generated but only some of them are pushed. */
+		boolean flag = false;
+		if (getUpdateModel()==UpdateModel.UpdateAndConfinedMsgPush 
+				|| getUpdateModel()==UpdateModel.ConfinedMsgPush) {
+			flag = true;
+		}
+		
 		int bucNum = this.taskInfo.getBlkNum();
 		
-		int nextIteNum = iteNum + 1; //simulate the pull process of next superstep.
+		int nextIteNum = iteNum + 1; //simulate PULL in the next superstep.
 		this.graphDataServer.clearAftIte(iteNum, -1);
-		this.graphDataServer.clearOnlyForPush(nextIteNum);
+		this.graphDataServer.prepareSwitchToPush(nextIteNum, 
+				getUpdateModel()==UpdateModel.ConfinedMsgPush); //load logged flag file
 		
 		GraphRecord<V, W, M, I> graph = null;
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.parId, this.job, 
-					this.iteNum, this.curIteStyle, 
+					nextIteNum, this.curIteStyle, 
 					this.commServer.getCommRouteTable());
+		if (miniSuperStep) {
+			context = 
+				new GraphContext<V, W, M, I>(this.parId, this.job, 
+						this.iteNum, Constants.STYLE.PUSH, 
+						this.commServer.getCommRouteTable());
+			this.bsp.superstepSetup(context);
+			this.graphDataServer.setUseEdgesInMiniPush(context.isUseEdgesInPush());
+		}
+		
 		for (int bucketId = 0; bucketId < bucNum; bucketId++) {
-			if (this.graphDataServer.isDoOnlyForPush(bucketId, nextIteNum)) {
-				/** if not updated, will not read. If read it, 
-				 * it must be updated and saved as iteNum+1. */
-				this.graphDataServer.openGraphDataStreamOnlyForPush(
-						parId, bucketId, nextIteNum);
-
+			if (this.graphDataServer.isBlockUpdatedSwitchToPush(bucketId, nextIteNum)) {
+				this.graphDataServer.openGraphDataStreamSwitchToPush(bucketId, nextIteNum);
+				
 				while (this.graphDataServer.hasNextGraphRecord(bucketId)) {
-					graph = this.graphDataServer.getNextGraphRecordOnlyForPush(bucketId);
-					if (this.graphDataServer.isUpdatedOnlyForPush(
+					graph = null;
+					graph = this.graphDataServer.getNextGraphRecordSwitchToPush(bucketId);
+					if (this.graphDataServer.isVertUpdatedSwitchToPush(
 							bucketId, graph.getVerId(), nextIteNum)) {
 						context.reset();
-						context.initialize(graph, null, this.jobAgg, true);
+						context.initialize(graph, null, this.jobAgg, true, 
+								this.graphDataServer.getDegree(graph.getVerId()));
 						MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-						this.commServer.pushMsgData(msgs);
+						if (msgs != null) {
+							this.commServer.pushMsgData(graph.getVerId(), msgs, failedTaskIds, flag);
+						}
+						msgs = null;
 					}
 				}
 				
-				this.graphDataServer.closeGraphDataStreamOnlyForPush(
-						parId, bucketId, iteNum);
+				graphDataServer.closeGraphDataStreamSwitchToPush(bucketId, iteNum);
 			}
 		}
 	}
@@ -686,7 +814,7 @@ public class BSPTask<V, W, M, I> extends Task {
 			}
 			
 			GraphContext<V, W, M, I> context = 
-				new GraphContext<V, W, M, I>(this.parId, job, -1, -1, 
+				new GraphContext<V, W, M, I>(this.parId, job, -1, this.curIteStyle, 
 						this.commServer.getCommRouteTable());
 			this.bsp.taskSetup(context);
 			
@@ -697,11 +825,11 @@ public class BSPTask<V, W, M, I> extends Task {
 					break;
 				}
 				
-				/** Simulate an exception: only once. */
+				/** simulate an exception: only once. */
 				if (job.getFailedIteration()==iteNum 
 						&& parId>=(job.getNumBspTask()-job.getNumOfFailedTasks()) 
 						&& !isRestart()) {
-					throw new Exception("a simulated exception");
+					throw new Exception("a simulated exception which happens one time");
 				}
 				runIteration(); //run one iteration
 				
@@ -718,7 +846,7 @@ public class BSPTask<V, W, M, I> extends Task {
 		} finally {
 			LOG.info("shutdown in progress...");
 			GraphContext<V, W, M, I> context = 
-				new GraphContext<V, W, M, I>(this.parId, job, -1, -1, 
+				new GraphContext<V, W, M, I>(this.parId, job, -1, this.curIteStyle, 
 						this.commServer.getCommRouteTable());
 			this.bsp.taskCleanup(context);
 			
@@ -755,10 +883,11 @@ public class BSPTask<V, W, M, I> extends Task {
 	private void updateCounters() throws Exception {
 		/** actual I/O bytes */
 		this.counters.addCounter(COUNTER.Byte_Actual, 
-				this.commServer.getIOByte());
-		this.counters.addCounter(COUNTER.Byte_LOG, 
-				this.commServer.getIOByteOfLoggedMsg());
-		//LOG.info("bytes of logging messages are: " + this.commServer.getIOByteOfLoggedMsg());
+				this.commServer.getIOByte()); //including io bytes of load logged messages if any
+		this.counters.addCounter(COUNTER.Byte_Actual, 
+				this.commServer.getIOByteOfLoggedMsg()); //io bytes of logging messages
+		this.counters.addCounter(COUNTER.Byte_Actual, 
+				this.graphDataServer.getLocFlagIOByte()); //io bytes of reading/logging flags
 		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.graphDataServer.getLocVerIOByte());
 		this.counters.addCounter(COUNTER.Byte_Actual, 
@@ -767,6 +896,28 @@ public class BSPTask<V, W, M, I> extends Task {
 				this.graphDataServer.getLocAdjEdgeIOByte());
 		this.counters.addCounter(COUNTER.Byte_Actual, 
 				this.msgDataServer.getLocMsgIOByte());
+		
+		
+		this.counters.addCounter(COUNTER.Byte_LOG, 
+				this.commServer.getIOByteOfLoggedMsg()); //io bytes of logging messages
+		//LOG.info("bytes of logging messages are: " + this.commServer.getIOByteOfLoggedMsg());
+		SuperStepCommand ssc = commServer.getNextSuperStepCommand();
+		if (this.iteNum>=2 && ssc.getCommandType()==Constants.CommandType.RECOVER) {
+			if (isRestart()) {
+				this.counters.addCounter(COUNTER.Byte_LOG, 
+						this.graphDataServer.getLocFlagIOByte()); //io bytes of logging flags
+			} //else, it indicates io bytes of loading flags
+		} else {
+			this.counters.addCounter(COUNTER.Byte_LOG, 
+					this.graphDataServer.getLocFlagIOByte()); //io bytes of logging flags
+		}
+		
+		
+		this.counters.addCounter(COUNTER.Byte_Write, 
+				this.graphDataServer.getLocVerWriteIOByte());
+		this.counters.addCounter(COUNTER.Byte_Write, 
+				this.counters.getCounter(COUNTER.Byte_LOG));
+		
 		
 		/** bytes of style.Push, 
 		 * including vertices, messages, and edges in the adjacency list */
@@ -838,12 +989,20 @@ public class BSPTask<V, W, M, I> extends Task {
 		return umbilical.getLocalTaskDir(jobId, taskId);
 	}
 	
-	private void setSkipLocalComputation(boolean flag) {
-		skipLocalComputation = flag;
+	private void setPrepareMsgFlag(boolean flag) {
+		prepareMsg = flag;
 	}
 	
-	private boolean isSkipLocalComputation() {
-		return skipLocalComputation;
+	private boolean isPrepareMsg() {
+		return prepareMsg;
+	}
+	
+	private void setUpdateModel(UpdateModel model) {
+		updateModel = model;
+	}
+	
+	private UpdateModel getUpdateModel() {
+		return updateModel;
 	}
 	
 	@Override

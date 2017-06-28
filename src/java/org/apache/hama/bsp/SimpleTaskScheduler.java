@@ -116,7 +116,10 @@ class SimpleTaskScheduler extends TaskScheduler {
 					//wheather or not there are enough task slots
 					ClusterStatus cs;
 					int runningTasks = 0;
+					int retry = 0;
+					boolean ready = false;
 					while (true) {
+						retry++;
 						try {
 							Thread.sleep(2000);
 						} catch (Exception e) {
@@ -126,11 +129,24 @@ class SimpleTaskScheduler extends TaskScheduler {
 						runningTasks = cs.getNumOfRunningTasks();
 						if (j.getNumBspTask() <= 
 							(cs.getNumOfTaskSlots()-runningTasks)) {
+							ready = true;
+							break;
+						}
+						
+						if (retry >= 10) {
+							LOG.warn(j.getJobID() + " scheduling aborts after trying " 
+									+ retry + " times.");
 							break;
 						}
 						LOG.warn(j.getNumBspTask() + " task slots are required, but only " 
-								+ (cs.getNumOfTaskSlots()-runningTasks) + " are available");
+								+ (cs.getNumOfTaskSlots()-runningTasks) + " are available, try " 
+								+ retry + " times...");
 					}
+					if (!ready) {
+						j.failedJob();
+						continue;
+					}
+					
 					queueManager.addJob(PROCESSING_QUEUE, j);
 					LOG.info(j.getJobID() 
 							+ " is moved to Processing-Queue");

@@ -49,11 +49,11 @@ public abstract class GraphDataServer<V, W, M, I> {
 	protected int taskId;
 	
 	/** the model of BSP implementation: b-pull, push, or hybrid */
-	protected int bspStyle;
+	protected Constants.STYLE bspStyle;
 	/** the actual model of the previous superstep */
-	protected int preIteStyle;
+	protected Constants.STYLE preIteStyle;
 	/** the actual model of the current superstep */
-	protected int curIteStyle;
+	protected Constants.STYLE curIteStyle;
 	/** edges in the adjacency list is required at this superstep? */
 	protected boolean loadAdjEdge;
 	protected boolean loadGraphInfo;
@@ -77,7 +77,8 @@ public abstract class GraphDataServer<V, W, M, I> {
 	
 	protected GraphRecord<V, W, M, I> graph_rw;
 	protected Long read_adj_edge; //read edges in the adjacency list
-	protected Long io_byte_ver; //io cost of updating vertex values
+	protected Long io_byte_ver; //io cost of updating vertex values (read & write)
+	protected Long io_byte_ver_write; //io cost of writing vertex values (write)
 	protected Long io_byte_info; //io cost of reading graphInfo
 	protected Long io_byte_adj; //io cost of reading edges in adjacency list
 	protected int[] locMinVerIds;
@@ -100,6 +101,21 @@ public abstract class GraphDataServer<V, W, M, I> {
 	
 	protected int uncompletedIteration; //location where failures happen
 	protected MsgDataServer msgDataServer;
+	
+	/**
+	 * Skip the read operation of logged messages when recovering 
+	 * failures with ConfinedRecoveryLogMsg. This flag is true only 
+	 * for the first recovery superstep when pre=PUSH, because no 
+	 * message is archived into the PULL directory at the previous 
+	 * iteration. Instead of directly loading messages, in this case, 
+	 * outgoing messages are re-generated using PULL and then returned. 
+	 */
+	protected boolean skipMsgLoad;
+	
+	protected long io_byte_flags; //for failure recovery
+	
+	protected int[] degree; //degree per vertex; out-degree for directed graph
+	protected int[] fragments; //# of fragments per vertex (PULL/Hybrid)
 	
 	@SuppressWarnings("unchecked")
 	public GraphDataServer(int _taskId, BSPJob _job) {
@@ -181,18 +197,21 @@ public abstract class GraphDataServer<V, W, M, I> {
 		
 		int verNum = this.verBlkMgr.getVerNum();
 		actFlag = new boolean[verNum]; Arrays.fill(actFlag, true);
+		degree = new int[verNum];
+		fragments = new int[verNum];
 		resFlag = new boolean[2][];
 		resFlag[0] = new boolean[verNum]; Arrays.fill(resFlag[0], false);
 		resFlag[1] = new boolean[verNum]; Arrays.fill(resFlag[1], false);
 		
 		this.io_byte_ver = 0L;
+		this.io_byte_ver_write = 0L;
 		this.io_byte_info = 0L;
 		this.io_byte_adj = 0L;
 		this.read_adj_edge = 0L;
 		this.memUsedByMsgPull = new long[taskNum];
 		
 		/** only used in pull or hybrid */
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			this.edgeBlkMgr = new EdgeHashBucMgr(taskNum, blkNumTask);
 			int sumOfBlkNum = 0;
 			for (int blk: blkNumTask) {
@@ -315,6 +334,10 @@ public abstract class GraphDataServer<V, W, M, I> {
 		return this.io_byte_ver;
 	}
 	
+	public long getLocVerWriteIOByte() {
+		return this.io_byte_ver_write;
+	}
+	
 	/**
 	 * Return local io_bytes of reading graphInfo, used for Pull.
 	 * @return
@@ -330,6 +353,10 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 */
 	public long getLocAdjEdgeIOByte() {
 		return this.io_byte_adj;
+	}
+	
+	public long getLocFlagIOByte() {
+		return this.io_byte_flags;
 	}
 	
 	/**
@@ -477,15 +504,16 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 * 
 	 * @param _iteNum
 	 */
-	public void clearBefIte(int _iteNum, int _preIteStyle, int _curIteStyle, 
-			boolean estimate) throws Exception {
+	public void clearBefIte(int _iteNum, Constants.STYLE _preIteStyle, 
+			Constants.STYLE _curIteStyle, boolean estimate) throws Exception {
+		this.skipMsgLoad = false;
 		this.preIteStyle = _preIteStyle;
 		this.curIteStyle = _curIteStyle;
 		this.estimatePullByteFlag = estimate;
 		this.estimatePullByte = 0L;
 		this.estimatePushByte = 0L;
-		if (_curIteStyle == Constants.STYLE.Push) {
-			if (_preIteStyle == Constants.STYLE.Pull) {
+		if (_curIteStyle == Constants.STYLE.PUSH) {
+			if (_preIteStyle == Constants.STYLE.PULL) {
 				//pre=pull&&cur=push.
 				this.loadAdjEdge = this.job.isUseAdjEdgeInUpdate();
 				this.loadGraphInfo = this.job.isUseGraphInfoInUpdate();
@@ -494,7 +522,7 @@ public abstract class GraphDataServer<V, W, M, I> {
 				this.loadAdjEdge = true;
 				this.loadGraphInfo = false;
 			}
-		} else if (_curIteStyle == Constants.STYLE.Pull) {
+		} else if (_curIteStyle == Constants.STYLE.PULL) {
 			//pre=pull&&cur=pull, or pre=push&&cur=pull.
 			this.loadAdjEdge = this.job.isUseAdjEdgeInUpdate();
 			this.loadGraphInfo = this.job.isUseGraphInfoInUpdate();
@@ -502,14 +530,13 @@ public abstract class GraphDataServer<V, W, M, I> {
 			throw new Exception("invalid _curIteStyle=" 
 					+ _curIteStyle + " at iteNum=" + _iteNum);
 		}
-		String pre = this.preIteStyle==Constants.STYLE.Pull? "pull":"push";
-		String cur = this.curIteStyle==Constants.STYLE.Pull? "pull":"push";
-		LOG.info("\nIteStyle=[pre:" + pre + " cur:" + cur 
+		
+		LOG.info("\nIteStyle=[pre:" + this.preIteStyle + " cur:" + this.curIteStyle 
 				+ "], loadAdjEdge=" + this.loadAdjEdge 
 				+ ", loadGraphInfo=" + this.loadGraphInfo);
 		
 		/** clear the message buffer used in pull @getMsg */
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			Arrays.fill(packageVersion, 0);
 			Arrays.fill(proMsgOver, false);
 			for (int i = 0; i < this.commRT.getTaskNum(); i++) {
@@ -520,9 +547,30 @@ public abstract class GraphDataServer<V, W, M, I> {
 		
 		this.verBlkMgr.clearBefIte(_iteNum);
 		this.io_byte_ver = 0L;
+		this.io_byte_ver_write = 0L;
 		this.io_byte_info = 0L;
 		this.io_byte_adj = 0L;
 		this.read_adj_edge = 0L;
+	}
+	
+	public void setUseEdgesInPush(boolean flag) {
+		if (this.curIteStyle == Constants.STYLE.PUSH) {
+			if (this.loadAdjEdge != flag) {
+				this.loadAdjEdge = flag;
+				LOG.info("!!!changed: loadAdjEdge=" + flag);
+			}
+		}
+	}
+	
+	public void setUseEdgesInMiniPush(boolean flag) {
+		if (this.loadAdjEdge != flag) {
+			this.loadAdjEdge = flag;
+			LOG.info("!!!mini-push changed: loadAdjEdge=" + flag);
+		}
+	}
+	
+	public void setSkipMsgLoad(boolean flag) {
+		this.skipMsgLoad = flag;
 	}
 	
 	/** 
@@ -540,11 +588,15 @@ public abstract class GraphDataServer<V, W, M, I> {
 		this.verBlkMgr.clearAftIte(_iteNum, flagOpt);
 	}
 	
-	/** 
-	 * Just used by {@link BSPTask.runInterationOnlyForPush()} 
-	 * 
-	 **/
-	public void clearOnlyForPush(int _iteNum) {
+	/**
+	 * Just used by {@link BSPTask.switchToPush()} when switching from PULL 
+	 * to PUSH, or only pushing messages to restart tasks without local udpates 
+	 * for surviving tasks in failure recovery. For the latter (loadFlag is 
+	 * true), responding flag needs to be loaded in this function.
+	 * @param _iteNum
+	 * @param loadFlag true for surviving tasks when recovering failures under PUSH.
+	 */
+	public void prepareSwitchToPush(int _iteNum, boolean loadFlag) throws Exception {
 		this.verBlkMgr.clearBefIte(_iteNum);
 	}
 	
@@ -563,44 +615,43 @@ public abstract class GraphDataServer<V, W, M, I> {
 	}
 	
 	/** 
-	 * Only open vertex value file and adj edge file, read-only.
-	 * Just used by {@link BSPTask}.runIterationOnlyForPush
-	 * 
+	 * Only open vertex value file and adj edge file in the read-only model. 
+	 * The target files have already been created when running PULL at this 
+	 * iteration since the function "isBlockUpdatedSwitchToPush()" returns 
+	 * true. In another word, this function will not be called if target files 
+	 * do not exist (i.e., no vertex is updated in PULL). 
+	 * Just used by {@link BSPTask}.switchToPush
 	 * */
-	public abstract void openGraphDataStreamOnlyForPush(int _parId, int _bid, 
-			int _iteNum) throws Exception;
+	public abstract void openGraphDataStreamSwitchToPush(int _bid, int _iteNum) 
+			throws Exception;
 	
 	/** 
-	 * Just used by {@link BSPTask}.runIterationOnlyForPush(). 
+	 * Just used by {@link BSPTask}.switchToPush(). 
 	 **/
-	public abstract void closeGraphDataStreamOnlyForPush(int _parId, int _bid, 
-			int _iteNum) throws Exception;
+	public abstract void closeGraphDataStreamSwitchToPush(int _bid, int _iteNum) 
+			throws Exception;
 	
 	/**
-	 * Just used by {@link BSPTask}.runIterationOnlyForPush().
+	 * Just used by {@link BSPTask}.switchToPush().
 	 * @param _bid
 	 * @return
 	 * @throws Exception
 	 */
-	public abstract GraphRecord<V, W, M, I> getNextGraphRecordOnlyForPush(int _bid) 
+	public abstract GraphRecord<V, W, M, I> getNextGraphRecordSwitchToPush(int _bid) 
 			throws Exception;
 	
 	/**
 	 * Initialize the file variables according to the bucketId.
 	 * Before read vertexData, this function must be invoked.
 	 * 
-	 * @param String bucketDirName
-	 * @param String bucketFileName
 	 */
-	public abstract void openGraphDataStream(int _parId, int _bid, int _iteNum) 
-		throws Exception;
+	public abstract void openGraphDataStream(int _bid, int _iteNum) throws Exception;
 	
 	/**
 	 * Close the read stream.
 	 * This function must be invoked after finishing reading.
 	 */
-	public abstract void closeGraphDataStream(int _parId, int _bid, int _iteNum) 
-		throws Exception;
+	public abstract void closeGraphDataStream(int _bid, int _iteNum) throws Exception;
 	
 	/**
 	 * If the next {@link GraphRecord} exists, return true, else return false.
@@ -609,6 +660,29 @@ public abstract class GraphDataServer<V, W, M, I> {
 	 */
 	public boolean hasNextGraphRecord(int _bid) {
 		return this.verBlkMgr.getVerBlkBeta(_bid).hasNext();
+	}
+	
+	/**
+	 * Get the active status of the given VBlock. 
+	 * This VBlock is active if any vertex belonging to it is active.
+	 * @param _bid
+	 * @return
+	 */
+	public boolean isActiveOfVBlock(int _bid) {
+		boolean result = false;
+		int head = 
+			this.verBlkMgr.getVerBlkBeta(_bid).getVerMinId() - this.verBlkMgr.getVerMinId();
+		int tail = 
+			this.verBlkMgr.getVerBlkBeta(_bid).getVerMaxId() - this.verBlkMgr.getVerMinId() + 1;
+		
+		for (int idx = head; idx < tail; idx++) {
+			if (actFlag[idx]) {
+				result = true;
+				break;
+			}
+		}
+		
+		return result;
 	}
 	
 	/**
@@ -630,6 +704,51 @@ public abstract class GraphDataServer<V, W, M, I> {
 	public abstract GraphRecord<V, W, M, I> getNextGraphRecord(int _bid) 
 			throws Exception;
 	
+	public int getDegree(int _vid) {
+		return degree[_vid-verBlkMgr.getVerMinId()];
+	}
+	
+	/**
+	 * Now only work for mini-superstep to estimate io bytes before 
+	 * generating messages. 
+	 * @param _vid
+	 * @return
+	 */
+	public int getNumOfFragmentsMini(int _vid) {
+		return fragments[_vid-verBlkMgr.getVerMinId()];
+	}
+	
+	/**
+	 * Now only work for mini-superstep to estimate io bytes before 
+	 * generating messages. 
+	 * @param _iteNum
+	 * @return
+	 */
+	public long getIOBytesOfReadVertsMini(int _iteNum) {
+		return 0;
+	}
+	
+	/**
+	 * Now only work for mini-superstep to estimate io bytes before 
+	 * generating messages.
+	 * @param _iteNum 
+	 * @param _loadAdjEdge
+	 * @return
+	 */
+	public long getIOBytesOfPushEdgeMini(int _iteNum, boolean _loadAdjEdge) {
+		return 0;
+	}
+	
+	/**
+	 * Now only work for mini-superstep to estimate io bytes before 
+	 * generating messages.
+	 * @param _iteNum 
+	 * @return
+	 */
+	public long getIOBytesOfPullSeqReadMini(int _iteNum) {
+		return 0;
+	}
+	
 	/**
 	 * Write a {@link GraphRecord} onto the local disk 
 	 * and update the corresponding flag.
@@ -639,12 +758,10 @@ public abstract class GraphDataServer<V, W, M, I> {
 			boolean _acFlag, boolean _upFlag) throws Exception;
 	
 	/** 
-	 * Whether skip this bucket or not. If no vertices are updated, false, 
-	 * otherwise true.
-	 * Just used by {@link BSPTask.runSimIterationOnlyForPush()} 
-	 * 
+	 * Is there any vertex updated when running PULL at this iteration?
+	 * Just used by {@link BSPTask.switchToPush()} 
 	 **/
-	public boolean isDoOnlyForPush(int bid, int iteNum) {
+	public boolean isBlockUpdatedSwitchToPush(int bid, int iteNum) {
 		VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
 		
 		int type = iteNum % 2;
@@ -652,11 +769,10 @@ public abstract class GraphDataServer<V, W, M, I> {
 	}
 	
 	/** 
-	 * Is this vertex is updated?
-	 * Just used by {@link BSPTask.runIterationOnlyForPush()} 
-	 * 
+	 * Is this vertex updated when running PULL at this iteration?
+	 * Just used by {@link BSPTask.switchToPush()} 
 	 **/
-	public boolean isUpdatedOnlyForPush(int bid, int vid, int iteNum) {
+	public boolean isVertUpdatedSwitchToPush(int bid, int vid, int iteNum) {
 		return resFlag[iteNum%2][vid-this.verBlkMgr.getVerMinId()];
 	}
 	

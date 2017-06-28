@@ -156,11 +156,22 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 		}
 		
-		public void openVerReadHandler(File f_v_r) throws IOException {
-			raf_v_r = new RandomAccessFile(f_v_r, "r");
-			fc_v_r = raf_v_r.getChannel();
-			mbb_v_r = fc_v_r.map(FileChannel.MapMode.READ_ONLY, 0L, 
-					fc_v_r.size());
+		/**
+		 * Return true if the given exists, false otherwise.
+		 * @param f_v_r
+		 * @return
+		 * @throws IOException
+		 */
+		public boolean openVerReadHandler(File f_v_r) throws IOException {
+			if (!f_v_r.exists()) {
+				return false;
+			} else {
+				raf_v_r = new RandomAccessFile(f_v_r, "r");
+				fc_v_r = raf_v_r.getChannel();
+				mbb_v_r = fc_v_r.map(FileChannel.MapMode.READ_ONLY, 0L, 
+						fc_v_r.size());
+				return true;
+			}
 		}
 		
 		public MappedByteBuffer getVerReadHandler() {
@@ -455,6 +466,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				fc_adj.close();
 				raf_adj.close();
 			}
+			gBuf = null;
 			return true;
 		}
 	}
@@ -498,6 +510,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 			
 			fc.close(); raf.close();
+			gBuf = null;
 			return true;
 		}
 	}
@@ -552,7 +565,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		int taskNum = this.commRT.getTaskNum();
 		
 		/** only used in pull or hybrid */
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			edgeBuf = 
 				(GraphRecord<V, W, M, I>[][][]) new GraphRecord[taskNum][][];
 			edgeBufLen = new int[taskNum][];
@@ -608,8 +621,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 			
 			if (edgeBufLen[tid][bid] >= Buf_Size) {
-				if (this.spillEdgeThRe!=null 
-						&& this.spillEdgeThRe.isDone()) {
+				if ((this.spillEdgeThRe!=null) 
+						&& (this.spillEdgeThRe.isDone())) {
 					this.spillEdgeThRe.get();
 				}
 				
@@ -618,11 +631,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 							tid, bid, edgeBufLen[tid][bid], 
 							edgeBufByte[tid][bid], edgeBuf[tid][bid]));
 				
+				edgeBuf[tid][bid] = null;
 				edgeBuf[tid][bid] = 
 					(GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 				edgeBufLen[tid][bid] = 0;
 				edgeBufByte[tid][bid] = 0L;
 			}
+			graph = null;
+			frags = null;
 		}
 	}
 	
@@ -645,8 +661,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		for (int i = 0; i < taskNum; i++) {
 			for (int j = 0; j < bucNumTask[i]; j++) {
 				if (edgeBufLen[i][j] > 0) {
-					if (this.spillEdgeThRe!=null 
-							&& this.spillEdgeThRe.isDone()) {
+					if ((this.spillEdgeThRe!=null) 
+							&& (this.spillEdgeThRe.isDone())) {
 						this.spillEdgeThRe.get();
 					}
 					
@@ -658,6 +674,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				}
 			}
 		}
+		
 		edgeBuf = null;
 		edgeBufLen = null;
 		edgeBufByte = null;
@@ -674,7 +691,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		adjBufByte += graph.getEdgeByte();
 		
 		if (verBufLen >= Buf_Size) {
-			if (this.spillVerThRe != null && this.spillVerThRe.isDone()) {
+			if ((this.spillVerThRe!=null) && (this.spillVerThRe.isDone())) {
 				this.spillVerThRe.get();
 			}
 			
@@ -683,6 +700,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 						new SpillVertexThread(_bid, verBufLen, verBuf, 
 								valBufByte, infoBufByte, adjBufByte));
 			
+			verBuf = null;
+			graph = null;
 			verBuf = (GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 			verBufLen = 0;
 			valBufByte = 0;
@@ -701,17 +720,19 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	}
 	
 	private void flushVerBuf(int _bid) throws Exception {
+		if ((this.spillVerThRe!=null) && (this.spillVerThRe.isDone())) {
+			this.spillVerThRe.get();
+		}
+		
 		if (verBufLen > 0) {
-			if (this.spillVerThRe != null && this.spillVerThRe.isDone()) {
-				this.spillVerThRe.get();
-			}
-			
 			this.spillVerThRe = 
 				this.spillVerTh.submit(
 						new SpillVertexThread(_bid, verBufLen, verBuf, 
 								valBufByte, infoBufByte, adjBufByte));
 			this.spillVerThRe.get();
 		}
+		
+		verBuf = null;
 		verBuf = (GraphRecord<V, W, M, I>[]) new GraphRecord[Buf_Size];
 		verBufLen = 0;
 		valBufByte = 0;
@@ -745,8 +766,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 			graph.parseGraphData(input.getCurrentKey().toString(), 
 					input.getCurrentValue().toString());
-			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
+			edgeNum += graph.getEdgeNum();
+			degree[vid-this.verBlkMgr.getVerMinId()] = graph.getEdgeNum();
 			curBid = commRT.getDstLocalBlkIdx(taskId, vid);
 			bid = bid<0? curBid:bid;
 			graph.setSrcBlkId(curBid);
@@ -757,14 +779,17 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 			putIntoVerBuf(graph, curBid);
 			
-			if (this.bspStyle != Constants.STYLE.Push) {
+			if (this.bspStyle != Constants.STYLE.PUSH) {
 				ArrayList<EdgeFragmentEntry<V,W,M,I>> frags = 
 					graph.decompose(commRT, taskInfo);
+				fragments[vid-this.verBlkMgr.getVerMinId()] = frags.size();
 				putIntoEdgeBuf(frags);
+				frags = null;
 			}
+			graph = null;
 		}
 		clearVerBuf(curBid);
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			clearEdgeBuf();
 		}
 		this.verBlkMgr.setEdgeNum(edgeNum);
@@ -783,7 +808,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		taskInfo.setEdgeNum(edgeNum);
 		taskInfo.setLoadByte(this.loadByte);
 		this.memUsedByMetaData = this.verBlkMgr.getMemUsage();
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			this.memUsedByMetaData += this.edgeBlkMgr.getMemUsage();
 		}
 		
@@ -851,7 +876,13 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		try {
 			if ((job.getCheckPointPolicy()
 					==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) 
-					&& (getUncompletedIteration()!=-1)) {
+					&& (getUncompletedIteration()!=-1) 
+					&& (!skipMsgLoad)) {
+				//For the third condition: when restarting from PUSH, the first restart 
+				//superstep command is pre=PULL&cur=PUSH/PULL, in order to collect required 
+				//messages for updating vertices under cur=PUSH. Because no message is 
+				//archived into the PULL directory, the required messages must be re-generated, 
+				//instead of being loaded from local disks.
 				return packMsg(_toTaskId, _toBlkId);
 			}
 			
@@ -860,7 +891,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			int fromVerNum = this.edgeBlkMgr.getBucVerNum(_toTaskId, _toBlkId);
 			int type = _iteNum % 2; //compute the type to read upFlag and upFlagBuc
 			if (fromVerNum == 0) {
-				MsgPack pack = new MsgPack<V, W, M, I>(this.userTool); 
+				MsgPack<V, W, M, I> pack = new MsgPack<V, W, M, I>(this.userTool); 
 				pack.setOver();
 				return pack;
 				//there is no edge target to _tid
@@ -934,7 +965,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		int verMinId = this.verBlkMgr.getVerMinId();
 		GraphContext<V, W, M, I> context = 
 			new GraphContext<V, W, M, I>(this.taskId, this.job, 
-					_iteNum, this.preIteStyle, this.commRT);
+					_iteNum, Constants.STYLE.PULL/*this.preIteStyle*/, this.commRT);
 		GraphRecord<V, W, M, I> graph = this.userTool.getGraphRecord();
 		
 		/** recover the scenario */
@@ -982,22 +1013,24 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			statis[0] += graph.getVerByte(); //io for value
 			statis[6] += graph.getVerByte(); 
 			context.reset();
-			context.initialize(graph, null, 0.0f, true);
+			context.initialize(graph, null, 0.0f, true, getDegree(graph.getVerId()));
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-			
-			statis[3] += msgs.length; //msg_pro
-			for (MsgRecord<M> msg: msgs) {
-				int index = msg.getDstVerId() - dstVerMinId;
-				if (cache[index] == null) {
-					cache[index] = msg;
-					statis[4]++; //msg_rec
-					statis[5]++; //dstVerHasMsg
-				} else {
-					cache[index].collect(msg);
-					if (!this.isAccumulated) {
+			if (msgs != null) {
+				statis[3] += msgs.length; //msg_pro
+				for (MsgRecord<M> msg: msgs) {
+					int index = msg.getDstVerId() - dstVerMinId;
+					if (cache[index] == null) {
+						cache[index] = msg;
 						statis[4]++; //msg_rec
+						statis[5]++; //dstVerHasMsg
+					} else {
+						cache[index].collect(msg);
+						if (!this.isAccumulated) {
+							statis[4]++; //msg_rec
+						}
 					}
 				}
+				msgs = null;
 			}
 				
 			if (!this.isAccumulated && statis[4]>this.job.getMsgPackSize()) {
@@ -1023,7 +1056,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 		int toGlobalBlkIdx = 
 			this.commRT.getJobInformation().getGlobalBlkIdx(toTaskId, toBlkId);
-		int numOfLoggedPacks = msgDataServer.getNumberOfMsgPacks(toGlobalBlkIdx);
+		int numOfLoggedPacks = 
+			msgDataServer.getNumberOfMsgPacks(toGlobalBlkIdx, Constants.STYLE.PULL);
 		if (numOfLoggedPacks == 0) {
 			msgPack.setOver();
 		} else {
@@ -1031,13 +1065,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				ByteArrayOutputStream messages = 
 					new ByteArrayOutputStream(this.job.getMsgPackSize());
 				int vCounter = 
-					msgDataServer.loadOutgoingMsg(messages, toGlobalBlkIdx, version, statis);
+					msgDataServer.loadOutgoingMsg(messages, toGlobalBlkIdx, version, 
+							statis, Constants.STYLE.PULL);
 				this.msgBuf[toTaskId].add(messages);
 				this.msgBufLen[toTaskId].add(vCounter);
-			}  
+			}
 		}
 		proMsgOver[toTaskId] = true;
-		msgPack.setEdgeInfo(statis[0], statis[6], statis[1], statis[2]);
+		msgPack.setEdgeInfo(statis[0], 0L, 0L, 0L);
 		
 		if (this.msgBuf[toTaskId].size() > 0) {
 			msgPack.setRemote(this.msgBuf[toTaskId].remove(0), 
@@ -1078,8 +1113,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				
 				if ((job.getCheckPointPolicy()
 						==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) 
-						&& (getUncompletedIteration()==-1)) {
-					//log outgoing messages
+						&& (getUncompletedIteration()==-1) 
+						&& (!skipMsgLoad)) {
 					ByteArrayOutputStream bytes = 
 						new ByteArrayOutputStream(this.job.getMsgPackSize());
 					DataOutputStream stream = new DataOutputStream(bytes);
@@ -1090,7 +1125,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 					this.packageVersion[toGlobalBlkIdx]++;
 					int version = packageVersion[toGlobalBlkIdx] - 1;//starting from zero
 					loggedBytes += msgDataServer.logOutgoingMsg(bytes, toGlobalBlkIdx, 
-							version, _statis, vCounter);
+							version, _statis, vCounter, Constants.STYLE.PULL);
 				}
 				
 				cache = null;
@@ -1127,11 +1162,11 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 						
 						if ((job.getCheckPointPolicy()
 								==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) 
-								&& (getUncompletedIteration()==-1)) {
+								&& (!skipMsgLoad)) {
 							//log outgoing messages
 							int version = packageVersion[toGlobalBlkIdx] - 1;//starting from zero
 							loggedBytes += msgDataServer.logOutgoingMsg(bytes, toGlobalBlkIdx, 
-									version, _statis, vCounter);
+									version, _statis, vCounter, Constants.STYLE.PULL);
 						}
 						
 						vCounter = 0; mCounter = 0;
@@ -1152,11 +1187,11 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 					
 					if ((job.getCheckPointPolicy()
 							==Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg)
-							&& (getUncompletedIteration()==-1)) {
+							&& (!skipMsgLoad)) {
 						//log outgoing messages
 						int version = packageVersion[toGlobalBlkIdx] - 1;//starting from zero
 						loggedBytes += msgDataServer.logOutgoingMsg(bytes, toGlobalBlkIdx, 
-								version, _statis, vCounter);
+								version, _statis, vCounter, Constants.STYLE.PULL);
 					}
 				}
 			
@@ -1190,40 +1225,34 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		for (VEBlockFileHandler veb: vebFile) {
 			veb.clearBefIte();
 		}
-		int type = _iteNum % 2;
+		
+		/** 
+		 * If one block was updated, a new file (_iteNum) would have been created. 
+		 * Thus, the old file created at the (_iteNum-1)-th iteration is useless 
+		 * during normal computations. Deleting the latter can save disk space, 
+		 * but here, they are preserved to provide fast fault-tolerance service. 
+		 * Note that for the former, vHbb.isRespond(type) is possiblly equal to false 
+		 * even though some vertices have updated their values. This is because the 
+		 * updated values cannot be broadcasted to other (typically neighbouring) vertices. 
+		 * A concrete example is maximal independent sets (MIS).
+		 * 
+		 * Otherwise, the old file name is directly changed from xx-(_iteNum-1) 
+		 * to xx-(_iteNum). This operation must be performed here, instead of @skipBucket. 
+		 * Otherwise, @getMsg being called at the (_iteNum-1)-th iteration may throw 
+		 * the "File not exist" exception. When re-running the iteration where failures 
+		 * happen, the value file at the (_iteNum-1) iteration may not exist because 
+		 * it has been renamed.
+		 * */
 		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
 			File dir = getVerDir(bid);
-			VerBlockBeta vHbb = this.verBlkMgr.getVerBlkBeta(bid);
-			/** 
-			 * If this block was updated, a new file (_iteNum) would have been created. 
-			 * Thus, the old file created at the (_iteNum-1)-th iteration is useless 
-			 * during normal computations. Deleting these useless files can save disk 
-			 * space, but here, they are preserved to provide fast fault-tolerance service. 
-			 * */
-			if (vHbb.isRespond(type)) {
-				//File valFile = new File(dir, Vert_File_Value_Prefix + (_iteNum-1));
-				//valFile.delete();
-			} else {
-				/**
-				 * Otherwise, the old file name is directly changed from xx-(_iteNum-1) 
-				 * to xx-(_iteNum).
-				 * 
-				 * Note that the renaming process must be performed here, instead of 
-				 * @skipBucket. Otherwise, @getMsg called at the (_iteNum-1)-th iteration 
-				 * may throw the "File not exist" exception.
-				 * 
-				 * No responding flag file is created.
-				 * 
-				 * When re-running the iteration where failures happen, the value file 
-				 * at the (_iteNum-1) iteration may not exist because it has been renamed 
-				 * by the function clearBefIteMemOrDisk() before failures happen.
-				 */
-				File f_v_r = new File(dir, Vert_File_Value_Prefix + (_iteNum-1));
-				File f_v_w = new File(dir, Vert_File_Value_Prefix + _iteNum);
-				if (f_v_r.exists()) {
-					f_v_r.renameTo(f_v_w);
-					//LOG.info(f_v_r + " to " + f_v_w);
-				}
+			File f_v_r = new File(dir, Vert_File_Value_Prefix + (_iteNum-1));
+			File f_v_w = new File(dir, Vert_File_Value_Prefix + _iteNum);
+			
+			if (f_v_w.exists()) {
+				//f_v_r.delete();
+			} else if (f_v_r.exists()) {
+				f_v_r.renameTo(f_v_w);
+				//LOG.info(f_v_r + " to " + f_v_w);
 			}
 		}
 	}
@@ -1231,6 +1260,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	@Override
 	public void clearAftIte(int _iteNum, int flagOpt) throws Exception {
 		super.clearAftIte(_iteNum, flagOpt);
+		io_byte_flags = 0L;
 		vbFile.clearAftIte();
 		for (VEBlockFileHandler veb: vebFile) {
 			veb.clearAftIte();
@@ -1241,12 +1271,12 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			//if Constants.CheckPoint.Policy is ConfinedRecovery 
 			//(LogVert or LogMsg)
 			long start = System.currentTimeMillis();
-			logFlags(_iteNum+1);
+			io_byte_flags += logFlags(_iteNum+1);
 			rwResTime += (System.currentTimeMillis()-start);
 		} else if (flagOpt == 2) {
 			//confined recovery: load flags used at the next iteration
 			long start = System.currentTimeMillis();
-			loadFlags(_iteNum+1);
+			io_byte_flags += loadFlags(_iteNum+1);
 			rwResTime += (System.currentTimeMillis()-start);
 		}
 	}
@@ -1255,9 +1285,11 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	 * Log active and responding flags onto local disks. 
 	 * Logged data can be used to perform confined recovery. 
 	 * @param _iteNum
+	 * @return long io bytes of logging flags
 	 * @throws Exception
 	 */
-	private void logFlags(int _iteNum) throws Exception {
+	private long logFlags(int _iteNum) throws Exception {
+		long bytes = 0L;
 		int type = _iteNum % 2;
 		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
 			File dir = getVerDir(bid);
@@ -1268,16 +1300,17 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			
 			if (vHbb.isActive()) {
 				String fstr = Vert_File_ActFlag_Prefix + _iteNum;
-				serializeFlags(dir, fstr, vHbb.isAllActive(), 
+				bytes += serializeFlags(dir, fstr, vHbb.isAllActive(), 
 						fromIdx, toIdx, actFlag);
 			}
 			
 			if (vHbb.isRespond(type)) {
 				String fstr = Vert_File_ResFlag_Prefix + _iteNum;
-				serializeFlags(dir, fstr, vHbb.isAllRespond(type), 
+				bytes += serializeFlags(dir, fstr, vHbb.isAllRespond(type), 
 						fromIdx, toIdx, resFlag[type]);
 			}
 		}
+		return bytes;
 	}
 	
 	/**
@@ -1291,8 +1324,9 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	 * @param flags
 	 * @throws Exception
 	 */
-	private void serializeFlags(File dir, String filename, boolean allTrue, 
+	private long serializeFlags(File dir, String filename, boolean allTrue, 
 			int fromIdx, int toIdx, boolean[] flags) throws Exception {
+		long bytes = 0L;
 		File flagFile = null;
 		
 		if (allTrue) {
@@ -1310,14 +1344,18 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			if (flagFile.exists()) {
 				flagFile.delete();
 			}
-			bitBytes.serialize(flags, fromIdx, toIdx, flagFile, 
+			bytes = bitBytes.serialize(flags, fromIdx, toIdx, flagFile, 
 					this.verBlkMgr.getVerMinId());
 		}
+		
+		return bytes;
 	}
 	
-	private void loadFlags(int _iteNum) throws Exception {
+	private long loadFlags(int _iteNum) throws Exception {
+		long bytes = 0L;
+		
 		if (_iteNum <= 1) {
-			return;
+			return bytes;
 		}
 		
 		//simulate computations at the current iteration
@@ -1331,10 +1369,10 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			int toIdx = vHbb.getVerNum() + fromIdx; //exclusive
 			
 			String fstr = Vert_File_ActFlag_Prefix + _iteNum;
-			deserialize(dir, fstr, fromIdx, toIdx, actFlag);
+			bytes += deserialize(dir, fstr, fromIdx, toIdx, actFlag);
 			
 			fstr = Vert_File_ResFlag_Prefix + _iteNum;
-			deserialize(dir, fstr, fromIdx, toIdx, resFlag[type]);
+			bytes += deserialize(dir, fstr, fromIdx, toIdx, resFlag[type]);
 			
 			for (int flagIdx = fromIdx; flagIdx < toIdx; flagIdx++) {
 				if (actFlag[flagIdx]) {
@@ -1347,6 +1385,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				}
 			}
 		}
+		return bytes;
 	}
 	
 	/**
@@ -1359,8 +1398,10 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 	 * @param flags
 	 * @throws Exception
 	 */
-	private void deserialize(File dir, String filename, 
+	private long deserialize(File dir, String filename, 
 			int fromIdx, int toIdx, boolean[] flags) throws Exception {
+		long bytes = 0L;
+		
 		File f = new File(dir, filename);
 		if (!f.exists()) {
 			File ftrue = new File(dir, filename+Vert_File_Flag_Suffix);
@@ -1373,46 +1414,123 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			}
 		} else {
 			/** Deserializing flags one by one. */
-			bitBytes.deserialize(flags, fromIdx, toIdx, f, 
+			bytes += bitBytes.deserialize(flags, fromIdx, toIdx, f, 
 					this.verBlkMgr.getVerMinId());
+		}
+		return bytes;
+	}
+	
+	@Override
+	public void prepareSwitchToPush(int _iteNum, boolean loadFlag) throws Exception {
+		super.prepareSwitchToPush(_iteNum, loadFlag);
+		if (loadFlag) {
+			loadFlags(_iteNum);
 		}
 	}
 	
 	@Override
-	public void openGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
+	public void openGraphDataStreamSwitchToPush(int _bid, int _iteNum) 
 			throws Exception {
 		File dir = getVerDir(_bid);
-		File f_v_r = new File(dir, Vert_File_Value_Prefix + _iteNum);
-		this.vbFile.openVerReadHandler(f_v_r);
 		
-		File f_adj = new File(dir, Vert_File_Adj);
-		this.vbFile.openAdjReadHandler(f_adj);
-		this.io_byte_adj += f_adj.length();
+		int attemptedIteNum = _iteNum;
+		while (!this.vbFile.openVerReadHandler(
+				new File(dir, Vert_File_Value_Prefix+attemptedIteNum))) {
+			attemptedIteNum++;
+			//LOG.warn("iteNum=" + _iteNum + ", attemptedIteNum=" + attemptedIteNum);
+			if (attemptedIteNum > getUncompletedIteration()) {
+				File f = 
+					new File(dir, Vert_File_Value_Prefix + _iteNum);
+				throw new Exception("Fail to find file:\n" + f.toString() 
+						+ ", attemptedIteNum=" + attemptedIteNum);
+			}
+		}
+		
+		if (this.loadAdjEdge) {
+			File f_adj = new File(dir, Vert_File_Adj);
+			this.vbFile.openAdjReadHandler(f_adj);
+			this.io_byte_adj += f_adj.length();
+		}
 	}
 	
 	@Override
-	public void closeGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
+	public long getIOBytesOfReadVertsMini(int _iteNum) {
+		long bytes = 0L;
+		for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
+			if (!isBlockUpdatedSwitchToPush(bid, _iteNum)) {
+				continue;
+			}
+			File f = new File(getVerDir(bid), Vert_File_Value_Prefix+_iteNum);
+			bytes += f.length();
+		}
+		return bytes;
+	}
+	
+	@Override
+	public long getIOBytesOfPushEdgeMini(int _iteNum, boolean _loadAdjEdge) {
+		long bytes = 0L;
+		if (_loadAdjEdge) {
+			for (int bid = 0; bid < this.verBlkMgr.getBlkNum(); bid++) {
+				if (!isBlockUpdatedSwitchToPush(bid, _iteNum)) {
+					continue;
+				}
+				File f = new File(getVerDir(bid), Vert_File_Adj);
+				bytes += f.length();
+			}
+		}
+		
+		return bytes;
+	}
+	
+	public long getIOBytesOfPullSeqReadMini(int _iteNum) {
+		long bytes = 0L;
+		
+		int[] blkNumOfTasks = this.commRT.getJobInformation().getBlkNumOfTasks();
+		for (int dstTid = 0; dstTid < this.commRT.getTaskNum(); dstTid++) {
+			for (int dstBid = 0; dstBid < blkNumOfTasks[dstTid]; dstBid++) {
+				for (int srcBid = 0; 
+						srcBid < this.verBlkMgr.getBlkNum(); srcBid++) {
+					VerBlockBeta beta = this.verBlkMgr.getVerBlkBeta(srcBid);
+					if (!isBlockUpdatedSwitchToPush(srcBid, _iteNum) ||
+							beta.getFragmentNum(dstTid, dstBid)==0) {
+						continue;
+					}//skip
+					bytes += beta.getFragmentLen(dstTid, dstBid);
+				}
+			}
+		}//calculate bytes of fragments (svid, #edges, edges)
+		
+		return bytes;
+	}
+	
+	@Override
+	public void closeGraphDataStreamSwitchToPush(int _bid, int _iteNum) 
 			throws Exception {
 		this.vbFile.closeVerReadHandler();
-		this.vbFile.closeAdjReadHandler();
+		if (this.loadAdjEdge) {
+			this.vbFile.closeAdjReadHandler();
+		}
 	}
 	
 	@Override
-	public GraphRecord<V, W, M, I> getNextGraphRecordOnlyForPush(int _bid) 
+	public GraphRecord<V, W, M, I> getNextGraphRecordSwitchToPush(int _bid) 
 			throws Exception {
 		graph_rw.setVerId(this.verBlkMgr.getVerBlkBeta(_bid).getVerId());
 		graph_rw.deserVerValue(this.vbFile.getVerReadHandler());
 		io_byte_ver += (VERTEX_ID_BYTE + graph_rw.getVerByte());
 		
-		graph_rw.deserEdges(this.vbFile.getAdjReadHandler()); //read-only
-		read_adj_edge += graph_rw.getEdgeNum(); 
+		if (this.loadAdjEdge) {
+			graph_rw.deserEdges(this.vbFile.getAdjReadHandler()); //read-only
+			read_adj_edge += graph_rw.getEdgeNum(); 
+		} else {
+			graph_rw.setEdges(null, null);
+		}
 		
 		return graph_rw;
 	}
 	
 	@Override
-	public void openGraphDataStream(int _parId, int _bid, int _iteNum) 
-			throws Exception {
+	public void openGraphDataStream(int _bid, int _iteNum) throws Exception {
 		File dir = getVerDir(_bid);
 		File fvr = new File(dir, Vert_File_Value_Prefix + _iteNum);
 		this.vbFile.openVerReadHandler(fvr);
@@ -1443,15 +1561,14 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 				//if adj is required by Pull
 				this.estimatePullByte += fadj.length();
 			}
-		} else {
-			//curIteStyle=Pull, adj must be read by Push.
+		} else if (this.loadAdjEdge) {
+			//curIteStyle=Pull, adj may be read by Push.
 			this.estimatePushByte += fadj.length();
 		}
 	}
 	
 	@Override
-	public void closeGraphDataStream(int _parId, int _bid, int _iteNum) 
-			throws Exception {
+	public void closeGraphDataStream(int _bid, int _iteNum) throws Exception {
 		this.vbFile.closeVerReadHandler();
 		if (this.loadGraphInfo) {
 			this.vbFile.closeInfoReadHandler();
@@ -1474,6 +1591,8 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		if (this.loadAdjEdge) {
 			graph_rw.deserEdges(this.vbFile.getAdjReadHandler()); //read-only
 			read_adj_edge += graph_rw.getEdgeNum(); 
+		} else {
+			graph_rw.setEdges(null, null);
 		}
 		
 		return graph_rw;
@@ -1503,6 +1622,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 		
 		graph_rw.serVerValue(this.vbFile.getVerWriteHandler());
 		io_byte_ver += (graph_rw.getVerByte()); //only write value
+		io_byte_ver_write += (graph_rw.getVerByte());
 	}
 	
 	@Override
@@ -1683,7 +1803,7 @@ public class GraphDataServerDisk<V, W, M, I> extends GraphDataServer<V, W, M, I>
 			throw new Exception("verify error: bid=" + bid 
 					+ ", but actual #blocks=" + verBlkMgr.getBlkNum());
 		}
-		
+		buf = null;
 		ckpMgr.aftLoad();
 		long endTime = System.currentTimeMillis();
 		LOG.info("\nload " + ckpNum + " vertices from checkpoint, " 

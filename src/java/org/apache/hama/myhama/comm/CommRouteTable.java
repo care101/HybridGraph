@@ -75,10 +75,6 @@ public class CommRouteTable<V, W, M, I> {
 		return this.ckpJobDir;
 	}
 	
-	public int getAvailableCheckPoint() {
-		return this.jobInfo.getAvailableCheckPoint();
-	}
-	
 	public int getTaskNum() {
 		return this.taskNum;
 	}

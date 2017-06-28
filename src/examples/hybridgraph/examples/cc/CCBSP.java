@@ -12,7 +12,7 @@ import hybridgraph.examples.cc.CCUserTool.CCMsgRecord;
 
 /**
  * CCBSP.java implements {@link BSP}.
- * Note: input graph should be undirected.
+ * Note: a non-weighted undirected graph.
  * 
  * Implementation of the HCC algorithm that identifies connected components and
  * assigns each vertex its "component identifier" (the smallest vertex id in the

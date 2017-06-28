@@ -38,7 +38,7 @@ public abstract class BSP<V, W, M, I> implements BSPInterface<V, W, M, I> {
 	 * Setup before processing vertices in one VBlock.
 	 * 
 	 * Currently, users can use this function to decide 
-	 * whether vertices in this VBlock should be processed or not.
+	 * whether or not vertices in this VBlock are processed.
 	 * Specifically, users may set the update rule by 
 	 * {@link Context}.setVBlockUpdateRule({@link Constants}.VBlockUpdateRule rule). 
 	 * By default, the rule is {@link Constants}.VBlockUpdateRule.MSG_DEPEND, 
@@ -56,6 +56,11 @@ public abstract class BSP<V, W, M, I> implements BSPInterface<V, W, M, I> {
 	@Override
 	public void vBlockCleanup(Context<V, W, M, I> context) {
 		//do nothing as default.
+	}
+	
+	@Override
+	public int estimateNumberOfMessages(Context<V, W, M, I> context) {
+		return 0;
 	}
 	
 	@Override

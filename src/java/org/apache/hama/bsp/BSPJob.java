@@ -281,6 +281,14 @@ public void setBspClass(Class<? extends BSP> cls)
     conf.set(name, value);
   }
 
+  public void setPriority(String PRIORITY) {
+	  conf.set("bsp.job.priority", PRIORITY);
+  }
+
+  public String getPriority() {
+	  return conf.get("bsp.job.priority", Constants.PRIORITY.NORMAL);
+  }
+  
   public void setNumBspTask(int tasks) {
     conf.setInt("bsp.peers.num", tasks);
   }
@@ -295,14 +303,6 @@ public void setBspClass(Class<? extends BSP> cls)
 	  
   public int getNumTotalVertices() {
 	  return conf.getInt("total.vertex.num", 0);
-  }
-  
-  public void setPriority(String PRIORITY) {
-	conf.set("bsp.job.priority", PRIORITY);
-  }
-
-  public String getPriority() {
-	return conf.get("bsp.job.priority", Constants.PRIORITY.NORMAL);
   }
 
   public void setNumSuperStep(int superSteps) {
@@ -382,20 +382,20 @@ public void setBspClass(Class<? extends BSP> cls)
   }
   
   /** Push, Pull, or Hybrid */
-  public void setBspStyle(int style) {
-	  conf.setInt("bsp.impl.style", style);
+  public void setBspStyle(Constants.STYLE style) {
+	  conf.set("bsp.impl.style", style.toString());
 	  switch(style) {
-	  case Constants.STYLE.Pull:
+	  case PULL:
 		  setStartIteStyle(style);
 		  //LOG.info("set default StartIteStyle=pull");
 		  break;
-	  case Constants.STYLE.Push:
+	  case PUSH:
 		  setStartIteStyle(style);
 		  storeAdjEdge(true);
 		  //LOG.info("set default StartIteStyle=push, storeAdjEdge=true");
 		  break;
-	  case Constants.STYLE.Hybrid:
-		  setStartIteStyle(Constants.STYLE.Pull);
+	  case Hybrid:
+		  setStartIteStyle(Constants.STYLE.PULL);
 		  storeAdjEdge(true);
 		  //LOG.info("set default StartIteStyle=pull, storeAdjEdge=true");
 		  break;
@@ -403,18 +403,44 @@ public void setBspClass(Class<? extends BSP> cls)
   }
   
   /** return STYLE.Pull as default */
-  public int getBspStyle() {
-	  return conf.getInt("bsp.impl.style", Constants.STYLE.Pull);
+  public Constants.STYLE getBspStyle() {
+	  String style = 
+		  conf.get("bsp.impl.style", Constants.STYLE.PULL.toString());
+	  return Constants.STYLE.valueOf(style);
   }
   
   /** Push or Pull */
-  public void setStartIteStyle(int style) {
-	  conf.setInt("bsp.ite.impl.style.start", style);
+  public void setStartIteStyle(Constants.STYLE style) {
+	  conf.set("bsp.ite.impl.style.start", style.toString());
+  }
+  
+  /**
+   * Simulate PUSH under Hybrid implementaion. 
+   * Now only work for mini-superstep.
+   * @param flag
+   */
+  public void setSimulatePUSH(int flag) {
+	  if (flag == 1) {
+		  conf.setBoolean("bsp.ite.impl.style.simulatePUSH", true);
+		  setStartIteStyle(Constants.STYLE.PUSH);
+	  } else {
+		  conf.setBoolean("bsp.ite.impl.style.simulatePUSH", false);
+	  }
+  }
+  
+  /**
+   * Simulate PUSH under Hybrid implementaion. 
+   * Now only work for mini-superstep.
+   */
+  public boolean isSimulatePUSH() {
+	  return conf.getBoolean("bsp.ite.impl.style.simulatePUSH", false);
   }
   
   /** Push or Pull, return Pull as default */
-  public int getStartIteStyle() {
-	  return conf.getInt("bsp.ite.impl.style.start", Constants.STYLE.Pull);
+  public Constants.STYLE getStartIteStyle() {
+	  String style = 
+		  conf.get("bsp.ite.impl.style.start", Constants.STYLE.PULL.toString());
+	  return Constants.STYLE.valueOf(style);
   }
   
   /** 
@@ -436,7 +462,7 @@ public void setBspClass(Class<? extends BSP> cls)
   public void setGraphDataOnDisk(boolean _flag) {
 	  conf.setBoolean("bsp.storage.graphdata.disk", _flag);
 	  if (!_flag) {
-		  setBspStyle(Constants.STYLE.Pull); 
+		  setBspStyle(Constants.STYLE.PULL); 
 	  }
   }
   
@@ -533,7 +559,7 @@ public void setBspClass(Class<? extends BSP> cls)
   
   /**
    * Set the checkpoint interval, 
-   * Checkpointing is disabled if _interval equals -1.
+   * Checkpointing is disabled if _interval is less than 0.
    * @param _interval
    */
   public void setCheckPointInterval(int _interval) {
@@ -542,17 +568,17 @@ public void setBspClass(Class<? extends BSP> cls)
   
   /**
    * Get the checkpoint interval. 
-   * Return -1 by default, indicating that checkpointing is disabled.
+   * Return 0 by default, indicating that checkpointing is disabled.
    * @return
    */
   public int getCheckPointInterval() {
-	  return conf.getInt("fault.tolerance.ckp.interval", -1);
+	  return conf.getInt("fault.tolerance.ckp.interval", 0);
   }
   
   /**
    * Assume that some tasks fail at the given superstep to simulate 
    * the failure in real scenrios. No failure happens if the parameter 
-   * "failed" equals -1.
+   * "failed" is less than zero.
    * @param _interval
    */
   public void setFailedIteration(int failed) {
@@ -561,11 +587,11 @@ public void setBspClass(Class<? extends BSP> cls)
   
   /**
    * Get the failure location.
-   * Return -1 by default, indicating that no failure happens.
+   * Return 0 by default, indicating that no failure happens.
    * @return
    */
   public int getFailedIteration() {
-	  return conf.getInt("fault.tolerance.failed.location", -1);
+	  return conf.getInt("fault.tolerance.failed.location", 0);
   }
   
   /**
@@ -574,12 +600,13 @@ public void setBspClass(Class<? extends BSP> cls)
    * @param _interval
    */
   public void setNumOfFailedTasks(int failednum) {
-	  if (getFailedIteration() == -1){
+	  if ((getFailedIteration()<=0) 
+			  && (failednum>0)){
 		  LOG.info("!!! # of failed tasks is automatically set to 0" 
 				   + ", instead of given " + failednum);
 		  failednum = 0;
 	  } else if (getCheckPointPolicy() == 
-		  Constants.CheckPoint.Policy.CompleteRecovery) {
+		  Constants.CheckPoint.Policy.CompleteRecoveryDynCkp) {
 		  if (failednum != getNumBspTask()) {
 			  LOG.info("!!! # of failed tasks is automatically set to " 
 					  + getNumBspTask() + ", instead of given " + failednum);
@@ -596,10 +623,43 @@ public void setBspClass(Class<? extends BSP> cls)
    * @return
    */
   public int getNumOfFailedTasks() {
-	  if (getFailedIteration() == -1){
+	  if (getFailedIteration() <= 0){
 		  return 0;
 	  } else {
 		  return conf.getInt("fault.tolerance.failed.percentage", 0);
 	  }
+  }
+  
+  /**
+   * Set the flag to indicate that whether or not the mini-superstep 
+   * implementation works. In the mini-superstep implementation, a 
+   * traditional superstep is further divided into two mini-supersteps: 
+   * 1) PUSH
+   *    mini-1: pull messages from local disk, update vertices;
+   *    mini-2: load newly updated vertices and then push messages.
+   * 2) PULL
+   *    mini-1: pull messages from source vertices, update target vertices;
+   *    mini-2: do nothing.
+   *    
+   * A mini-barrier is initiated to seperate the two consecutive mini-supersteps. 
+   * We recommend users to enable the mini-based impl for algorithms with 
+   * the message data volume suddenly changed, like Maximal Independent Sets and 
+   * Maximal Matching. This is because we can make a switching decision at the 
+   * mini-barrier to guide how to generate messages (i.e., immediately push them 
+   * at the current superstep, or pull them at the next superstep).
+   * 
+   * @param flag
+   */
+  public void setMiniSuperStep(boolean flag) {
+	  conf.setBoolean("bsp.superstep.mini", flag);
+  }
+  
+  /**
+   * Is the mini-superstep implementation enabled?
+   * 
+   * @return false as default
+   */
+  public boolean isMiniSuperStep() {
+	  return conf.getBoolean("bsp.superstep.mini", false);
   }
 }

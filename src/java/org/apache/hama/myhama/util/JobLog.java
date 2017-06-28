@@ -60,6 +60,7 @@ public class JobLog {
 		try {
 			bw.write(sdf.format(new Date()) + ":" + info);
 			bw.newLine();
+			bw.flush();
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 		}

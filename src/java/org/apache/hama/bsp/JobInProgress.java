@@ -45,9 +45,12 @@ import org.apache.hama.ipc.CommunicationServerProtocol;
 import org.apache.hama.monitor.JobInformation;
 import org.apache.hama.monitor.JobMonitor;
 import org.apache.hama.monitor.TaskInformation;
+import org.apache.hama.myhama.comm.MiniSuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepReport;
 import org.apache.hama.myhama.util.JobLog;
+import org.apache.hama.myhama.util.MiniCounters;
+import org.apache.hama.myhama.util.MiniCounters.MINICOUNTER;
 
 /**
  * JobInProgress maintains all the info for keeping a Job on the straight and
@@ -101,7 +104,7 @@ class JobInProgress {
 	private ConcurrentHashMap<TaskAttemptID, Float> Progress = 
 		new ConcurrentHashMap<TaskAttemptID, Float>();
 	
-	private int preIteStyle, curIteStyle;
+	private Constants.STYLE preIteStyle, curIteStyle;
 	private int switchCounter = 0;
 	private int byteOfOneMessage = 0;
 	private boolean isAccumulated = false;
@@ -122,7 +125,7 @@ class JobInProgress {
 	 */
 	private float randWriteSpeed = 1210*ONE_KB;
 	private float randReadSpeed = 1205*ONE_KB;
-	private float seqWriteSpeed = 2414*ONE_KB;
+	//private float seqWriteSpeed = 2414*ONE_KB;
 	private float seqReadSpeed = 2415*ONE_KB;
 	private float netSpeed = 112*ONE_KB*ONE_KB;    
 	private double lastCombineRatio = 0.0;
@@ -145,9 +148,6 @@ class JobInProgress {
 		this.seqReadSpeed = 
 			_conf.getFloat(Constants.HardwareInfo.Seq_Read_ThroughPut, 
 				Constants.HardwareInfo.Def_Seq_Read_ThroughPut)*ONE_KB;
-		this.seqWriteSpeed = 
-			_conf.getFloat(Constants.HardwareInfo.Seq_Write_ThroughPut, 
-				Constants.HardwareInfo.Def_Seq_Write_ThroughPut)*ONE_KB;
 		this.netSpeed = 
 			_conf.getFloat(Constants.HardwareInfo.Network_ThroughPut, 
 				Constants.HardwareInfo.Def_Network_ThroughPut)*ONE_KB*ONE_KB;
@@ -358,7 +358,7 @@ class JobInProgress {
 		LOG.info(print("=*", 38) + "=");
 	}
 
-	private void failedJob() {
+	public void failedJob() {
 		this.finishTime = System.currentTimeMillis();
 		this.status.setProgress(new float[] {1.0f, 1.0f}, new int[]{-1, -1});
 		this.status.setSuperStepCounter(curIteNum);
@@ -479,7 +479,7 @@ class JobInProgress {
 		int finished = this.reportCounter.incrementAndGet();
 		if (finished == this.taskNum) {
 			this.reportCounter.set(0);
-
+			
 			for (CommunicationServerProtocol comm : this.comms.values()) {
 				try {
 					comm.quit();
@@ -488,6 +488,99 @@ class JobInProgress {
 				}
 			}
 		}
+	}
+	
+	public void miniSync(int tid, MiniCounters minicounters) {
+		int finished = this.reportCounter.incrementAndGet();
+		this.jobMonitor.updateMiniMonitor(curIteNum, tid, minicounters);
+		if (finished == this.taskNum) {
+			this.reportCounter.set(0);
+			
+			MiniSuperStepCommand mssc = getNextMiniSuperStepCommand();
+			this.jobInfo.archiveMiniCommand(mssc);
+			for (CommunicationServerProtocol comm : this.comms.values()) {
+				try {
+					comm.setNextMiniSuperStepCommand(mssc);
+				} catch (Exception e) {
+					LOG.error("[miniSync:quitSync]", e);
+				}
+			}
+		}
+	}
+	
+	private MiniSuperStepCommand getNextMiniSuperStepCommand() {
+		MiniSuperStepCommand mssc = new MiniSuperStepCommand();
+		
+		//runtime statistics, dynamically collected
+		MiniCounters minicounters = this.jobMonitor.getMiniCounters(curIteNum);
+		
+		long msgCount = minicounters.getCounter(MINICOUNTER.Msg_Estimate);
+		long diskMsgCount = msgCount - (this.taskNum*this.recMsgBuf);
+		diskMsgCount = diskMsgCount<0? 0:diskMsgCount;
+		
+		//random writes
+		double msgRandWritePushCost = 
+			(diskMsgCount*byteOfOneMessage) / randWriteSpeed;
+		
+		//random reads
+		double vertRandReadPullCost = 
+			minicounters.getCounter(MINICOUNTER.Byte_RandReadVert) / randReadSpeed;
+		
+		//sequential reads
+		double msgSeqReadPushCost = 
+			(diskMsgCount*byteOfOneMessage) / seqReadSpeed;
+		double vertSeqReadPushCost = 
+			minicounters.getCounter(MINICOUNTER.Byte_SeqReadVert) / seqReadSpeed;
+		double edgeSeqReadPushCost = 
+			minicounters.getCounter(MINICOUNTER.Byte_PushEdge) / seqReadSpeed;
+		double edgeSeqReadPullCost = 
+			minicounters.getCounter(MINICOUNTER.Byte_PullSeqRead) / seqReadSpeed;
+		
+		//network
+		long netMsgCount = (long)(msgCount * (1.0*(taskNum-1)/taskNum));
+		double combinedRatio = 
+			(jobInfo.getEdgeNum()*1.0-jobInfo.getVerNum()) / jobInfo.getEdgeNum();
+		long reducedNetMsgCount = (long) (netMsgCount * combinedRatio);
+		double reducedNetCost = 
+			isAccumulated? (reducedNetMsgCount*byteOfOneMessage)/netSpeed 
+					: (reducedNetMsgCount*4)/netSpeed;
+		
+		//runtime difference: push - pull
+		double miniQ = -(vertRandReadPullCost+edgeSeqReadPullCost) 
+		+(msgRandWritePushCost+msgSeqReadPushCost+vertSeqReadPushCost+edgeSeqReadPushCost+reducedNetCost);
+		
+		mssc.setMiniQ(miniQ);
+		mssc.setIteNum(curIteNum);
+		
+		if (this.job.isSimulatePUSH()) {
+			mssc.setStyle(Constants.STYLE.PUSH);
+		} else if (this.job.getBspStyle() == Constants.STYLE.PULL) {
+			mssc.setStyle(Constants.STYLE.PULL);
+		} else {
+			/**
+			//manually switch between PULL and PUSH for MIS
+			switch((curIteNum)%2) {
+			case 0: mssc.setStyle(Constants.STYLE.PUSH); break;
+			case 1: mssc.setStyle(Constants.STYLE.PULL); break;
+			} 
+			
+			//manually switch between PULL and PUSH for MM
+			switch((curIteNum-1)%4) {
+			case 0: mssc.setStyle(Constants.STYLE.PULL); break;
+			case 1: 
+			case 2: 
+			case 3: mssc.setStyle(Constants.STYLE.PUSH); break;
+			} */
+			
+			//-230 for neu, -25 for amazon
+			if ((miniQ<-230.0) || (miniQ==0.0)) {
+				mssc.setStyle(Constants.STYLE.PUSH);
+			} else {
+				mssc.setStyle(Constants.STYLE.PULL);
+			}
+		}
+		
+		return mssc;
 	}
 	
 	/** Build route-table by loading the first record of each task */
@@ -582,6 +675,8 @@ class JobInProgress {
 			this.loadDataTime = 
 				System.currentTimeMillis() - this.startTime;
 			this.status.setRunState(JobStatus.RUNNING);
+			LOG.info(jobId.toString() + " starts with BspStyle=" 
+					+ job.getBspStyle());
 			LOG.info(jobId.toString() + " starts with CheckPoint.Policy=" 
 					+ job.getCheckPointPolicy());
 		}
@@ -603,8 +698,25 @@ class JobInProgress {
 					this.jobInfo.getCommand(curIteNum).getCommandType();
 				if (type == CommandType.ARCHIVE) {
 					this.jobInfo.setAvailableCheckPoint(curIteNum);
+					double time = (System.currentTimeMillis()-this.startTimeIte) / 1000.0;
+					this.jobMonitor.accumulateCheckPointTime(time);
+					this.startTimeIte = System.currentTimeMillis();
 				}
 			}
+			/**
+			 * Complete the failure recovery preparing work: 
+			 * reloading input graph, 
+			 * rebuilding VEBlocks, 
+			 * and loading required checkpoint files.
+			 */
+			if (recoveryIteNum!=0 && 
+					this.status.getRunState()==JobStatus.RECOVERY 
+					&& recoveryIteNum==this.jobInfo.getAvailableCheckPoint()) {
+				double time = (System.currentTimeMillis()-startTimeIte) / 1000.0;
+				jobMonitor.setTimeOfReloadData(time);
+				this.startTimeIte = System.currentTimeMillis();
+			}
+			
 			for (CommunicationServerProtocol comm : this.comms.values()) {
 				try {
 					comm.quit();
@@ -635,10 +747,12 @@ class JobInProgress {
 	
 	/** Clean over after one iteraiton */
 	public void finishSuperStep(int parId, SuperStepReport ssr) {
-		//RUNNING, RESTART, or RECOVERY is valid
-		if (this.status.getRunState() != JobStatus.RUNNING) {
+		if (this.status.getRunState() == JobStatus.RESTART) {
 			this.jobMonitor.rollbackMonitor(curIteNum);
-			
+		} else if (this.status.getRunState() == JobStatus.RECOVERY) {
+			int size = recoveryIteNum - this.jobInfo.getAvailableCheckPoint();
+			this.jobMonitor.updateMonitorRecovery(size, parId, ssr.getTaskAgg(), 
+					ssr.getCounters());
 		} else {
 			this.jobInfo.updateRespondVerNumOfBlks(parId, ssr.getActVerNumBucs());
 			this.jobMonitor.updateMonitor(curIteNum, parId, ssr.getTaskAgg(), 
@@ -653,9 +767,7 @@ class JobInProgress {
 			/** failures happen */
 			if (this.status.getRunState() == JobStatus.RESTART) {
 				LOG.warn(this.jobId + " fails");
-				if (job.getCheckPointPolicy()==Constants.CheckPoint.Policy.None 
-						|| jobInfo.getAvailableCheckPoint()<=0
-						|| !job.isGraphDataOnDisk()) {
+				if (jobInfo.getAvailableCheckPoint() == 0) {
 					LOG.warn(jobId + " cannot find any available checkpoint");
 					failedJob(); //failure cannot be recovered
 				} else {
@@ -670,7 +782,7 @@ class JobInProgress {
 			}
 			
 			SuperStepCommand ssc = getNextSuperStepCommand();
-			if (ssc.getCommandType() == CommandType.TERMITE) {
+			if (ssc.getCommandType() == CommandType.STOP) {
 				this.status.setRunState(JobStatus.SAVE);
 			}
 			
@@ -680,6 +792,7 @@ class JobInProgress {
 				this.jobInfo.archiveRecoveryCommand(ssc);
 			} else {
 				this.jobInfo.archiveCommand(ssc);
+				this.jobMonitor.accumulateRuntime(ssc.getIterationTime());
 			}
 			this.startTimeIte = System.currentTimeMillis();
 			
@@ -716,16 +829,15 @@ class JobInProgress {
 			this.recoveryIteNum = this.jobInfo.getAvailableCheckPoint();
 			LOG.info(jobId.toString() + " restarts from superstep-" 
 					+ (this.recoveryIteNum+1));
-			double time = (System.currentTimeMillis()-startTimeIte) / 1000.0;
-			jobMonitor.setTimeOfReloadData(time);
-			this.startTimeIte = System.currentTimeMillis();
 			
 			SuperStepCommand ssc = getNextSuperStepCommand();
-			if (ssc.getCommandType() == CommandType.TERMITE) {
+			ssc.adjustIteStyle(this.job.getCheckPointPolicy());
+			if (ssc.getCommandType() == CommandType.STOP) {
 				this.status.setRunState(JobStatus.SAVE);
 			}
 			
 			ssc.setIterationTime(0.0);
+			ssc.setFindError(true);
 			this.jobInfo.archiveRecoveryCommand(ssc);
 			
 			/**
@@ -754,7 +866,7 @@ class JobInProgress {
 					jobInfo.getAvailableCheckPoint()+1);
 			if ((recoveryIteNum+1) == curIteNum) {
 				//all tasks re-execute the failed iteration
-				ssc.setCommandType(CommandType.RECOVERED);
+				ssc.setCommandType(CommandType.REDO);
 			} else {
 				//surviving tasks and new tasks perform different operations
 				ssc.setCommandType(CommandType.RECOVER);
@@ -762,7 +874,6 @@ class JobInProgress {
 			}
 			
 			ssc.setIteNum(recoveryIteNum);
-			
 			//anyway, other parameters have been available, just copy them
 			SuperStepCommand archivedCommand = 
 				this.jobInfo.getCommand(recoveryIteNum);
@@ -771,7 +882,7 @@ class JobInProgress {
 			return ssc;
 		}
 		
-		if (this.curIteStyle == Constants.STYLE.Pull) {
+		if (this.curIteStyle == Constants.STYLE.PULL) {
 			long diskMsgCount = 
 				this.jobMonitor.getProducedMsgNum(curIteNum)
 				-(this.taskNum*this.recMsgBuf);
@@ -784,8 +895,11 @@ class JobInProgress {
 		ssc.setJobAgg(this.jobMonitor.getAgg(curIteNum));
 		//LOG.info("debug. curIteNum=" + this.curIteNum);
 		double Q = 0.0;
-		if (this.curIteNum > 2) {
-			
+		if (this.job.isMiniSuperStep()) {
+			this.curIteStyle = this.jobInfo.getMiniCommand(curIteNum).getStyle(); 
+			this.preIteStyle = this.curIteStyle;
+			//this.curIteStyle = this.preIteStyle; //simulate original PUSH without mini-barriers
+		} else if (this.curIteNum > 2) {
 			long diskMsgNum = 
 				this.jobMonitor.getProducedMsgNum(curIteNum)
 				-(this.taskNum*this.recMsgBuf);
@@ -802,7 +916,7 @@ class JobInProgress {
 			
 			double reducedNetMsgNum = 
 				(double)jobMonitor.getReducedNetMsgNum(curIteNum);
-			if (curIteStyle == Constants.STYLE.Push) {
+			if (curIteStyle == Constants.STYLE.PUSH) {
 				reducedNetMsgNum = 
 					jobMonitor.getProducedMsgNum(curIteNum) * lastCombineRatio;
 			} else {
@@ -814,7 +928,7 @@ class JobInProgress {
 						: (reducedNetMsgNum*4)/netSpeed;
 			
 			Q = diskMsgWriteCost + diskReadCostDiff + reducedNetCost; //push-pull
-			
+
 			/** Set the change automically
 			 *  Suppose that:
 			 *  1 Starting style=style.Pull.
@@ -837,9 +951,9 @@ class JobInProgress {
 					if (this.job.getBspStyle()==Constants.STYLE.Hybrid 
 							&& Math.abs(Q)>2.0) {
 						if (Q >= 0.0) {
-							this.curIteStyle = Constants.STYLE.Pull;
+							this.curIteStyle = Constants.STYLE.PULL;
 						} else {
-							this.curIteStyle = Constants.STYLE.Push;
+							this.curIteStyle = Constants.STYLE.PUSH;
 						}
 					}
 				} else {
@@ -850,6 +964,11 @@ class JobInProgress {
 				Q = 0.0;
 				this.preIteStyle = this.curIteStyle;
 			}
+			
+			/*this.preIteStyle = this.curIteStyle;
+			if (curIteNum >= 5) {
+				this.curIteStyle = Constants.STYLE.PUSH;
+			}*/
 		} else {
 			this.preIteStyle = this.curIteStyle;
 		}
@@ -878,14 +997,11 @@ class JobInProgress {
 			}
 		}
 		
-		//just for testing
-		//this.curIteStyle = Constants.STYLE.Pull; //always pull in the hybrid
-		
 		//for the next superstep
 		ssc.setIteStyle(this.preIteStyle, this.curIteStyle);
 		ssc.setMetricQ(Q);
 		if (this.job.getBspStyle()==Constants.STYLE.Hybrid 
-				&& this.curIteStyle==Constants.STYLE.Push) {
+				&& this.curIteStyle==Constants.STYLE.PUSH) {
 			ssc.setEstimatePullByte(true);
 		} else {
 			ssc.setEstimatePullByte(false);
@@ -893,7 +1009,7 @@ class JobInProgress {
 		
 		if (this.jobMonitor.getActVerNum(curIteNum)==0
 				|| (curIteNum==maxIteNum)) {
-			ssc.setCommandType(CommandType.TERMITE);
+			ssc.setCommandType(CommandType.STOP);
 		} else if (isCheckPoint()) {
 			ssc.setCommandType(CommandType.ARCHIVE);
 		} else {
@@ -909,7 +1025,11 @@ class JobInProgress {
 				|| !job.isGraphDataOnDisk() || interval<=0) {
 			return false;
 		} else {
-			return (curIteNum%interval) == 0;
+			//dynamically checkpoint
+			boolean periodJudge = 
+				(curIteNum-this.jobInfo.getAvailableCheckPoint())>=interval;
+			return (periodJudge&&this.jobMonitor.isDynCheckPointRequired()); 
+			//return periodJudge;
 		}
 	}
 	

@@ -93,12 +93,6 @@ public interface Constants {
 	  public static final String HIGHER="1";
   }
   
-  public static class STYLE {
-	  public static final int Push = 1;
-	  public static final int Pull = 2;
-	  public static final int Hybrid = 3;
-  }
-  
   public static class HardwareInfo {
 	  public static final String RD_Read_ThroughPut = "random.read.throughput";
 	  public static final String RD_Write_ThroughPut = "random.write.throughput"; 
@@ -122,12 +116,27 @@ public interface Constants {
    *
    */
   public static enum VBlockUpdateRule {
-	  /** always update vertices in the given VBlock */
+	  /**
+	   * Read all vertices but only update those with 
+	   * newly received messages or true active-flag.
+	   */
 	  UPDATE,
-	  /** skip vertices in the given VBlock */
+	  /**
+	   * Completely skip all vertices. No vertex is read.
+	   */
 	  SKIP,
-	  /** vertices are updated if and only if they have received messages */
-	  MSG_DEPEND
+	  /**
+	   * All vertices will be read if any of them receives messages. 
+	   * Further, only vertices with messages or true active-flag
+	   * will be updated (e.g., shortest path).
+	   */
+	  MSG_DEPEND, 
+	  /**
+	   * All vertices will be read if any of them receives messages 
+	   * or is active. Further, only vertices with messages or true 
+	   * active-flag will be updated (e.g., maximal independent sets).
+	   */
+	  MSG_ACTIVE_DEPENDED
   }
   
   public static enum BufferStatus {
@@ -142,41 +151,61 @@ public interface Constants {
 	  /** recover failures */
 	  RECOVER, 
 	  /** re-run the iteration where failures happened */
-	  RECOVERED, 
-	  /** termite computations */
-	  TERMITE
+	  REDO, 
+	  /** terminate computations */
+	  STOP
   }
-
-  // Other constants
   
+  /**
+   * Candidate computation model(style).
+   */
+  public static enum STYLE {
+	  /** source vertices produce messages voluntarily */
+	  PUSH,
+	  /** messages are produced on demand of destination vertices (block-centric) */
+	  PULL,
+	  /** switch between PUSH and PULL during iterations if necessary */
+	  Hybrid
+  }
+  
+  // Other constants
+  /**
+   * Variables related to fault-tolerance.
+   */
   public static class CheckPoint {
 	  public static final String JobDir = "bsp.checkpoint.job.dir";
 	  public static final String TaskFile = "bsp.checkpoint.task.file";
 	  public static enum Policy {
 		  /** 
-		   * No data is archived. Upon failures, a job immediately fails 
-		   * and needs to be manually re-submitted. 
+		   * Nothing is archived. Upon any failures, a job immediately fails 
+		   * and needs to be manually re-submitted. This is the default policy.
 		   * */
 		  None,
 		  /** 
-		   * Vertex values and metadata are periodically archived onto HDFS 
-		   * (checkpoint). Failures can be recovered by rolling back computations 
-		   * on all tasks to the most recent available checkpoint. Currently, 
-		   * this is simulated by setting all tasks failed (re-scheduling overheads 
-		   * can be ignored).
+		   * Vertex values and metadata are periodically archived onto HDFS as 
+		   * a checkpoint. Hence, failures can be recovered by rolling back 
+		   * computations on all tasks to the most recent available checkpoint. 
+		   * Currently, this is simulated by setting all tasks failed (ignoring 
+		   * re-scheduling overheads). Note that the checkpointing interval is 
+		   * dynamically computed based on user-specified parameter value and 
+		   * the specific algorithm runtime feature, in order to balance the 
+		   * archiving overhead and recovery efficiency. For more details, 
+		   * please refer to our previous work: 
+		   * https://link.springer.com/article/10.1007%2Fs10619-017-7192-2.
 		   * */
-		  CompleteRecovery,
+		  CompleteRecoveryDynCkp,
 		  /**
-		   * Recovery is confined to failed tasks only since outgoing messages for 
-		   * these tasks have been logged onto local disks of surviving tasks. 
-		   * Checkpoint is still required to avoid recomputing from scratch for 
-		   * failed tasks. 
+		   * Recovery is confined to failed tasks only since outgoing messages 
+		   * for these tasks have been logged onto local disks on surviving tasks. 
+		   * Dynamic checkpoint is still required to avoid recomputing from 
+		   * scratch for failed tasks. 
 		   */
 		  ConfinedRecoveryLogMsg,
 		  /**
 		   * Confined recovery is performed but no message is logged. Instead, 
-		   * vertex values are logged to reduce the I/O costs. The required 
-		   * outgoing messages can be re-generated based on logged vertices.
+		   * vertex values are logged to reduce the I/O costs in failure-free 
+		   * execution. Outgoing messages can be re-generated based on logged 
+		   * vertices when necessary.
 		   */
 		  ConfinedRecoveryLogVert
 	  }

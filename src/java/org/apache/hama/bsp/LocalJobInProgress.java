@@ -63,7 +63,7 @@ public class LocalJobInProgress {
 		if (tips.containsKey(tid)) {
 			tips.remove(tid);
 			String dir = umbilical.getLocalTaskDir(jobId, tid); 
-			localFileOpt.deleteDir(new File(dir));
+			//localFileOpt.deleteDir(new File(dir));
 		}
 		
 		return tips.isEmpty();

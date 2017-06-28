@@ -24,6 +24,7 @@ import org.apache.hama.bsp.GroomServerStatus;
 import org.apache.hama.bsp.Directive;
 import org.apache.hama.monitor.TaskInformation;
 import org.apache.hama.myhama.comm.SuperStepReport;
+import org.apache.hama.myhama.util.MiniCounters;
 
 /**
  * A new protocol for GroomServers communicate with BSPMaster. This
@@ -110,4 +111,16 @@ public interface MasterProtocol extends HamaRPCProtocolVersion {
    * @param parId
    */
   public void sync(BSPJobID jobId, int parId);
+  
+  /**
+   * Initiate a mini-barrier to divide a traditional superstep into two 
+   * mini-supersteps. Runtime statistics are collected at the first mini-superstep. 
+   * Accordingly, at the mini-barrier, the system smartly computes that which model 
+   * (PUSH messages now or PULL messages at the next superstep) is efficient.
+   *  
+   * @param jobId
+   * @param parId
+   * @param minicounters
+   */
+  public void miniSync(BSPJobID jobId, int parId, MiniCounters minicounters);
 }

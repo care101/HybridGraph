@@ -37,6 +37,7 @@ public class Counters implements Writable {
 		Msg_Net,        //network messages without combining/concatenating
 		Msg_Net_Actual, //actual network messages, for pull, some messages have been combined/concatenated
 		Msg_Disk,       //messages resident on disk (only for push)
+		Msg_Estimate,   //estimated number of messages at the first mini-superstep
 		
 		/** counters of runtime */
 		Time_Pull, //runtime of pulling msgs from source vertices
@@ -45,9 +46,10 @@ public class Counters implements Writable {
 		/** counters of io_bytes */
 		Byte_Push,  //io_bytes under "PUSH" model, accurate or estimated
 		Byte_Pull,  //io_bytes under "PULL" model, accurate or estimated
-		Byte_Actual, //io_bytes of one iteration, accurate, actual
-		Byte_Pull_Vert, //io_bytes of reading source vertices when pulling messages
-		Byte_LOG, //io_bytes of logging outgoing messages onto local disks
+		Byte_Actual, //io_bytes of one iteration, accurate, actual [total]
+		Byte_Pull_Vert, //io_bytes of reading source vertices when pulling messages [random read]
+		Byte_LOG, //io_bytes of logging outgoing messages and flags onto local disks [seq. write]
+		Byte_Write, //now only work for pull, io_bytes of writting updated vert values, Byte_LOG [seq. write]
 		
 		/** counters of memory */
 		Mem_Used,                //memory size used during iteration

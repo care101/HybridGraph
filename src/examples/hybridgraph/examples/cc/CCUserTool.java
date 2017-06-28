@@ -60,6 +60,11 @@ public class CCUserTool extends UserTool<Integer, Integer, Integer, Integer> {
 	    public void parseVerValue(String valData) {
 	    	this.verValue = Integer.parseInt(valData);
 	    }
+	    
+		@Override
+		public Integer[] getWeightArray(int capacity) {
+			return null;
+		}
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 

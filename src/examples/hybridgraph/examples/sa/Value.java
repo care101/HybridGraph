@@ -57,8 +57,8 @@ public class Value {
     }
     
     public void parseValue(String e) {
-    	String[] strs = e.split(" ");
-    	this.aId = Integer.parseInt(strs[0]);
-    	this.aNum = Integer.parseInt(strs[1]);
+    	String[] kv = e.split(" ");
+    	this.aId = Integer.parseInt(kv[0]);
+    	this.aNum = Integer.parseInt(kv[1]);
     } 
 }

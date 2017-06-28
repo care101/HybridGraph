@@ -210,6 +210,14 @@ public abstract class GraphRecord<V, W, M, I> {
 		return edgeWeights;
 	}
 	
+    /**
+     * Return the edge weight array when necessary. 
+     * If weights are not required, null is returned.
+     * @param capacity
+     * @return
+     */
+	public abstract W[] getWeightArray(int capacity);
+	
 	/**
 	 * Return the bytes of edges. 
 	 * Including #edges, edgeId, edge weight.
@@ -394,7 +402,8 @@ public abstract class GraphRecord<V, W, M, I> {
 					W[] tmpEdgeWeights = null;
 					if (hasWeight) {
 						tmpEdgeWeights = 
-							(W[]) new Object[idOfFragments[dstTid][dstBid].size()];
+							getWeightArray(idOfFragments[dstTid][dstBid].size());
+						weightOfFragments[dstTid][dstBid].toArray(tmpEdgeWeights);
 					}
 					
 					taskInfo.updateRespondDependency(

@@ -189,7 +189,7 @@ public class GraphDataServerMem<V, W, M, I>
 		Arrays.fill(this.vBlockExchFlag, false);
 		
 		/** only used in pull or hybrid */
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			int gBucNum = this.commRT.getJobInformation().getBlkNumOfJob();
 			this.eBlocks = (ArrayList<EdgeFragment<V, W, M, I>>[][])
 				new ArrayList[locBucNum][gBucNum];
@@ -254,15 +254,17 @@ public class GraphDataServerMem<V, W, M, I>
 					input.getCurrentValue().toString());
 			edgeNum += graph.getEdgeNum();
 			vid = graph.getVerId();
+			degree[vid-this.verBlkMgr.getVerMinId()] = graph.getEdgeNum();
 			bid = commRT.getDstLocalBlkIdx(taskId, vid);
 			graph.setSrcBlkId(bid);
 			
 			putIntoVerBuf(graph, bid, idxs[bid]);
 			idxs[bid]++;
-			if (this.bspStyle != Constants.STYLE.Push) {
+			if (this.bspStyle != Constants.STYLE.PUSH) {
 				ArrayList<EdgeFragmentEntry<V,W,M,I>> frags = 
 					graph.decompose(commRT, taskInfo);
-				putIntoEdgeBuf(frags);
+				fragments[vid-this.verBlkMgr.getVerMinId()] = frags.size();
+				putIntoEdgeBuf(frags); 
 			}
 		}
 		
@@ -282,7 +284,7 @@ public class GraphDataServerMem<V, W, M, I>
 		taskInfo.setEdgeNum(edgeNum);
 		taskInfo.setLoadByte(this.veBlockByte);
 		this.memUsedByMetaData = this.verBlkMgr.getMemUsage();
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			this.memUsedByMetaData += this.edgeBlkMgr.getMemUsage();
 		}
 		
@@ -456,38 +458,40 @@ public class GraphDataServerMem<V, W, M, I>
 					.getForRespond(graph);
 			
 			context.reset();
-			context.initialize(graph, null, -1.0f, true);
+			context.initialize(graph, null, -1.0f, true, getDegree(graph.getVerId()));
 			MsgRecord<M>[] msgs = this.bsp.getMessages(context);
-			statis[3] += msgs.length; // msg_pro
-			for (MsgRecord<M> msg : msgs) {
-				int index = msg.getDstVerId() - dstVerMinId;
-				if (cache[index] == null) {
-					cache[index] = msg;
-					statis[4]++; // msg_rec
-					statis[5]++; // dstVerHasMsg
-				} else {
-					cache[index].collect(msg);
-					if (!this.isAccumulated) {
+			if (msgs != null) {
+				statis[3] += msgs.length; // msg_pro
+				for (MsgRecord<M> msg : msgs) {
+					int index = msg.getDstVerId() - dstVerMinId;
+					if (cache[index] == null) {
+						cache[index] = msg;
 						statis[4]++; // msg_rec
+						statis[5]++; // dstVerHasMsg
+					} else {
+						cache[index].collect(msg);
+						if (!this.isAccumulated) {
+							statis[4]++; // msg_rec
+						}
 					}
-				}
-			}//put messages into one sub send-buffer(BS_{i})
+				}//put messages into one sub send-buffer(BS_{i})
+			}
 		}//respond pull requests for one VBlock
 	}
 	
 	@Override
-	public void openGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
-		throws Exception {
+	public void openGraphDataStreamSwitchToPush(int _bid, int _iteNum) 
+			throws Exception {
 		this.tripleIdx = 0;
 	}
 	
 	@Override
-	public void closeGraphDataStreamOnlyForPush(int _parId, int _bid, int _iteNum) 
-		throws Exception {
+	public void closeGraphDataStreamSwitchToPush(int _bid, int _iteNum) 
+			throws Exception {
 	}
 	
 	@Override
-	public GraphRecord<V, W, M, I> getNextGraphRecordOnlyForPush(int _bid) 
+	public GraphRecord<V, W, M, I> getNextGraphRecordSwitchToPush(int _bid) 
 			throws Exception {
 		graph_rw.setVerId(this.verBlkMgr.getVerBlkBeta(_bid).getVerId());
 		this.vBlocks[_bid][tripleIdx].getForUpdate(graph_rw);
@@ -496,14 +500,14 @@ public class GraphDataServerMem<V, W, M, I>
 	}
 	
 	@Override
-	public void openGraphDataStream(int _parId, int _bid, int _iteNum) 
+	public void openGraphDataStream(int _bid, int _iteNum) 
 			throws Exception {
 		this.tripleIdx = 0;
 		this.vBlockExchFlag[_bid] = true;
 	}
 	
 	@Override
-	public void closeGraphDataStream(int _parId, int _bid, int _iteNum) 
+	public void closeGraphDataStream(int _bid, int _iteNum) 
 			throws Exception {
 	}
 	

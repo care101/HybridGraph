@@ -4,6 +4,7 @@
  */
 package org.apache.hama.myhama.util;
 
+import org.apache.hama.Constants;
 import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.GraphRecord;
@@ -22,7 +23,7 @@ import org.apache.hama.myhama.comm.CommRouteTable;
  */
 public class GraphContext<V, W, M, I> extends Context<V, W, M, I> {
 	
-	public GraphContext(int _taskId, BSPJob _job, int _iteNum, int _iteStyle, 
+	public GraphContext(int _taskId, BSPJob _job, int _iteNum, Constants.STYLE _iteStyle, 
 			final CommRouteTable<V, W, M, I> _commRT) {
 		super(_taskId, _job, _iteNum, _iteStyle, _commRT);
 	}
@@ -40,18 +41,31 @@ public class GraphContext<V, W, M, I> extends Context<V, W, M, I> {
 	}
 	
 	/**
+	 * Whether or not to load edges when performing 
+	 * {@link BSPInterface}.update() and .getMessages() at a given superstep. 
+	 * The value is valid only for style.PUSH. True as default. Note that if 
+	 * the specified value collides with that set by 
+	 * {@link BSPJob}.useAdjEdgeInUpdate(), the former finally works.
+	 */
+	public boolean isUseEdgesInPush() {
+		return this.useEdgesInPush;
+	}
+	
+	/**
 	 * Initialize {@link GraphContext}.
 	 * @param _graph
 	 * @param _msg
 	 * @param _jobAgg
 	 * @param _actFlag
+	 * @param _degree
 	 */
 	public void initialize(GraphRecord<V, W, M, I> _graph, 
-			MsgRecord<M> _msg, float _jobAgg, boolean _actFlag) {
+			MsgRecord<M> _msg, float _jobAgg, boolean _actFlag, int _degree) {
 		graph = _graph; 
 		msg = _msg; 
 		jobAgg = _jobAgg;
 		actFlag = _actFlag;
+		degree = _degree;
 	}
 	
 	/**
@@ -66,6 +80,7 @@ public class GraphContext<V, W, M, I> extends Context<V, W, M, I> {
 		this.actFlag = true;
 		this.resFlag = false;
 		this.vAgg = 0.0f;
+		this.degree = 0;
 	}
 	
 	/**

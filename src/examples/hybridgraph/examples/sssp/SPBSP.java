@@ -14,7 +14,13 @@ import org.apache.hama.myhama.util.Context;
 import hybridgraph.examples.sssp.SPUserTool.SPMsgRecord;
 
 /**
- * SSSPBSP.java implements {@link BSP}.
+ * SPBSP.java implements {@link BSP}.
+ * Note: Compute shortest distance on a non-weighted directed graph. 
+ *       Edge weights required to generate messages are given in a 
+ *       random manner. Thus, the computation is not deterministic. 
+ *       We use this implementation because the input graph size can 
+ *       be largely reduced so that compared systems (e.g., Giraph) 
+ *       can run normally. 
  * 
  * For more details, please refer to 
  * "Pregel: A System for Large-Scale Graph Processing", SIGMOG 2010.
@@ -71,6 +77,7 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 			if (recMsgValue < graph.getVerValue()) {
 				graph.setVerValue(recMsgValue);
 				context.setRespond();
+				context.setVertexAgg(1.0f);
 			} //The updated value should be broadcasted to neighbors.
 		}
 		//Deactive itself. An inactive vertex becomes active automically 
@@ -89,7 +96,7 @@ public class SPBSP extends BSP<Double, Double, Double, Integer> {
 		for (int eid: graph.getEdgeIds()) {
 			result[idx] = new SPMsgRecord();
 			result[idx].initialize(graph.getVerId(), eid, 
-					graph.getVerValue()+0.1/*rd.nextDouble()*/);
+					graph.getVerValue()+rd.nextDouble());
 			idx++;
 		}
 		return result;

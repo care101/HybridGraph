@@ -65,6 +65,11 @@ public class PageRankUserTool
 	    public void parseVerValue(String valData) {
 	    	this.verValue = Double.parseDouble(valData);
 	    }
+	    
+		@Override
+		public Integer[] getWeightArray(int capacity) {
+			return null;
+		}
 
 		@Override
 		public void serGrapnInfo(ByteBuffer eOut) 

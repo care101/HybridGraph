@@ -13,6 +13,7 @@ import hybridgraph.examples.pagerank.PageRankUserTool.PRMsgRecord;
 
 /**
  * PageRankBSP.java implements {@link BSP}.
+ * Note: a non-weighted directed graph.
  * 
  * For u, its PageRank score 
  * PR(u) = (1-d)*(1/#vertices) + d*sum(PR(v)/v.outDegree), 

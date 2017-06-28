@@ -6,7 +6,7 @@ package hybridgraph.examples.lpa;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map.Entry;
-
+//import java.util.Random;
 import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.myhama.api.BSP;
 import org.apache.hama.myhama.api.GraphRecord;
@@ -19,16 +19,16 @@ import hybridgraph.examples.lpa.LPAUserTool.LPAMsgRecord;
  * LPABSP.java implements {@link BSP}.
  * Note: 
  *   1) messages of this algorithm can only be concatenated;
- *   2) the input graph can be directed/undirected.
+ *   2) the input graph can be directed/undirected, but here we 
+ *      use a directed graph.
  * 
  * Implement a simple but efficient community detection method 
  * based on the label propagation algorithm (LPA). 
  * This is used to find non-overlapping communities.
  * 
- * The details of LPA can refer to Usha Nandini Raghavan et al. 
- * "Near linear time algorithm to detect community structures 
- * in large-scale networks", 
- * Physical Review E, 2007, 76(3): 036106.
+ * For more details of LPA, please refer to Usha Nandini Raghavan 
+ * et al., "Near linear time algorithm to detect community structures 
+ * in large-scale networks", Physical Review E, 2007, 76(3): 036106.
  * 
  * @author 
  * @version 0.1
@@ -122,8 +122,15 @@ public class LPABSP extends BSP<Integer, Integer, MsgBundle, Integer> {
 		//perform deterministic computations
 		max = 0;
 		for (int label: candidates) {
-			max = max<label? label:max;
+			max = Math.max(max, label);
 		}
 		return max;
+		
+		/*Random rd = new Random(); //random choose a label from candidates
+		int idx = 0;
+		if (candidates.size() > 2) {
+			idx = rd.nextInt(candidates.size()-1);
+		}
+		return candidates.get(idx);*/
 	}
 }

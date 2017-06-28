@@ -600,8 +600,10 @@ public class BSPJobClient extends Configured implements Tool {
 		
 		try {
 			String stageHeadInfo = "NA";
+			boolean detailed = false;
 			while (!job.isComplete()) {
 				Thread.sleep(3000);
+				detailed = false;
 				int step = info.getSuperstepCounter();
 				float[] progress = info.getProgress();
 				int[] progressTaskIds = info.getProgressTaskIds();
@@ -614,45 +616,41 @@ public class BSPJobClient extends Configured implements Tool {
 					break;
 				case JobStatus.LOAD:
 					stageHeadInfo = "[LoadGraph] --";
-					if (oldStep != step || oldProgress[0] != progress[0]
-							|| oldProgress[1] != progress[1]) {
-						LOG.info(stageHeadInfo + "\tmin["
-								+ "tid=" + progressTaskIds[0] 
-								+ ", pro=" + (int) (progress[0] * 100) + "%]\tmax["
-								+ "tid=" + progressTaskIds[1]
-								+ ", pro=" + (int) (progress[1] * 100) + "%]");
-						oldStep = step;
-						oldProgress = progress;
-					}
+					detailed = true;
 					break;
 				case JobStatus.RUNNING: 
 					stageHeadInfo = "[SuperStep] " + step;
-					if (oldStep != step || oldProgress[0] != progress[0]
-							|| oldProgress[1] != progress[1]) {
-						LOG.info(stageHeadInfo + "\tmin["
-								+ "tid=" + progressTaskIds[0] 
-								+ ", pro=" + (int) (progress[0] * 100) + "%]\tmax["
-								+ "tid=" + progressTaskIds[1]
-								+ ", pro=" + (int) (progress[1] * 100) + "%]");
-						oldStep = step;
-						oldProgress = progress;
-					}
+					detailed = true;
+					break;
+				case JobStatus.RESTART:
+					stageHeadInfo = "[!!Restart] --";
+					detailed = true;
+					break;
+				case JobStatus.RECOVERY:
+					stageHeadInfo = "[!Recovery] " + step;
+					detailed = true;
 					break;
 				case JobStatus.SAVE: 
 					stageHeadInfo = "[SaveGraph] --";
-					if (oldStep != step || oldProgress[0] != progress[0]
-							|| oldProgress[1] != progress[1]) {
-						LOG.info(stageHeadInfo + "\tmin["
-								+ "tid=" + progressTaskIds[0] 
-								+ ", pro=" + (int) (progress[0] * 100) + "%]\tmax["
-								+ "tid=" + progressTaskIds[1]
-								+ ", pro=" + (int) (progress[1] * 100) + "%]");
-						oldStep = step;
-						oldProgress = progress;
-					}
+					detailed = true;
 					break;
 				default:
 					// TODO .
+				}
+				
+				if (!detailed) {
+					continue;
+				}
+				
+				if (oldStep!=step || oldProgress[0]!=progress[0]
+				        || oldProgress[1]!=progress[1]) {
+					LOG.info(stageHeadInfo + "\tmin["
+							+ "tid=" + progressTaskIds[0] 
+							    + ", pro=" + (int) (progress[0] * 100) + "%]\tmax["
+							+ "tid=" + progressTaskIds[1]
+							    + ", pro=" + (int) (progress[1] * 100) + "%]");
+					oldStep = step;
+					oldProgress = progress;
 				}
 			}
 			

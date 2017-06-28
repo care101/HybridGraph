@@ -73,6 +73,22 @@ public abstract class MsgRecord<M> {
 	//=====================
 	
 	/**
+	 * Create and return a copy of {@link MsgRecord}. This function is invoked when 
+	 * collecting received messages in {@link MsgDataServer}.LocalMemPullThread() 
+	 * under PUSH. The goal is to eliminate side effects of the collect() function 
+	 * for the msgValue kept in {@link MsgDataServer}.incomedBuffer. Otherwise, 
+	 * when pre=PUSH&inturrupted=true, {@link MsgDataServer}.clearAftIte() will 
+	 * log the final msgValue (the result after collecting all received messages) 
+	 * onto local disks, instead of originally stored value. In particular, users 
+	 * should specify the implementation when a user-defined complicated value class 
+	 * (i.e., M), rather than a basic class (e.g., Integer and Double), is provided. 
+	 */
+	@Override
+	public MsgRecord<M> clone() {
+		return this;
+	}
+	
+	/**
 	 * Combine the message "msg" to itself.
 	 * 
 	 * For example, for PageRank, the value of "msg" 

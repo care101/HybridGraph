@@ -72,6 +72,11 @@ public class SAUserTool
 			this.verValue = new Value();
 			this.verValue.parseValue(valData);
 	    }
+		
+		@Override
+		public Integer[] getWeightArray(int capacity) {
+			return null;
+		}
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 
@@ -120,7 +125,7 @@ public class SAUserTool
 		@Override
 		public int getMsgByte() {
 			return this.msgValue==null? 
-					8:(4+this.msgValue.getByteSize()); //int+sizeof(value)
+					12:(4+this.msgValue.getByteSize()); //int+sizeof(value)
 		}
 		
 		@Override
@@ -147,6 +152,17 @@ public class SAUserTool
 		public void serialize(DataOutputStream out) throws IOException {
 			out.writeInt(this.dstId);
 			this.msgValue.write(out);
+		}
+		
+		@Override
+		public SAMsgRecord clone() {
+			MsgBundle val = new MsgBundle();
+			for (int id: this.getMsgValue().getAll()) {
+				val.add(id);
+			}
+			SAMsgRecord msg = new SAMsgRecord();
+			msg.initialize(srcId, dstId, val);
+			return msg;
 		}
 	}
 	

@@ -12,7 +12,9 @@ import org.apache.hama.myhama.io.TextBSPFileOutputFormat;
 
 /**
  * PageRankDriver.java
- * A driven program is used to submit the pagerank computation job.
+ * A driven program is used to submit the pagerank computation job 
+ * using the style.PULL model. 
+ * Note: a non-weighted directed graph.
  * 
  * @author 
  * @version 0.1
@@ -22,23 +24,25 @@ public class PageRankPullDriver {
 	public static void main(String[] args) throws Exception {
 		//check parameters
 		if (args.length < 6) {
-			StringBuffer sb = new StringBuffer("Usage of PULL-based PageRank:"); 
-			sb.append("\n  (1)input directory on HDFS"); 
-			sb.append("\n  (2)output directory on HDFS"); 
-			sb.append("\n  (3)#tasks(int)");
-			sb.append("\n  (4)#iterations(int)");
-			sb.append("\n  (5)#vertices");
-			sb.append("\n  (6)#buckets");
+			StringBuffer sb = new StringBuffer("\nUsage of PULL-based PageRank:"); 
+			sb.append("\n(*)required parameter");
+			sb.append("\n[*]optional parameter");
+			sb.append("\n   (1)input directory on HDFS"); 
+			sb.append("\n   (2)output directory on HDFS"); 
+			sb.append("\n   (3)#tasks(int)");
+			sb.append("\n   (4)#iterations(int)");
+			sb.append("\n   (5)#vertices");
+			sb.append("\n   (6)#buckets");
 			
-			sb.append("\n  [7]msg_pack for style.PULL(int, 10^4 default)");
-			sb.append("\n  [8]checkpoint policy:");
-			sb.append("\n       0 => NONE, default");
-			sb.append("\n       1 => CompleteRecovery");
-			sb.append("\n       2 => ConfinedRecoveryLogMsg");
-			sb.append("\n       3 => ConfinedRecoveryLogVert");
-			sb.append("\n  [9]checkpoint interval (int, -1 default)");
-			sb.append("\n  [10]failure iteration (int, -1 default)");
-			sb.append("\n  [11]#failed tasks (int, 0 default)");
+			sb.append("\n   [7]msg_pack for style.PULL(int, 10^4 default)");
+			sb.append("\n   [8]checkpoint policy:");
+			sb.append("\n      0 => NONE, default");
+			sb.append("\n      1 => CompleteRecoveryDynCkp");
+			sb.append("\n      2 => ConfinedRecoveryLogMsg");
+			sb.append("\n      3 => ConfinedRecoveryLogVert");
+			sb.append("\n   [9]checkpoint interval (int, 0 default)");
+			sb.append("\n   [10]failure iteration (int, 0 default)");
+			sb.append("\n   [11]#failed tasks (int, 0 default)");
 			
 			System.out.println(sb.toString());
 			System.exit(-1);
@@ -63,7 +67,7 @@ public class PageRankPullDriver {
 		bsp.setNumBucketsPerTask(Integer.valueOf(args[5]));
 		
 		bsp.setGraphDataOnDisk(true);
-		bsp.setBspStyle(Constants.STYLE.Pull);
+		bsp.setBspStyle(Constants.STYLE.PULL);
 		bsp.useGraphInfoInUpdate(true);
 		
 		

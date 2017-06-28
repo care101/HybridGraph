@@ -9,6 +9,7 @@ import org.apache.hama.Constants;
 import org.apache.hama.bsp.BSPRPCProtocolVersion;
 import org.apache.hama.monitor.JobInformation;
 import org.apache.hama.myhama.api.MsgRecord;
+import org.apache.hama.myhama.comm.MiniSuperStepCommand;
 import org.apache.hama.myhama.comm.MsgPack;
 import org.apache.hama.myhama.comm.SuperStepCommand;
 
@@ -66,11 +67,20 @@ public interface CommunicationServerProtocol<V, W, M, I>
 	public void setRegisterInfo(JobInformation jobInfo);
 	
 	/**
-	 * Set command for the next superstep and then quit the synchronization barrier 
-	 * initiated by {@link MasterProtocol}.finishSuperStep().
+	 * Set command for the next superstep and then quit the 
+	 * synchronization barrier. The barrier is initiated by 
+	 * {@link MasterProtocol}..finishSuperStep().
 	 * @param SuperStepCommand ssc
 	 */
 	public void setNextSuperStepCommand(SuperStepCommand ssc);
+	
+	/**
+	 * Set command for the next mini-superstep and then quit the 
+	 * mini-synchronization barrier. The barrier is initiated by 
+	 * {@link MasterProtocol}.miniSync().
+	 * @param MiniSuperStepCommand ssc
+	 */
+	public void setNextMiniSuperStepCommand(MiniSuperStepCommand mssc);
 	
 	/**
 	 * Quit a synchronization barrier initiated by 

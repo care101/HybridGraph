@@ -61,6 +61,11 @@ public class LPAUserTool
 	    public void parseVerValue(String valData) {
 	    	this.verValue = Integer.parseInt(valData);
 	    }
+	    
+		@Override
+		public Integer[] getWeightArray(int capacity) {
+			return null;
+		}
 
 		@Override
 		public void serEdges(ByteBuffer eOut) 
@@ -110,7 +115,7 @@ public class LPAUserTool
 		@Override
 		public int getMsgByte() {
 			return this.msgValue==null? 
-					8:(4+this.msgValue.getByteSize());
+					12:(4+this.msgValue.getByteSize());
 		}
 		
 		@Override
@@ -124,6 +129,17 @@ public class LPAUserTool
 		public void serialize(DataOutputStream out) throws IOException {
 			out.writeInt(this.dstId);
 			this.msgValue.write(out);
+		}
+		
+		@Override
+		public LPAMsgRecord clone() {
+			MsgBundle val = new MsgBundle();
+			for (int label: this.getMsgValue().getAll()) {
+				val.add(label);
+			}
+			LPAMsgRecord msg = new LPAMsgRecord();
+			msg.initialize(srcId, dstId, val);
+			return msg;
 		}
 	}
 	

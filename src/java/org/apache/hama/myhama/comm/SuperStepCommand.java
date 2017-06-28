@@ -17,8 +17,8 @@ public class SuperStepCommand implements Writable {
 	private float jobAgg;
 	private ArrayList<Integer>[] route;
 	
-	private int preIteStyle;
-	private int curIteStyle;
+	private Constants.STYLE preIteStyle;
+	private Constants.STYLE curIteStyle;
 	private boolean estimatePullByte;
 	
 	private int iteNum;
@@ -29,14 +29,43 @@ public class SuperStepCommand implements Writable {
 	private double iteTime;
 	private HashSet<Integer> failedTaskIds;
 	
+	/**
+	 * Skip the read operation of logged messages when recovering 
+	 * failures with ConfinedRecoveryLogMsg. This flag is true only 
+	 * for the first recovery superstep when pre=PUSH, because no 
+	 * message is archived into the PULL directory at the previous 
+	 * iteration. Instead of directly loading messages, in this case, 
+	 * outgoing messages are re-generated using PULL and then returned. 
+	 */
+	private boolean skipMsgLoad = false;
+	
+	/**
+	 * True if failures are detected by {@link JobInProgress}. This flag 
+	 * is set to true only by {@link JobInProgress}.recoveryRegisterTask(), 
+	 * in order to tell surviving tasks to save the inturrupted program 
+	 * status and/or do some preprocessing work.
+	 */
+	private boolean findError = false;
+	
 	public SuperStepCommand() {
-		
+		this.findError = false;
+		this.skipMsgLoad = false;
 	}
 	
+	/**
+	 * Set the runtime of the current superstep, 
+	 * excluding the cost of archiving a checkpoint.
+	 * @param time
+	 */
 	public void setIterationTime(double time) {
 		iteTime = time;
 	}
 	
+	/**
+	 * Get the runtime of the current superstep, 
+	 * excluding the cost of archiving a checkpoint.
+	 * @return
+	 */
 	public double getIterationTime() {
 		return iteTime;
 	}
@@ -50,23 +79,31 @@ public class SuperStepCommand implements Writable {
 	}
 	
 	/**
-	 * Copy some variables provided by the given command.
+	 * Copy some variables provided by the given command. 
+	 * "jobAgg" is one of these parameters because some algrorithms, 
+	 * such as LPA, vote to halt based on the global aggregator value. 
+	 * "estimatePullByte" is also required so that the system can 
+	 * correctly collect bytes under PUSH/PULL to decide which model 
+	 * is more efficient at the next iteration.
 	 * @param command
 	 */
 	public void copy(SuperStepCommand command) {
 		jobAgg = command.getJobAgg();
 		preIteStyle = command.getPreIteStyle();
 		curIteStyle = command.getCurIteStyle();
-		estimatePullByte = command.isEstimatePullByte();
-		metricQ = command.getMetricQ();
+		setEstimatePullByte(command.isEstimatePullByte());
 	}
 	
+	/**
+	 * Set the superstep counter.
+	 * @param num
+	 */
 	public void setIteNum(int num) {
 		iteNum = num;
 	}
 	
 	/**
-	 * Get the counter of the next superstep.
+	 * Get the current superstep counter.
 	 * @return
 	 */
 	public int getIteNum() {
@@ -88,6 +125,10 @@ public class SuperStepCommand implements Writable {
 		}
 	}
 	
+	public HashSet<Integer> getFailedTaskIds() {
+		return failedTaskIds;
+	}
+	
 	public void setMetricQ(double _q) {
 		this.metricQ = _q;
 	}
@@ -96,10 +137,18 @@ public class SuperStepCommand implements Writable {
 		return this.metricQ;
 	}
 	
+	/**
+	 * Get the command of the next superstep.
+	 * @return
+	 */
 	public CommandType getCommandType() {
 		return this.commandType;
 	}
 	
+	/**
+	 * Set the command of the next superstep.
+	 * @param commandType
+	 */
 	public void setCommandType(CommandType commandType) {
 		this.commandType = commandType;
 	}
@@ -120,16 +169,69 @@ public class SuperStepCommand implements Writable {
 		return this.route;
 	}
 	
-	public void setIteStyle(int _preStyle, int _curStyle) {
+	/**
+	 * Set the iterative computation style at the next superstep.
+	 * @param _preStyle
+	 * @param _curStyle
+	 */
+	public void setIteStyle(Constants.STYLE _preStyle, Constants.STYLE _curStyle) {
 		this.preIteStyle = _preStyle;
 		this.curIteStyle = _curStyle;
 	}
 	
-	public int getCurIteStyle() {
+	/**
+	 * Adjust the style command when restarting computations in failure recovery. 
+	 * This function is called only for the first recovery superstep when pre=PUSH, 
+	 * in order to prepare messages for the current superstep. This is because in 
+	 * our checkpoint, outgoing messages are not archived for efficiency. 
+	 * The adjusting rules are listed below:
+	 * (1)pre=PULL & cur=PULL, OK;
+	 * (2)pre=PULL & cur=PUSH, OK;
+	 * (3)pre=PUSH & cur=PULL, =>(1);
+	 * (4)pre=PUSH & cur=PUSH, =>(2);
+	 */
+	public void adjustIteStyle(Constants.CheckPoint.Policy policy) {
+		if (preIteStyle == Constants.STYLE.PUSH) {
+			preIteStyle = Constants.STYLE.PULL;
+			if (policy == Constants.CheckPoint.Policy.ConfinedRecoveryLogMsg) {
+				//skip read operations since no message is archived into the PULL 
+				//directory at the previous PUSH iteration
+				skipMsgLoad = true;
+			}
+		}
+	}
+	
+	public void setFindError(boolean flag) {
+		findError = flag;
+	}
+	
+	public boolean findError() {
+		return findError;
+	}
+	
+	/**
+	 * If true is returned, directly load outgoing messages from the PULL directory 
+	 * on local disks when using CompleteRecoveryMsgLog to recover failures. Otherwise, 
+	 * skip the loading operation. Instead, messages are re-generated. 
+	 * @return
+	 */
+	public boolean skipMsgLoad() {
+		return skipMsgLoad;
+	}
+	
+	/**
+	 * Return the iterative computation style of the next superstep.
+	 * @return
+	 */
+	public Constants.STYLE getCurIteStyle() {
 		return this.curIteStyle;
 	}
 	
-	public int getPreIteStyle() {
+	/**
+	 * Return the iterative computation style of the previous/current superstep.
+	 * @return
+	 */
+	public Constants.STYLE getPreIteStyle() {
 		return this.preIteStyle;
 	}
 	
@@ -143,12 +245,13 @@ public class SuperStepCommand implements Writable {
 	
 	@Override
 	public void readFields(DataInput in) throws IOException {
-		commandType = 
-			WritableUtils.readEnum(in, CommandType.class);
+		commandType = WritableUtils.readEnum(in, CommandType.class);
 		jobAgg = in.readFloat();
-		preIteStyle = in.readInt();
-		curIteStyle = in.readInt();
+		preIteStyle = WritableUtils.readEnum(in, Constants.STYLE.class);
+		curIteStyle = WritableUtils.readEnum(in, Constants.STYLE.class);
 		estimatePullByte = in.readBoolean();
+		skipMsgLoad = in.readBoolean();
+		findError = in.readBoolean();
 		iteNum = in.readInt();
 		ckpVersion = in.readInt();
 		
@@ -161,15 +264,25 @@ public class SuperStepCommand implements Writable {
 				route[i].add(in.readInt());
 			}
 		}
+		
+		len = in.readInt();
+		if (len > 0) {
+			failedTaskIds = new HashSet<Integer>();
+			for (int i = 0; i < len; i++) {
+				failedTaskIds.add(in.readInt());
+			}
+		}
 	}
 
 	@Override
 	public void write(DataOutput out) throws IOException {
 		WritableUtils.writeEnum(out, commandType);
 		out.writeFloat(jobAgg);
-		out.writeInt(preIteStyle);
-		out.writeInt(curIteStyle);
+		WritableUtils.writeEnum(out, preIteStyle);
+		WritableUtils.writeEnum(out, curIteStyle);
 		out.writeBoolean(estimatePullByte);
+		out.writeBoolean(skipMsgLoad);
+		out.writeBoolean(findError);
 		out.writeInt(iteNum);
 		out.writeInt(ckpVersion);
 		
@@ -180,32 +293,36 @@ public class SuperStepCommand implements Writable {
 				out.writeInt(tid);
 			}
 		}
+		
+		if (failedTaskIds != null) {
+			out.writeInt(failedTaskIds.size());
+			for (int id: failedTaskIds) {
+				out.writeInt(id);
+			}
+		} else {
+			out.writeInt(0);
+		}
 	}
 	
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer();
-		sb.append("command="); 
 		sb.append(this.commandType);
 		
-		sb.append("\tsum-agg="); 
-		sb.append(this.jobAgg);
-		
-		sb.append("\tstyle="); 
-		if (this.curIteStyle == Constants.STYLE.Pull) {
-			sb.append("PULL");
-		} else {
-			sb.append("PUSH");
-		}
+		sb.append("\t"); 
+		sb.append(this.curIteStyle);
 		
 		sb.append("\t");
 		sb.append(iteTime);
+		
+		sb.append("\t"); 
+		sb.append(this.jobAgg);
 		
 		sb.append("\t");
 		sb.append(metricQ);
 		
 		if (failedTaskIds != null) {
-			sb.append("\tfailures=[");
+			sb.append("\t[");
 			for (Integer id: failedTaskIds) {
 				sb.append(id.toString());
 				sb.append(",");
@@ -213,6 +330,7 @@ public class SuperStepCommand implements Writable {
 			sb.deleteCharAt(sb.length()-1); //delete the last ","
 			sb.append("]");
 		}
+		
 		return sb.toString();
 	}
 }

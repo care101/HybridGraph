@@ -14,7 +14,7 @@ public class VerBlockBeta {
 	private static final Log LOG = LogFactory.getLog(VerBlockBeta.class);
 	
 	private int bid;
-	private int bspStyle;
+	private Constants.STYLE bspStyle;
 	private int granularity = 0; //#tasks * #blocks per task
 	
 	private int vMinId, vMaxId; //source vertex id in this VBlock
@@ -39,7 +39,7 @@ public class VerBlockBeta {
 	
 	public VerBlockBeta(int _bid, int _verMinId, int _verMaxId, int _verNum, 
 			int _taskNum, int[] _blkNumTask, 
-			int _bspStyle) {
+			Constants.STYLE _bspStyle) {
 		bid = _bid;
 		bspStyle = _bspStyle;
 		vMinId = _verMinId;
@@ -54,7 +54,7 @@ public class VerBlockBeta {
 		granularity = 0;
 		totalFragNum = 0;
 		
-		if (this.bspStyle != Constants.STYLE.Push) {
+		if (this.bspStyle != Constants.STYLE.PUSH) {
 			this.eFragStart = new long[_taskNum][];
 			this.eFragLen = new long[_taskNum][];
 			this.fragNum = new int[_taskNum][];
@@ -95,7 +95,7 @@ public class VerBlockBeta {
 	 */
 	public long getFragmentLen(int _dstTid, int _dstBid) {
 		return 
-			this.bspStyle==Constants.STYLE.Push? 
+			this.bspStyle==Constants.STYLE.PUSH? 
 					0:this.eFragLen[_dstTid][_dstBid];
 	}
 	
@@ -125,7 +125,7 @@ public class VerBlockBeta {
 	 */
 	public long getFragmentStart(int _dstTid, int _dstBid) {
 		return 
-			this.bspStyle==Constants.STYLE.Push? 
+			this.bspStyle==Constants.STYLE.PUSH? 
 					0:this.eFragStart[_dstTid][_dstBid];
 	}
 	
@@ -140,7 +140,7 @@ public class VerBlockBeta {
 	 */
 	public int getFragmentNum(int _dstTid, int _dstBid) {
 		return 
-		this.bspStyle==Constants.STYLE.Push? 
+		this.bspStyle==Constants.STYLE.PUSH? 
 				0:this.fragNum[_dstTid][_dstBid];
 	}
 	

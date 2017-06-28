@@ -11,6 +11,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hama.Constants.CommandType;
 import org.apache.hama.bsp.BSPJob;
+import org.apache.hama.myhama.comm.MiniSuperStepCommand;
 import org.apache.hama.myhama.comm.SuperStepCommand;
 
 public class JobInformation implements Writable {
@@ -47,6 +48,8 @@ public class JobInformation implements Writable {
 	private ArrayList<SuperStepCommand> recoveryCommands;
 	/** the most recent checkpoint version */
 	private int ckpVersion;
+	
+	private ArrayList<MiniSuperStepCommand> minicommands;
 		
 	public JobInformation() {
 		
@@ -68,7 +71,9 @@ public class JobInformation implements Writable {
 		
 		commands = new ArrayList<SuperStepCommand>(); 
 		recoveryCommands = new ArrayList<SuperStepCommand>();
-		ckpVersion = -1;
+		ckpVersion = 0;
+		
+		minicommands = new ArrayList<MiniSuperStepCommand>();
 	}
 	
 	/**
@@ -177,7 +182,7 @@ public class JobInformation implements Writable {
 	
 	/**
 	 * Get the most recent available checkpoint version. 
-	 * -1 indicates that no checkpoint exists.
+	 * 0 indicates that no checkpoint exists.
 	 * @return
 	 */
 	public int getAvailableCheckPoint() {
@@ -274,6 +279,14 @@ public class JobInformation implements Writable {
 		recoveryCommands.add(command);
 	}
 	
+	public void archiveMiniCommand(MiniSuperStepCommand minicommand) {
+		minicommands.add(minicommand);
+	}
+	
+	public MiniSuperStepCommand getMiniCommand(int curIteNum) {
+		return minicommands.get(curIteNum-1);
+	}
+	
 	public Double getQ(int curIteNum) {
 		if (curIteNum < 1) {
 			return 0.0;
@@ -319,7 +332,7 @@ public class JobInformation implements Writable {
 				for (int j = 0; j < this.blkNumOfTasks[srcTid]; j++) {
 					srcBlkIdx = headBlkIdx + j;
 					if ((commandType==CommandType.RECOVER) || 
-							commandType==CommandType.RECOVERED || 
+							commandType==CommandType.REDO || 
 							(this.resVerNumOfBlks[srcBlkIdx]>0 
 							&& this.resDependMatrix[srcBlkIdx][dstBlkIdx])) {
 						//has updated, && has edges.
@@ -339,26 +352,37 @@ public class JobInformation implements Writable {
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer("\n");
-		
-		sb.append("\nDetailInfo: iteration\tcommand\taggregator\tmodel" +
-				"\truntime\tmetric_Q\tfailed");
-		for (int index = 0; index < commands.size(); index++) {
-			sb.append("\n   ite[" + index + "]  ");
-			sb.append(commands.get(index));
+		sb.append("\n*\"command\" specifies what will be done at the next superstep.");
+		sb.append("\n*\"runtime\" includes the cost of archiving a checkpoint.");
+		sb.append("\nDetailed Information:");
+		sb.append("\n   counter\tcommand\tmodel\truntime\taggregator\tQ");
+		for (SuperStepCommand command: commands) {
+			sb.append("\n   ite[" + command.getIteNum() + "]\t");
+			sb.append(command);
 		}
 		
 		if (recoveryCommands.size() > 0) {
-			sb.append("\n\nRecoveryInfo: iteration\tcommand\taggregator\tmodel" +
-			"\truntime\tmetric_Q\tfailed");
+			sb.append("\n\nRecovery Information:");
+			sb.append("\n   counter\tcommand\tmodel\truntime\taggregator" +
+			"\tQ\tfailed");
 			double time = 0.0;
-			for (int index = 0; index < recoveryCommands.size(); index++) {
-				sb.append("\n   ite[" + index + "]  ");
-				sb.append(recoveryCommands.get(index));
-				time += recoveryCommands.get(index).getIterationTime();
+			for (SuperStepCommand command: recoveryCommands) {;
+				sb.append("\n   ite[" + command.getIteNum() + "]\t");
+				sb.append(command);
+				time += command.getIterationTime();
 			}
 			sb.append("\n   TimeOfRecomputation = ");
 			sb.append(time);
 			sb.append(" sec");
+		}
+		
+		if (minicommands.size() > 0) {
+			sb.append("\n\nMini-SuperStep Information:");
+			sb.append("\n   counter\tcommand\tminiQ");
+			for (MiniSuperStepCommand command: minicommands) {;
+				sb.append("\n   ite[" + command.getIteNum() + "]\t");
+				sb.append(command);
+			}
 		}
 		
 		return sb.toString();

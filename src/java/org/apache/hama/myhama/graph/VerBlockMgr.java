@@ -31,7 +31,7 @@ public class VerBlockMgr {
 	 * @param _blkLen
 	 */
 	public VerBlockMgr(int _verMinId, int _verMaxId, int _blkNum, int _blkLen, 
-			int _taskNum, int[] _blkNumTask, int bspStyle) {
+			int _taskNum, int[] _blkNumTask, Constants.STYLE bspStyle) {
 		verMinId = _verMinId;
 		verMaxId = _verMaxId;
 		verNum = _verMaxId - _verMinId + 1;
@@ -134,7 +134,7 @@ public class VerBlockMgr {
 	 * to compute the total #vertices and #edges of this task, 
 	 * and set the starting offset for edge data files of each local block.
 	 */
-	public void loadOver(int bspStyle, int taskNum, int[] blkNumTask) {
+	public void loadOver(Constants.STYLE bspStyle, int taskNum, int[] blkNumTask) {
 		StringBuffer sb = new StringBuffer("VerBlockMgr Metadata:");
 		for (VerBlockBeta vbb: this.blocks) {
 			sb.append("\n");
@@ -142,7 +142,7 @@ public class VerBlockMgr {
 		}
 		LOG.info(sb.toString());
 		
-		if (bspStyle == Constants.STYLE.Push) {
+		if (bspStyle == Constants.STYLE.PUSH) {
 			return;
 		}
 		

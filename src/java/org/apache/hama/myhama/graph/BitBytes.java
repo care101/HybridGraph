@@ -5,11 +5,11 @@ import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+//import org.apache.commons.logging.Log;
+//import org.apache.commons.logging.LogFactory;
 
 public class BitBytes {
-	private static final Log LOG = LogFactory.getLog(BitBytes.class);
+	//private static final Log LOG = LogFactory.getLog(BitBytes.class);
 	int[] bitMarks = {0, 1, 2, 4, 8, 16, 32, 64};
 	double base = 7.0; //7 bits in one byte is used
 	
@@ -17,9 +17,10 @@ public class BitBytes {
 		
 	}
 	
-	public void serialize(boolean[] flags, final int _fromIdx, final int _toIdx, 
-			File output, final int _taskMinId) throws Exception {
-		int fromIdx = _fromIdx, toIdx = _toIdx, taskMinId = _taskMinId;
+	public long serialize(boolean[] flags, final int _fromIdx, final int _toIdx, 
+			File output, final int _taskMinId) throws Exception {;
+		int fromIdx = _fromIdx, toIdx = _toIdx; 
+		//int taskMinId = _taskMinId;
 		long numOfBytes = (long)Math.ceil((toIdx-fromIdx)/base);
 		RandomAccessFile raf = new RandomAccessFile(output, "rw");
 		FileChannel fc = raf.getChannel();
@@ -50,9 +51,10 @@ public class BitBytes {
 		
 		fc.close();
 		raf.close();
+		return numOfBytes;
 	}
 	
-	public void deserialize(boolean[] flags, final int _fromIdx, final int _toIdx, 
+	public long deserialize(boolean[] flags, final int _fromIdx, final int _toIdx, 
 			File input, final int _taskMinId) throws Exception {
 		int fromIdx = _fromIdx, toIdx = _toIdx, taskMinId = _taskMinId;
 		long numOfBytes = (long)Math.ceil((toIdx-fromIdx)/base);
@@ -88,5 +90,6 @@ public class BitBytes {
 		
 		fc.close();
 		raf.close();
+		return numOfBytes;
 	}
 }

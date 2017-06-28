@@ -4,6 +4,7 @@
  */
 package org.apache.hama.myhama.util;
 
+import org.apache.hama.Constants;
 import org.apache.hama.Constants.VBlockUpdateRule;
 import org.apache.hama.bsp.BSPJob;
 import org.apache.hama.myhama.api.GraphRecord;
@@ -33,7 +34,7 @@ public class Context<V, W, M, I> {
 	protected BSPJob job;      //task level
 	protected int taskId;      //task level
 	protected int iteNum;      //superstep level
-	protected int iteStyle;    //superstep level
+	protected Constants.STYLE iteStyle;    //superstep level
 	protected int vBlkId;                    //VBlock id
 	protected VBlockUpdateRule vBlkUpdRule;  //VBlock level
 	protected CommRouteTable<V, W, M, I> commRT;
@@ -48,8 +49,22 @@ public class Context<V, W, M, I> {
 	protected boolean actFlag;
 	@SuppressWarnings("unused")
 	protected boolean resFlag;
+	/** (Out-)Degree */
+	protected int degree;
 	
-	public Context(int _taskId, BSPJob _job, int _iteNum, int _iteStyle, 
+	/**
+	 * Whether or not to load edges when performing 
+	 * {@link BSPInterface}.update() and .getMessages() 
+	 * at a given superstep. The value is valid only for 
+	 * style.PUSH. User can specify its value in the 
+	 * function {@link BSPInterface}.superstepSetup(). 
+	 * True as default. Note that if the specified value 
+	 * collides with that set by {@link BSPJob}.useAdjEdgeInUpdate(), 
+	 * the former finally works.
+	 */
+	protected boolean useEdgesInPush;
+	
+	public Context(int _taskId, BSPJob _job, int _iteNum, Constants.STYLE _iteStyle, 
 			final CommRouteTable<V, W, M, I> _commRT) {
 		this.taskId = _taskId;
 		this.job = _job;
@@ -58,22 +73,23 @@ public class Context<V, W, M, I> {
 		this.commRT = _commRT;
 		this.vBlkId = -1;
 		this.vBlkUpdRule = VBlockUpdateRule.MSG_DEPEND;
+		this.useEdgesInPush = true;
 	}
 	
 	/**
 	 * Get a {@link GraphRecord}.
 	 * It only makes sense for {@link BSP}.update() and getMessages(). 
 	 * 
-	 * In addition, variables in {@link GraphRecord}, 
-	 * including vertex id and edges are always read-only. 
-	 * On the other hand, the vertex value is read-write 
+	 * Variables in {@link GraphRecord}, including vertex id and edges, 
+	 * are always read-only. Differently, vertex value is read-write 
 	 * in {@link BSP}.update(), but read-only in getMessages(). 
 	 * 
-	 * In particular, in {@link BSP}.getMessages(), the edge set 
-	 * may be different. Specifically, when running style.Pull, 
-	 * the returned {@link GraphRecord} only maintains edges in one 
-	 * fragment. By contrast, for style.Push, it keeps the whole edges 
-	 * of this vertex.
+	 * The edge set provided in {@link BSP}.getMessages() may vary with 
+	 * models. For example, when running style.Pull, only edges in one 
+	 * fragment are contained. For style.Push, all outgoing edges are 
+	 * provided if "flag=true" in setUseEdgesInPush(flag) (true as default). 
+	 * Otherwise, i.e., "flag=false" in setUseEdgesInPush(flag), the edge 
+	 * set is null.
 	 * @return
 	 */
 	public GraphRecord<V, W, M, I> getGraphRecord() {
@@ -126,7 +142,7 @@ public class Context<V, W, M, I> {
 	 * vBlockSetup()/Cleanup(), update(), and getMessages().
 	 * @return
 	 */
-	public final int getIteStyle() {
+	public final Constants.STYLE getIteStyle() {
 		return iteStyle;
 	}
 	
@@ -138,6 +154,17 @@ public class Context<V, W, M, I> {
 	 */
 	public final BSPJob getBSPJobInfo() {
 		return job;
+	}
+	
+	/**
+	 * Degree or out-degree for this vertex. 
+	 * Note that the number of edges in {@link GraphRecord} may 
+	 * not equal (out-)degree because the former may not initialize 
+	 * its edges.
+	 * @return
+	 */
+	public final int getDegree() {
+		return degree;
 	}
 	
 	/**
@@ -167,8 +194,8 @@ public class Context<V, W, M, I> {
 	}
 	
 	/**
-	 * Users invoke this function to indicate that 
-	 * this vertex should send messages to its neighbors.
+	 * Users invoke this function to indicate that this vertex 
+	 * should send messages to its (non-)neighboring vertices.
 	 * This function only makes sense in {@link BSP}.update().
 	 */
 	public void setRespond() {
@@ -207,5 +234,18 @@ public class Context<V, W, M, I> {
 	 */
 	public void setVBlockUpdateRule(VBlockUpdateRule rule) {
 		this.vBlkUpdRule = rule;
+	}
+	
+	/**
+	 * Whether or not to load edges when performing 
+	 * {@link BSPInterface}.update() and .getMessages() 
+	 * at a given superstep. The value is valid only for style.PUSH. 
+	 * User is recommended to specify its value in the function 
+	 * {@link BSPInterface}.superstepSetup(). True as default. 
+	 * Note that if the specified value collides with that set by 
+	 * {@link BSPJob}.useAdjEdgeInUpdate(), the former finally works.
+	 */
+	public void setUseEdgesInPush(boolean flag) {
+		this.useEdgesInPush = flag;
 	}
 }

@@ -10,6 +10,7 @@ import java.lang.reflect.UndeclaredThrowableException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Callable;
@@ -56,6 +57,7 @@ public class CommunicationServer<V, W, M, I>
 	private volatile Integer mutex = 0;
 	private boolean hasNotify = false;
 	private SuperStepCommand ssc;
+	private MiniSuperStepCommand mssc;
 	
 	private ExecutorService msgHandlePool;
 	private HashMap<Integer, Future<Boolean>> pushMsgResult;
@@ -111,7 +113,8 @@ public class CommunicationServer<V, W, M, I>
 					_msg_disk = 
 						comm.recMsgData(this.srcParId, this.msgPack);
 				}
-				updateCounters(0L, 0L, 0L, 0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
+				updateCounters(msgPack.getIOByte(), 0L, msgPack.getIOByteOfLoggedMsg(), 
+						0L, 0L, 0L, 0L, _msg_net, _msg_net, _msg_disk);
 				done = true;
 			} catch (UndeclaredThrowableException un) {
 				LOG.warn("communication exception is caught but ignored", un);
@@ -120,6 +123,8 @@ public class CommunicationServer<V, W, M, I>
 			} catch (Exception e) {
 				LOG.error("fatal unknown error", e);
 			}
+			
+			this.msgPack = null;
 			
 			return done;
 		}
@@ -180,6 +185,8 @@ public class CommunicationServer<V, W, M, I>
 								toBlkId, iteNum, recMsgPack);
 					}
 					this.isOver = recMsgPack.isOver();
+					
+					recMsgPack = null;
 				} //while
 				
 				done = true;
@@ -242,17 +249,15 @@ public class CommunicationServer<V, W, M, I>
 	}
 	
 	/**
-	 * Push messages to target vertices.
-	 * First, search the route table for each message 
-	 * and save it in the sendMessageBuffer.
-	 * Second, if the sendMessageBuffer is full, 
-	 * then send messages to the target task.
-	 * If the target task is itself, save messages on the
-	 * local disk directly, else send messages by RPC Server.
-	 * @param result
-	 * @param superStepCounter
+	 * Push messages to target vertices. If target vertices reside in the task where 
+	 * messages are produced, messages are directly put into the receiving buffer. 
+	 * Otherwise, messages are sent via RPC. When recovering failures, surviving tasks 
+	 * only allow messages sent to restart tasks to be transmitted. 
+	 * @param msgData outgoing messages
+	 * @param filters ids of failed tasks for filterring messages
+	 * @param flag true->filter messages
 	 */
-	public void pushMsgData(MsgRecord<M>[] msgData) 
+	public void pushMsgData(int vid, MsgRecord<M>[] msgData, HashSet<Integer> filters, boolean flag) 
 			throws Exception {
 		int dstVid, dstPid, pro_msg = msgData.length;
 		updateCounters(0L, 0L, 0L, 0L, 0L, pro_msg, pro_msg, 0L, 0L, 0L);
@@ -260,6 +265,12 @@ public class CommunicationServer<V, W, M, I>
 		for(int idx = 0; idx < pro_msg; idx++) {
 			dstVid = msgData[idx].getDstVerId();
 			dstPid = commRT.getDstTaskId(dstVid);
+			if (flag) {
+				if (!filters.contains(dstPid)) {
+					continue;
+				}
+			}
+			
 			switch(this.msgDataServer.putIntoSendBuffer(dstPid, msgData[idx])) {
 			case NORMAL :
 				break;
@@ -276,11 +287,45 @@ public class CommunicationServer<V, W, M, I>
 					}
 				}
 				startPushMsgDataThread(dstPid, dstAddress, msgPack);
+				msgPack = null;
 				break;
 			default : LOG.error("[sendMsgData] Fail send messages to Partition " 
 					+ dstPid);
 					throw new Exception("invalid BufferStatus");
 			}
+		}
+	}
+	
+	/**
+	 * Directly read logged messages on local disks and then push these messages 
+	 * to restart tasks. Used in fault-tolerance for PUSH.
+	 * @param filters set of restart task ids
+	 */
+	public void directAndConfinedPushMsg(HashSet<Integer> filters) 
+			throws Exception {
+		this.msgDataServer.prepareLoadMsgLoggedUnderPush(filters);
+		boolean stop = false;
+		while(!stop) {
+			stop = true;
+			for (Integer dstTaskId: filters) {
+				MsgPack<V, W, M, I> msgPack = 
+					this.msgDataServer.getMsgPackFromLog(dstTaskId);
+				if (msgPack != null) {
+					stop = false;
+					
+					InetSocketAddress dstAddress = commRT.getInetSocketAddress(dstTaskId);
+					if (this.pushMsgResult.containsKey(dstTaskId)) {
+						Future<Boolean> monitor = this.pushMsgResult.remove(dstTaskId);
+						if (!monitor.isDone()) {
+							monitor.get();
+						}
+						if (monitor.get() == false) {
+							throw new Exception("ERROR");
+						}
+					}
+					startPushMsgDataThread(dstTaskId, dstAddress, msgPack);
+				}//confined message pushing operation
+			}//one loop
 		}
 	}
 	
@@ -383,6 +428,7 @@ public class CommunicationServer<V, W, M, I>
 	 * For Pull, this should be invoked when pulling messages.
 	 * @param _io_byte
 	 * @param _io_byte_vert
+	 * @param _io_byte_log
 	 * @param _read_edge
 	 * @param _read_fragment
 	 * @param _msg_pro
@@ -492,7 +538,7 @@ public class CommunicationServer<V, W, M, I>
 		return this.msg_disk;
 	}
 	
-	public void clearBefIte(int _iteNum, int _iteStyle) {
+	public void clearBefIte(int _iteNum) {
 		this.io_byte = 0L;
 		this.io_byte_vert = 0L;
 		this.io_byte_log = 0L;
@@ -541,17 +587,16 @@ public class CommunicationServer<V, W, M, I>
 		if (cur == this.pullNum) {
 			this.counter.set(0);
 			//LOG.info("pullOver");
-			synchronized(mutex) {
-				this.hasNotify = true;
-				mutex.notify();
-			}
+			quit();
 		}
 	}
 	
 	@Override
 	public long recMsgData(int srcParId, MsgPack<V, W, M, I> pack) {
 		if (pack.size() > 0) {
-			return this.msgDataServer.recMsgData(srcParId, pack);
+			long result = this.msgDataServer.recMsgData(srcParId, pack);
+			pack = null;
+			return result;
 		} else {
 			return 0;
 		}
@@ -566,10 +611,7 @@ public class CommunicationServer<V, W, M, I>
 	public void setRouteTable(JobInformation jobInfo) {
 		this.commRT.initialilze(jobInfo);
 		//LOG.info("setRouteTable");
-		synchronized(mutex) {
-			this.hasNotify = true;
-			mutex.notify();
-		}
+		quit();
 	}
 	
 	@Override
@@ -581,21 +623,21 @@ public class CommunicationServer<V, W, M, I>
 	public void setRegisterInfo(JobInformation _jobInfo) {
 		this.commRT.resetJobInformation(_jobInfo);
 		//LOG.info("setRegisterInfo");
-		synchronized(mutex) {
-			this.hasNotify = true;
-			mutex.notify();
-		}
+		quit();
 	}
 	
 	@Override
-	public void setNextSuperStepCommand(SuperStepCommand ssc) {
-		this.ssc = ssc;
+	public void setNextSuperStepCommand(SuperStepCommand _ssc) {
+		this.ssc = _ssc;
 		this.pullRoute = this.ssc.getRealRoute();
 		//LOG.info("setNextSuperStepCommand");
-		synchronized(mutex) {
-			this.hasNotify = true;
-			mutex.notify();
-		}
+		quit();
+	}
+	
+	@Override
+	public void setNextMiniSuperStepCommand(MiniSuperStepCommand _mssc) {
+		this.mssc = _mssc;
+		quit();
 	}
 	
 	/**
@@ -642,7 +684,10 @@ public class CommunicationServer<V, W, M, I>
 	public SuperStepCommand getNextSuperStepCommand() {
 		return this.ssc;
 	}
-
+	
+	public MiniSuperStepCommand getNextMiniSuperStepCommand() {
+		return this.mssc;
+	}
 	
 	public final JobInformation getJobInformation() {
 		return this.commRT.getJobInformation();
