@@ -8,9 +8,11 @@ Specially, HybridGraph employs a `hybrid` solution to support switching between 
 The HybridGraph project started at Northeastern University (China) in 2011. HybridGraph is a Java framework implemented on top of Apache Hama 0.2.0-incubating.
 
 ### 1.1 Features of HybridGraph  
-* ___Block-centric pull mechanism (b-pull):___ I/O accesses are shifted from receiver sides where messages are written/read by push to sender sides where graph data are read by pull. The cost of random reads regarding vertices in existing pull-based approaches is considerable. Thus, a novel block-centric pull technique is used to optimize the I/O-efficiency, as well as reducing the communication cost caused by sending pull requests.  
-* ___VE-BLOCK storage:___ A disk-resident block-centric graph structure is designed for efficient data accesses in `b-pull`. Graph data are separated into vertices and edges. Vertices are divided into several `VBlocks`. Accordingly, edges are partitioned into multiple `EBlocks`. Messages are pulled in `VBlocks`.    
-* ___Hybrid engine:___ A seamless switching mechanism and a prominent performance prediction method are proposed to guarantee the efficiency when switching between push and `b-pull`.
+* ___Block-centric pull mechanism (BPull):___ I/O accesses are shifted from receiver sides where messages are written/read by Push to sender sides where graph data are read by Pull. The cost of random reads regarding vertices in existing pull-based approaches is considerable. Thus, a novel block-centric pull technique is used to optimize the I/O-efficiency, as well as reducing the communication cost caused by sending pull requests.  
+* ___VE-BLOCK storage:___ A disk-resident block-centric graph structure is designed for efficient data accesses in `BPull`. Graph data are separated into vertices and edges. Vertices are divided into several `VBlocks`. Accordingly, edges are partitioned into multiple `EBlocks`. Messages are pulled in `VBlocks`.    
+* ___Hybrid engine:___ By analyzing behaviors of different algorithms, two seamless switching mechanisms as well as prominent performance prediction methods are proposed to guarantee the efficiency when switching between `Push` and `BPull`.   
+* ___Lightweight fault-tolerance:___ By utilizing the features of `BPull` and the swiching mechanism, a new fault-tolerant framework is proposed to preform an efficient confined recovery without logging messages. It strikes a good balance between recovery efficiency and failure-free performance.  
+* ___Algorithms library:___ PageRank, Shortest Path, Connected Components, Label Propagation, Maximal Independent Sets, and Bipartite Matching.  
 
 ### 1.2 Team  
 * [Zhigang Wang](https://sites.google.com/site/wzg1210/), Ph.D. student, Northeastern University, Email: wangzhiganglab@gmail.com  
