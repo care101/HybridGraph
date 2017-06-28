@@ -145,7 +145,9 @@ when the buffer further decreases (such as 0.5 million). This is because more ve
 
 
 ## 6. Publications
-* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. [Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing](http://dl.acm.org/citation.cfm?id=2882938). SIGMOD 2016.  
+* Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. [Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing](http://dl.acm.org/citation.cfm?id=2882938). ACM SIGMOD 2016.  
+
+* Zhigang Wang, Lixin Gao, Yu Gu, Yubin Bao, Ge Yu. [A Fault-Tolerant Framework for Asynchronous Iterative Computations in Cloud Environments](http://dl.acm.org/citation.cfm?id=2987552), ACM SoCC 2016.  
 
 * Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Lixin Gao. [An I/O-efficient and Adaptive Fault-tolerant Framework for Distributed Graph Computations](http://link.springer.com/article/10.1007/s10619-017-7192-2). Distributed and Parallel Databases 2017.
 
