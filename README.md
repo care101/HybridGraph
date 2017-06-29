@@ -121,28 +121,7 @@ Notice that you can build a specified part of HybridGraph as follows:
 By default, all parts will be built, and you can find `termite-core-0.1.jar` and `termite-examples-0.1.jar` in `~/source/HybridGraph/build` after a successful building. Finally, use the new `termite-core-0.1.jar` to replace the old one in `$HybridGraph_HOME` on the cluster (i.e., `master`, `slave1`, and `slave2`). At anytime, you should guarantee that the  `termite-core-xx.jar` file is unique in `$HybridGraph_HOME`. Otherwise, the starting script described in Section 2.3 may use a wrong file to start the HybridGraph engine.  
 
 ## 4. Programming Guide
-HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples. After that, as described in Section 3 and Section 2.4, you can build your own algorithm can then run it.
-
-## 5. Testing Report
-We have tested the performance of HybridGraph by comparing it with up-to-date push-based systems [Giraph-1.0.0](http://giraph.apache.org/) and [MOCgraph](http://www.vldb.org/pvldb/vol8/p377-zhou.pdf), 
-and the modified pull-based sytem "[GraphLab PowerGraph](https://github.com/HybridGraph/GraphLab-PowerGraph.git)".
-
-In the following, we assume that:  
-* `push`: the original push approach used in Giraph  
-* `pushM`: an advanced push method used in MOCgraph by online processing messages  
-* `pull`: the well-known pull approach used in GraphLab PowerGraph  
-* `b-pull`: the block-centric pull approach used in HybridGraph  
-* `hybrid`: the hybrid mechanism combining push and b-pull in HybridGraph  
-
-We run four algorithms ([PageRank](http://dl.acm.org/citation.cfm?id=1807184), [SSSP](http://dl.acm.org/citation.cfm?id=1807184), [LPA](http://arxiv.org/pdf/0709.2938.pdf), and [SA](http://dl.acm.org/citation.cfm?id=2465369)) over a  [wiki](http://haselgrove.id.au/wikipedia.htm) graph. 
-The cluster we used consists of 30 computational nodes with one additional master node connected by a Gigabit Ethernet switch, where
-each node is equipped with 2 Intel Core CPUs, 6GB RAM and a Hitachi disk (500GB, 7,200 RPM). In all the testing, each node runs one task, to avoid the resource contention. We test runtime by varying the memroy resource. The runtime of push obviously increases when the message buffer decreases, since accessing messages on disk is extremely expensive. Taking PageRank as an example, the percentages of disk-resident messages are 0%, 86%, and 98%, when the message buffer Bi reduces from `+infty` (i.e. sufficient memory) to 3.5 million and 0.5 million.  And the runtime rapidly increases from 10s to 24s and 64s, respectively. pushM can alleviate it by online processing messages sent to vertices resident in memory instead of spilling them onto disk. However, the performance degenerates
-when the buffer further decreases (such as 0.5 million). This is because more vertices are resident on disk, then each message received has less probabilities to be computed online. b-pull and hybrid perform the best. Finally, when Bi decreases, the performance of pull drastically degenerates due to frequently accessing vertices on disk when pulling messages, which validates the I/O-inefficiency of existing pull-based approaches. By contrast, our special data structure largely alleviates this problem in our b-pull and hybrid.
-
-<img src="figures/app_4_a_runtime_pr.jpg" alt="runtime of PageRank" title="runtime of PageRank" width="300" /><img src="figures/app_4_b_runtime_sssp.jpg" alt="runtime of SSSP" title="runtime of SSSP" width="300" />  
-
-<img src="figures/app_5_a_runtime_lpa.jpg" alt="runtime of LPA" title="runtime of LPA" width="300" /><img src="figures/app_5_b_runtime_sa.jpg" alt="runtime of SA" title="runtime of SA" width="300" />  
-
+HybridGraph includes some simple graph algorithms to show the usage of its APIs. These algorithms are contained in the `src/examples/hybrid/examples` package and have been packaged into the `termite-examples-0.1.jar` file. Users can implement their own algorithms by learning these examples. After that, as described in Section 3 and Section 2.4, you can build your own algorithm can then run it.  
 
 ## 6. Publications
 * Zhigang Wang, Yu Gu, Yubin Bao, Ge Yu, Jeffrey Xu Yu. [Hybrid Pulling/Pushing for I/O-Efficient Distributed and Iterative Graph Computing](http://dl.acm.org/citation.cfm?id=2882938). ACM SIGMOD 2016.  
